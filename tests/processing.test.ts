@@ -1052,9 +1052,7 @@ describe('Processing Pipeline', () => {
         expect(result.content).toContain('[REDACTED:AWS_ACCESS_KEY_ID]');
         expect(result.content).toContain('safe line');
         expect(result.content).not.toContain('plain-secret-token');
-        expect(result.content).not.toContain(
-          'xoxb-REDACTED-TEST-TOKEN'
-        );
+        expect(result.content).not.toContain('xoxb-REDACTED-TEST-TOKEN');
         expect(result.content).not.toContain('AKIA1234567890ABCDEF');
       }
     });
