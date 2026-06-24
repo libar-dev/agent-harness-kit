@@ -1,0 +1,146 @@
+{
+  "name": "@libar-dev/agent-harness-kit",
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.4.1",
+  "type": "module",
+  "description": "Agent harness toolkit — Claude Code hooks today, harness-agnostic future. Typed session export, tail tooling, and 28 hook event handlers with Zod validation.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "claude-session-export": "./dist/cli/export-sessions.js",
+    "claude-session-tail": "./dist/cli/tail-session.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./processing": {
+      "import": "./dist/processing/index.js",
+      "types": "./dist/processing/index.d.ts"
+    },
+    "./validation": {
+      "import": "./dist/validation/index.js",
+      "types": "./dist/validation/index.d.ts"
+    },
+    "./types": {
+      "import": "./dist/types/index.js",
+      "types": "./dist/types/index.d.ts"
+    },
+    "./utils": {
+      "import": "./dist/utils/index.js",
+      "types": "./dist/utils/index.d.ts"
+    },
+    "./pre-tool-use": {
+      "import": "./dist/pre-tool-use/index.js",
+      "types": "./dist/pre-tool-use/index.d.ts"
+    },
+    "./pre-tool-use/*": {
+      "import": "./dist/pre-tool-use/*.js",
+      "types": "./dist/pre-tool-use/*.d.ts"
+    },
+    "./post-tool-use": {
+      "import": "./dist/post-tool-use/index.js",
+      "types": "./dist/post-tool-use/index.d.ts"
+    },
+    "./post-tool-use/*": {
+      "import": "./dist/post-tool-use/*.js",
+      "types": "./dist/post-tool-use/*.d.ts"
+    },
+    "./lifecycle": {
+      "import": "./dist/lifecycle/index.js",
+      "types": "./dist/lifecycle/index.d.ts"
+    },
+    "./lifecycle/*": {
+      "import": "./dist/lifecycle/*.js",
+      "types": "./dist/lifecycle/*.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json && node scripts/chmod-bins.mjs",
+    "build:emergency": "tsc --project tsconfig.emergency.json && node scripts/chmod-bins.mjs",
+    "dev": "tsx watch src/index.ts",
+    "type-check": "tsc --noEmit",
+    "type-check:strict": "tsc --noEmit --strict --noImplicitAny",
+    "check": "pnpm run type-check && pnpm run lint",
+    "check:fast": "tsc --noEmit",
+    "check:ci": "pnpm run type-check && pnpm run lint --no-cache",
+    "fix": "pnpm run lint:fix && pnpm run type-check",
+    "fix:all": "prettier --write 'src/**/*.{ts,tsx,js,jsx,json,md}' || echo 'Prettier encountered syntax errors but continuing...' && pnpm run lint:fix || echo 'ESLint fixes completed with potential errors'",
+    "validate": "pnpm run check",
+    "validate:dev": "pnpm run check",
+    "validate:ci": "pnpm run check:ci",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:once": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint . --cache --cache-location .eslint-custom.cache",
+    "lint:fix": "eslint . --cache --cache-location .eslint-custom.cache --fix",
+    "lint:dev": "eslint . --cache --cache-location .eslint-custom.cache",
+    "lint:ci": "eslint . --no-cache",
+    "lint:cache-clear": "rm -rf .eslint-custom.cache",
+    "hook:test": "echo '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test\"},\"hook_event_name\":\"PreToolUse\",\"session_id\":\"test\",\"transcript_path\":\"/tmp/test.json\",\"cwd\":\"/tmp\",\"permission_mode\":\"default\",\"tool_use_id\":\"test-id\"}' | tsx src/pre-tool-use/bash-validator.ts",
+    "hook:test:notification": "echo '{\"hook_event_name\":\"Notification\",\"session_id\":\"test\",\"transcript_path\":\"/tmp/test.json\",\"cwd\":\"/tmp\",\"permission_mode\":\"default\",\"message\":\"Test notification\",\"notification_type\":\"idle_prompt\"}' | tsx src/lifecycle/notification-handler.ts",
+    "hook:test:session": "echo '{\"hook_event_name\":\"SessionStart\",\"session_id\":\"test\",\"transcript_path\":\"/tmp/test.json\",\"cwd\":\"/tmp\",\"permission_mode\":\"default\",\"source\":\"startup\",\"model\":\"claude-sonnet-4-5-20250929\"}' | tsx src/lifecycle/session-start.ts",
+    "hook:session-id-display": "tsx src/lifecycle/session-id-display.ts",
+    "hook:eslint-disable-blocker": "tsx src/pre-tool-use/eslint-disable-blocker.ts",
+    "export-sessions": "tsx src/cli/export-sessions.ts",
+    "tail-session": "tsx src/cli/tail-session.ts",
+    "clean": "rm -rf dist",
+    "prepare": "pnpm run build",
+    "reset": "pnpm run clean && pnpm run fix && pnpm run build",
+    "prepack": "pnpm run clean && pnpm run test:run && pnpm run check && pnpm run build"
+  },
+  "dependencies": {
+    "tsx": "^4.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vitest/coverage-v8": "^4.1.7",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-prettier": "^5.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^6.0.0",
+    "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "claude-code",
+    "hooks",
+    "typescript",
+    "ai",
+    "automation",
+    "development-tools"
+  ],
+  "author": "Libar AI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/libar-dev/agent-harness-kit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/libar-dev/agent-harness-kit/issues"
+  },
+  "homepage": "https://github.com/libar-dev/agent-harness-kit#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

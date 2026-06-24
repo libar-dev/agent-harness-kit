@@ -1,0 +1,73 @@
+# Build output
+dist/
+
+# Compiled TypeScript files in source directory
+src/**/*.js
+src/**/*.d.ts
+src/**/*.js.map
+src/**/*.d.ts.map
+
+# Node modules
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.staging
+
+# Logs
+logs/
+*.log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# nyc test coverage
+.nyc_output
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslint-custom.cache
+
+# pnpm
+pnpm-debug.log*
+
+# Cache directories
+.cache/
+.parcel-cache/
+
+# Claude Code local settings (per-developer, not shared)
+.claude/settings.local.json
+
+# Sessions
+.claude-sessions/
+session-exports/
+.sisyphus/

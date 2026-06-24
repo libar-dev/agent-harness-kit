@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://localhost:8080/validate",
+            "headers": {
+              "Authorization": "Bearer $API_TOKEN"
+            },
+            "allowedEnvVars": ["API_TOKEN"],
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

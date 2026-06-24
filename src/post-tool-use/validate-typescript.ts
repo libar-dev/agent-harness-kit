@@ -1,0 +1,459 @@
+#!/usr/bin/env tsx
+
+/**
+ * TypeScript Validation Hook
+ *
+ * This PostToolUse hook validates TypeScript files after modification:
+ * - Runs TypeScript compiler checks
+ * - Validates Convex schema files specifically
+ * - Provides detailed error feedback to Claude
+ * - Integrates with project's TypeScript configuration
+ */
+
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { access, constants } from 'node:fs/promises';
+import {
+  executeHook,
+  logInfo,
+  logDebug,
+  logError,
+  outputJson,
+  getProjectDir,
+  getConfig,
+  isRecord,
+  toError,
+} from '../utils/index.js';
+import { HookOutputBuilder, type PostToolUseInput } from '../types/index.js';
+import {
+  validatePostToolUseInput,
+  validateWriteToolInput,
+  validateEditToolInput,
+} from '../validation/index.js';
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Configuration for TypeScript validation
+ */
+interface TypeScriptConfig {
+  /** Whether to run full project typecheck */
+  fullProjectCheck: boolean;
+  /** Whether to run Convex schema validation */
+  convexValidation: boolean;
+  /** Maximum time to wait for validation (seconds) */
+  timeout: number;
+  /** Whether to block on type errors */
+  blockOnErrors: boolean;
+  /** File patterns that require stricter validation */
+  strictFiles: string[];
+}
+
+/**
+ * Get TypeScript validation configuration
+ */
+function getTypeScriptConfig(): TypeScriptConfig {
+  return {
+    fullProjectCheck: process.env['CLAUDE_HOOK_TS_FULL_CHECK'] === 'true',
+    convexValidation: process.env['CLAUDE_HOOK_CONVEX_VALIDATION'] !== 'false',
+    timeout: parseInt(process.env['CLAUDE_HOOK_TS_TIMEOUT'] ?? '60', 10),
+    blockOnErrors: process.env['CLAUDE_HOOK_TS_BLOCK_ON_ERROR'] === 'true',
+    strictFiles: process.env['CLAUDE_HOOK_TS_STRICT_FILES']?.split(',') ?? [
+      'convex/schema.ts',
+      'convex/toolkit/',
+      'src/types/',
+    ],
+  };
+}
+
+/**
+ * Main TypeScript validation logic
+ */
+async function validateTypeScript(input: PostToolUseInput): Promise<void> {
+  validatePostToolUseInput(input);
+
+  // Only process file modification tools
+  const fileModificationTools = ['Write', 'Edit', 'MultiEdit'];
+  if (!fileModificationTools.includes(input.tool_name)) {
+    return;
+  }
+
+  let filePath: string;
+
+  // Extract file path from tool input
+  try {
+    switch (input.tool_name) {
+      case 'Write': {
+        const writeInput = validateWriteToolInput(input);
+        filePath = writeInput.file_path;
+        break;
+      }
+      case 'Edit':
+      case 'MultiEdit': {
+        const editInput = validateEditToolInput(input);
+        filePath = editInput.file_path;
+        break;
+      }
+      default:
+        return;
+    }
+  } catch (error) {
+    logDebug(`Could not extract file path from ${input.tool_name}: ${error}`);
+    return;
+  }
+
+  // Only process TypeScript files
+  if (!isTypeScriptFile(filePath)) {
+    return;
+  }
+
+  logInfo(`Validating TypeScript file: ${filePath}`);
+
+  const config = getTypeScriptConfig();
+  const projectDir = getProjectDir();
+  const results: string[] = [];
+  const errors: string[] = [];
+
+  // Check if file exists and is accessible
+  try {
+    await access(filePath, constants.F_OK);
+  } catch (error) {
+    logError(`File not accessible: ${filePath}`, toError(error));
+    return;
+  }
+
+  // Run TypeScript validation
+  try {
+    const tsResult = await runTypeScriptCheck(filePath, projectDir, config);
+
+    if (tsResult.success) {
+      results.push('✅ TypeScript validation passed');
+      logInfo(`TypeScript validation successful for ${filePath}`);
+    } else {
+      errors.push(
+        `❌ TypeScript errors found:\n${tsResult.errors?.join('\n') ?? tsResult.error}`
+      );
+      logError(
+        `TypeScript validation failed for ${filePath}: ${tsResult.error}`
+      );
+    }
+  } catch (error) {
+    const errorMsg = `TypeScript validation error: ${error instanceof Error ? error.message : String(error)}`;
+    errors.push(`❌ ${errorMsg}`);
+    logError(`TypeScript execution error for ${filePath}`, toError(error));
+  }
+
+  // Run Convex-specific validation for schema files
+  if (config.convexValidation && isConvexFile(filePath)) {
+    try {
+      const convexResult = await runConvexValidation(
+        filePath,
+        projectDir,
+        config
+      );
+
+      if (convexResult.success) {
+        results.push('✅ Convex validation passed');
+        logInfo(`Convex validation successful for ${filePath}`);
+      } else {
+        errors.push(`❌ Convex validation failed:\n${convexResult.error}`);
+        logError(
+          `Convex validation failed for ${filePath}: ${convexResult.error}`
+        );
+      }
+    } catch (error) {
+      const errorMsg = `Convex validation error: ${error instanceof Error ? error.message : String(error)}`;
+      errors.push(`❌ ${errorMsg}`);
+      logError(`Convex validation error for ${filePath}`, toError(error));
+    }
+  }
+
+  // Provide feedback based on results
+  if (errors.length > 0) {
+    const errorMessage = `TypeScript validation failed for ${filePath}:\n\n${errors.join('\n\n')}`;
+
+    if (config.blockOnErrors || isStrictFile(filePath, config.strictFiles)) {
+      // Block and provide feedback to Claude
+      outputJson(
+        HookOutputBuilder.feedback(
+          errorMessage +
+            '\n\nPlease fix the TypeScript errors before proceeding.',
+          `The file ${filePath} has TypeScript errors that must be resolved.`
+        )
+      );
+    } else {
+      // Non-blocking feedback
+      outputJson({
+        systemMessage: `TypeScript validation warnings for ${filePath}:\n\n${errors.join('\n\n')}`,
+        suppressOutput: false,
+      });
+      logError('TypeScript validation failed but not blocking execution');
+    }
+  } else if (results.length > 0) {
+    // Success message
+    const successMessage = `TypeScript validation completed for ${filePath}:\n\n${results.join('\n')}`;
+    logInfo(successMessage);
+
+    // Only show success message in debug mode to avoid noise
+    if (getConfig().debug) {
+      outputJson({
+        systemMessage: successMessage,
+        suppressOutput: true,
+      });
+    }
+  }
+}
+
+/**
+ * Run TypeScript compiler check on a file
+ */
+async function runTypeScriptCheck(
+  filePath: string,
+  projectDir: string,
+  config: TypeScriptConfig
+): Promise<{ success: boolean; error?: string; errors?: string[] }> {
+  try {
+    // Determine the appropriate TypeScript command and config
+    const { command, configFile } = getTypeScriptCommand(filePath, projectDir);
+
+    // Build the TypeScript command
+    const tsCommand = config.fullProjectCheck
+      ? `${command} --noEmit${configFile ? ` -p ${configFile}` : ''}`
+      : `${command} --noEmit${configFile ? ` -p ${configFile}` : ''} "${filePath}"`;
+
+    logDebug(`Running TypeScript check: ${tsCommand}`);
+
+    const { stdout: _stdout, stderr: _stderr } = await execFileAsync(
+      'sh',
+      ['-c', `cd "${projectDir}" && ${tsCommand}`],
+      {
+        timeout: config.timeout * 1000,
+        cwd: projectDir,
+      }
+    );
+
+    // TypeScript exit code 0 = success, anything else = errors
+    return { success: true };
+  } catch (error: unknown) {
+    const errorObj = getExecError(error);
+
+    // Handle timeout
+    if (errorObj.code === 'ETIMEDOUT') {
+      return {
+        success: false,
+        error: `TypeScript check timed out after ${config.timeout} seconds`,
+      };
+    }
+
+    // Handle TypeScript not found
+    if (errorObj.code === 'ENOENT' || errorObj.message?.includes('not found')) {
+      return {
+        success: false,
+        error: 'TypeScript not found - install with: npm install -g typescript',
+      };
+    }
+
+    // Parse TypeScript errors from stderr
+    const errorOutput = errorObj.stderr ?? errorObj.stdout ?? '';
+    const errors = parseTypeScriptErrors(errorOutput);
+
+    return {
+      success: false,
+      error: `TypeScript compilation errors found`,
+      errors: errors.length > 0 ? errors : [errorOutput],
+    };
+  }
+}
+
+function getExecError(error: unknown): {
+  code?: string | number;
+  message?: string;
+  stderr?: string;
+  stdout?: string;
+} {
+  if (!isRecord(error)) {
+    return { message: String(error) };
+  }
+
+  const code = error['code'];
+  const message = error['message'];
+  const stderr = error['stderr'];
+  const stdout = error['stdout'];
+
+  return {
+    ...(typeof code === 'string' || typeof code === 'number' ? { code } : {}),
+    ...(typeof message === 'string' ? { message } : {}),
+    ...(typeof stderr === 'string' ? { stderr } : {}),
+    ...(typeof stdout === 'string' ? { stdout } : {}),
+  };
+}
+
+/**
+ * Run Convex-specific validation
+ */
+async function runConvexValidation(
+  filePath: string,
+  projectDir: string,
+  config: TypeScriptConfig
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // For Convex files, we might want to run codegen to ensure types are up to date
+    if (filePath.includes('convex/schema.ts')) {
+      logDebug('Schema file modified - running Convex codegen');
+
+      const { stdout: _stdout, stderr: _stderr } = await execFileAsync(
+        'sh',
+        ['-c', `cd "${projectDir}" && npx convex codegen --typecheck=disable`],
+        {
+          timeout: config.timeout * 1000,
+          cwd: projectDir,
+        }
+      );
+
+      logInfo('Convex codegen completed successfully');
+    }
+
+    // Run TypeScript check on Convex directory specifically
+    const convexTsCommand = `npx tsc --noEmit -p convex/tsconfig.json`;
+
+    const { stdout: _stdout, stderr: _stderr } = await execFileAsync(
+      'sh',
+      ['-c', `cd "${projectDir}" && ${convexTsCommand}`],
+      {
+        timeout: config.timeout * 1000,
+        cwd: projectDir,
+      }
+    );
+
+    return { success: true };
+  } catch (error: unknown) {
+    const errorObj = getExecError(error);
+
+    // Handle timeout
+    if (errorObj.code === 'ETIMEDOUT') {
+      return {
+        success: false,
+        error: `Convex validation timed out after ${config.timeout} seconds`,
+      };
+    }
+
+    // Handle Convex not found
+    if (errorObj.code === 'ENOENT' || errorObj.message?.includes('not found')) {
+      return {
+        success: false,
+        error: 'Convex not found - run: npm install convex',
+      };
+    }
+
+    // Parse error output
+    const errorOutput = errorObj.stderr ?? errorObj.stdout ?? '';
+    return {
+      success: false,
+      error: errorOutput ?? 'Unknown Convex validation error',
+    };
+  }
+}
+
+/**
+ * Get appropriate TypeScript command and config for a file
+ */
+function getTypeScriptCommand(
+  filePath: string,
+  _projectDir: string
+): { command: string; configFile?: string } {
+  // Check if file is in Convex directory
+  if (filePath.includes('/convex/')) {
+    return {
+      command: 'npx tsc',
+      configFile: 'convex/tsconfig.json',
+    };
+  }
+
+  // Default to main TypeScript config
+  return {
+    command: 'npx tsc',
+    configFile: 'tsconfig.json',
+  };
+}
+
+/**
+ * Parse TypeScript error messages into structured format
+ */
+function parseTypeScriptErrors(errorOutput: string): string[] {
+  if (!errorOutput) return [];
+
+  // Split by lines and filter out empty lines
+  const lines = errorOutput.split('\n').filter(line => line.trim());
+
+  // Group lines into error blocks (errors typically span multiple lines)
+  const errors: string[] = [];
+  let currentError: string[] = [];
+
+  for (const line of lines) {
+    // New error typically starts with a file path
+    if (line.match(/^.*\(\d+,\d+\):/)) {
+      if (currentError.length > 0) {
+        errors.push(currentError.join('\n'));
+      }
+      currentError = [line];
+    } else if (line.trim() && currentError.length > 0) {
+      // Continuation of current error
+      currentError.push(line);
+    } else if (line.trim() && currentError.length === 0) {
+      // Standalone error line
+      errors.push(line);
+    }
+  }
+
+  // Add the last error if any
+  if (currentError.length > 0) {
+    errors.push(currentError.join('\n'));
+  }
+
+  return errors.filter(error => error.trim().length > 0);
+}
+
+/**
+ * Check if a file is a TypeScript file
+ */
+function isTypeScriptFile(filePath: string): boolean {
+  const tsExtensions = ['.ts', '.tsx', '.d.ts'];
+  return tsExtensions.some(ext => filePath.endsWith(ext));
+}
+
+/**
+ * Check if a file is a Convex-related file
+ */
+function isConvexFile(filePath: string): boolean {
+  return (
+    filePath.includes('/convex/') ||
+    filePath.includes('convex/schema.ts') ||
+    filePath.includes('convex/_generated/')
+  );
+}
+
+/**
+ * Check if a file requires strict validation
+ */
+function isStrictFile(filePath: string, strictPatterns: string[]): boolean {
+  return strictPatterns.some(pattern => filePath.includes(pattern));
+}
+
+/**
+ * Main execution entry point
+ */
+if (import.meta.url === `file://${process.argv[1]}`) {
+  executeHook<PostToolUseInput>(validateTypeScript).catch(error => {
+    console.error('Failed to execute TypeScript validation hook:', error);
+    process.exit(1);
+  });
+}
+
+// Export for use in other hooks
+export {
+  validateTypeScript,
+  getTypeScriptConfig,
+  runTypeScriptCheck,
+  runConvexValidation,
+  parseTypeScriptErrors,
+};

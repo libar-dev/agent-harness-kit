@@ -1,0 +1,58 @@
+# Release — publish @libar-dev/agent-harness-kit to npm.
+#
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │ DO NOT enable, dispatch, or tag a release without an explicit team go.    │
+# │ This workflow is INERT until an `NPM_TOKEN` repo secret is configured.    │
+# │ It never runs automatically — only on manual dispatch or a `v*` tag push. │
+# └─────────────────────────────────────────────────────────────────────────┘
+
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard — require NPM_TOKEN (workflow is intentionally inert until set)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::error::NPM_TOKEN is not configured — this release workflow is intentionally inert."
+            echo "Configure the secret AND get explicit team sign-off before publishing (release-prep boundary)."
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `npm publish` runs the `prepack` lifecycle (clean -> test:run -> check -> build)
+      # before packing, so the gate is enforced here automatically.
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
