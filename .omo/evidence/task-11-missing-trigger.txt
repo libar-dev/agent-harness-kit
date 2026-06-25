@@ -1,0 +1,4 @@
+Command: pnpm exec tsx -e "import { validateSetupInput } from './src/validation/index.ts'; try { validateSetupInput({ session_id:'s', transcript_path:'/tmp/t.json', cwd:'/', hook_event_name:'Setup' }); console.log('NO_THROW'); } catch (error) { console.log(error instanceof Error ? error.message : String(error)); process.exit(0); } process.exit(1);"
+
+Output:
+Hook input validation failed for Setup

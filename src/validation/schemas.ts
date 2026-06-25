@@ -116,7 +116,7 @@ export const baseHookInputSchema = z.object({
 });
 
 /**
- * Base schema for all hook outputs - common fields any hook can return
+ * Base schema for all hook outputs - common fields hooks can return
  */
 export const baseHookOutputSchema = z.object({
   /** Whether Claude should continue after hook execution (default: true) */
@@ -1261,7 +1261,7 @@ export const agentHookHandlerSchema = z.object({
 });
 
 /**
- * Union schema for any hook handler, discriminated on the `type` field
+ * Union schema for hook handlers, discriminated on the `type` field
  */
 export const hookHandlerSchema = z.discriminatedUnion('type', [
   commandHookHandlerSchema,

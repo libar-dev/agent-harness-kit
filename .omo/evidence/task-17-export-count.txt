@@ -1,0 +1,3 @@
+schemas.ts inferred export count: 4
+index.ts related type re-export count: 4
+combined related symbol count checked: 8

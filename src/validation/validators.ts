@@ -30,9 +30,11 @@ import {
   type PostToolBatchInputSchema,
   type UserPromptSubmitInputSchema,
   type UserPromptExpansionInputSchema,
+  type SetupInputSchema,
   type SessionStartInputSchema,
   type SessionEndInputSchema,
   type NotificationInputSchema,
+  type MessageDisplayInputSchema,
   type StopInputSchema,
   type StopFailureInputSchema,
   type SubagentStartInputSchema,
@@ -161,6 +163,20 @@ export function validateHookInput(input: unknown): HookInputSchema {
     );
   }
 
+  switch (hookEventName) {
+    case 'Setup':
+      return validateSetupInput(input);
+    case 'MessageDisplay':
+      return validateMessageDisplayInput(input);
+    default:
+      return validateHookInputByEventName(input, hookEventName);
+  }
+}
+
+function validateHookInputByEventName(
+  input: unknown,
+  hookEventName: string
+): HookInputSchema {
   // Step 3: Get appropriate schema
   const schema = (
     hookInputSchemas as Record<
@@ -698,7 +714,7 @@ function flattenTranscriptIssues(
     ) {
       if (issue.errors.length === 0) {
         // No nested branch errors to recurse into (e.g. a discriminated-union
-        // drop where the discriminator value matched no member). Fold any
+        // drop where the discriminator value matched no member). Fold the
         // `discriminator`/`note` the issue carries into the message so the
         // diagnostic explains *why* an unknown line type was dropped instead
         // of emitting a bare 'Invalid input'.
@@ -746,7 +762,7 @@ function readIssueString(
 
 /**
  * Build a self-explanatory message for an `invalid_union` issue that carries no
- * nested branch errors, folding in any `discriminator` and/or `note` so the
+ * nested branch errors, folding in optional `discriminator` and/or `note` so the
  * diagnostic names the offending value instead of a bare 'Invalid input'.
  */
 function augmentUnionMessage(issue: z.ZodIssue): string {
@@ -915,6 +931,10 @@ export function isUserPromptExpansionInput(
   return input.hook_event_name === 'UserPromptExpansion';
 }
 
+export function isSetupInput(input: HookInputSchema): input is SetupInputSchema {
+  return input.hook_event_name === 'Setup';
+}
+
 /**
  * Type guard for SessionStart hook input
  */
@@ -940,6 +960,12 @@ export function isNotificationInput(
   input: HookInputSchema
 ): input is NotificationInputSchema {
   return input.hook_event_name === 'Notification';
+}
+
+export function isMessageDisplayInput(
+  input: HookInputSchema
+): input is MessageDisplayInputSchema {
+  return input.hook_event_name === 'MessageDisplay';
 }
 
 /**
@@ -1155,6 +1181,10 @@ export function validatePostToolUseInput(
 
 function validateHookInputType(
   input: unknown,
+  eventName: 'Setup'
+): SetupInputSchema;
+function validateHookInputType(
+  input: unknown,
   eventName: 'UserPromptExpansion'
 ): UserPromptExpansionInputSchema;
 function validateHookInputType(
@@ -1207,13 +1237,17 @@ function validateHookInputType(
 ): ElicitationInputSchema;
 function validateHookInputType(
   input: unknown,
+  eventName: 'MessageDisplay'
+): MessageDisplayInputSchema;
+function validateHookInputType(
+  input: unknown,
   eventName: 'ElicitationResult'
 ): ElicitationResultInputSchema;
 function validateHookInputType(
   input: unknown,
   eventName: string
 ): HookInputSchema {
-  const validated = validateHookInput(input);
+  const validated = validateHookInputByEventName(input, eventName);
 
   if (validated.hook_event_name !== eventName) {
     throw new HookValidationError(
@@ -1224,6 +1258,10 @@ function validateHookInputType(
   }
 
   return validated;
+}
+
+export function validateSetupInput(input: unknown): SetupInputSchema {
+  return validateHookInputType(input, 'Setup');
 }
 
 export function validateUserPromptExpansionInput(
@@ -1294,6 +1332,12 @@ export function validatePostCompactInput(
   input: unknown
 ): PostCompactInputSchema {
   return validateHookInputType(input, 'PostCompact');
+}
+
+export function validateMessageDisplayInput(
+  input: unknown
+): MessageDisplayInputSchema {
+  return validateHookInputType(input, 'MessageDisplay');
 }
 
 export function validateElicitationInput(
