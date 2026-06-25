@@ -1058,8 +1058,8 @@ describe('Processing Pipeline', () => {
       ]);
 
       expect(must(blocks[0]).id).toBe('msg-1:0');
-      expect(must(blocks[1]).id).toBe('msg-2:0'); // text is index 0
-      expect(must(blocks[2]).id).toBe('msg-2:1'); // tool_use is index 1
+      expect(must(blocks[1]).id).toBe('msg-2:0');
+      expect(must(blocks[2]).id).toBe('msg-2:1');
       expect(must(blocks[3]).id).toBe('msg-3:0');
 
       const blocks2 = extractBlocks(raw);
