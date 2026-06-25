@@ -50,6 +50,8 @@ import {
   type WorktreeRemoveInputSchema,
   type PreCompactInputSchema,
   type PostCompactInputSchema,
+  type SetupInputSchema,
+  type MessageDisplayInputSchema,
   type ElicitationInputSchema,
   type ElicitationResultInputSchema,
 } from '../src/validation/index.js';
@@ -186,6 +188,32 @@ export function createSessionStartInput(
     hook_event_name: 'SessionStart' as const,
     source: 'startup' as const,
     model: 'claude-sonnet-4-5-20250929',
+    ...overrides,
+  };
+}
+
+export function createSetupInput(
+  overrides: Partial<SetupInputSchema> = {}
+): SetupInputSchema {
+  return {
+    ...createTestHookBase({ hook_event_name: 'Setup' }),
+    hook_event_name: 'Setup' as const,
+    trigger: 'init' as const,
+    ...overrides,
+  };
+}
+
+export function createMessageDisplayInput(
+  overrides: Partial<MessageDisplayInputSchema> = {}
+): MessageDisplayInputSchema {
+  return {
+    ...createTestHookBase({ hook_event_name: 'MessageDisplay' }),
+    hook_event_name: 'MessageDisplay' as const,
+    turn_id: '123e4567-e89b-12d3-a456-426614174000',
+    message_id: '123e4567-e89b-12d3-a456-426614174001',
+    index: 0,
+    final: false,
+    delta: 'test delta',
     ...overrides,
   };
 }
