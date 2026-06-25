@@ -279,9 +279,7 @@ async function dirExists(path: string): Promise<boolean> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Export marker — tracks when sessions were last exported
-// ---------------------------------------------------------------------------
+// Export marker persistence.
 
 /**
  * Read the last export timestamp from the marker file.

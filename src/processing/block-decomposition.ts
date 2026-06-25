@@ -1,3 +1,7 @@
+/**
+ * Raw history-line decomposition into structured session blocks.
+ */
+
 import { summarizeToolCall, extractToolResultText } from './denoiser.js';
 import { imagePlaceholder } from './image-placeholder.js';
 import type { ContentBlock, RawHistoryLine, SessionBlock } from './types.js';

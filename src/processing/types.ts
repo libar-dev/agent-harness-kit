@@ -169,9 +169,9 @@ export interface ParsedSubagentSession {
   readonly messages: readonly CleanMessage[];
 }
 
-// One record per atomic conversation event. Designed for downstream consumers
-// (live-ingest consumers, vector DB ingestion, AI processing) that need typed blocks
-// rather than rendered markdown.
+// One record per atomic conversation event. Downstream consumers such as
+// live-ingest services, vector DB ingestion, and AI processing can use typed
+// blocks rather than rendered markdown.
 //
 // IDs are stable (`${messageUuid}:${blockIndex}` for message blocks,
 // `${sessionId}:agent-${direction}:${agentFile}` for synthetic boundaries) so

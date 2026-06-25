@@ -35,7 +35,7 @@ const BARE_BEARER_TOKEN_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b/g;
 
 // Standalone token patterns. Each uses a single bounded char-class repetition
 // (no nested quantifiers) so matching stays linear / non-backtracking.
-// OpenAI: catches classic `sk-<32+ alnum>` and modern project keys
+// OpenAI: catches classic `sk-<32+ alnum>` and project-scoped keys
 // (`sk-proj-...`), whose embedded `-` broke the old `[A-Za-z0-9]{32,}` form.
 const OPENAI_API_KEY_PATTERN = /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}/g;
 const GITHUB_TOKEN_PATTERN = /\bghp_[A-Za-z0-9]{36,}\b/g;

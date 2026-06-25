@@ -25,9 +25,7 @@ import { buildToolNameMap } from './denoiser.js';
 import { decomposeHistoryLine } from './block-decomposition.js';
 import { compareStrings } from './ordering.js';
 
-// ---------------------------------------------------------------------------
 // Public API
-// ---------------------------------------------------------------------------
 
 /**
  * Extract all `SessionBlock`s from a raw session.
@@ -111,9 +109,7 @@ export function toJsonlBlocks(blocks: readonly SessionBlock[]): string {
   return blocks.map(b => JSON.stringify(b)).join('\n') + '\n';
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function buildBoundary(
   sessionId: string,

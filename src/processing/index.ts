@@ -1,3 +1,7 @@
+/**
+ * Public processing barrel and high-level session pipelines.
+ */
+
 import {
   type RawHistoryLine,
   type RawMessage,

@@ -1,3 +1,7 @@
+/**
+ * Safe placeholders for image content blocks.
+ */
+
 import { isRecord } from '../utils/index.js';
 
 /**

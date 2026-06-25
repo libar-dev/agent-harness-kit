@@ -1,8 +1,8 @@
 /**
  * Tail mode — incremental `SessionBlock` emission for live consumers.
  *
- * Designed for live-ingest consumers that need to stream new blocks
- * into a database as Claude Code appends to its session JSONL files.
+ * Live-ingest consumers can stream new blocks into a database as Claude Code
+ * appends to its session JSONL files.
  *
  * Workflow:
  *   1. Consumer (e.g., a Rust backend with a notify watcher) detects
@@ -59,9 +59,7 @@ import type {
   TailProcessingCounts,
 } from './types.js';
 
-// ---------------------------------------------------------------------------
 // Marker — persists last-emitted byte offset per session
-// ---------------------------------------------------------------------------
 
 export interface TailMarker {
   /** Byte offset in the JSONL file up to which blocks have been emitted. */
@@ -132,9 +130,7 @@ export async function writeMarker(
   }
 }
 
-// ---------------------------------------------------------------------------
 // Tail
-// ---------------------------------------------------------------------------
 
 export interface TailOptions {
   /** Override marker storage directory (default: `<jsonlDir>/.tail-markers/`) */
@@ -205,15 +201,15 @@ const tailFileCache = new Map<string, TailFileCache>();
  * Upper bound on distinct session files tracked in `tailFileCache`. Long-running
  * watch consumers can tail many sessions over their lifetime; without a bound
  * the cache would grow unbounded. Maps preserve insertion order, so once the
- * cap is reached we evict the oldest (least-recently inserted) entry before
- * adding a new key. This is a soft LRU-by-insertion, not a hot-path concern.
+ * cap is reached we evict the oldest entry before inserting another key. This
+ * is a soft LRU-by-insertion, not a hot-path concern.
  */
 const TAIL_FILE_CACHE_MAX_ENTRIES = 1024;
 
 /**
- * Set a cache entry, evicting the oldest entry first when adding a brand-new
- * key would exceed `TAIL_FILE_CACHE_MAX_ENTRIES`. Updating an existing key never
- * evicts (it does not grow the map).
+ * Set a cache entry, evicting the oldest entry first when an unseen key would
+ * exceed `TAIL_FILE_CACHE_MAX_ENTRIES`. Updating an existing key never evicts
+ * because it does not grow the map.
  */
 function setTailFileCache(cacheKey: string, value: TailFileCache): void {
   if (
@@ -463,9 +459,7 @@ async function tailTranscriptRecordsInternal(
   };
 }
 
-// ---------------------------------------------------------------------------
 // Internals
-// ---------------------------------------------------------------------------
 
 /**
  * Walk the file content tracking byte offsets and return parsed lines whose

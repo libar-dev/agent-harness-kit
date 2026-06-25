@@ -1,7 +1,7 @@
 /**
  * Markdown formatter — converts denoised sessions to clean markdown.
  *
- * Output format is designed for:
+ * Output format serves:
  * 1. Human readability (review session insights)
  * 2. LLM ingestion (feed to memU memorize, Gemini analysis, etc.)
  * 3. Archive (searchable session history)
@@ -16,9 +16,7 @@ import type {
 import type { SessionInfo } from './discovery.js';
 import { compareStrings } from './ordering.js';
 
-// ---------------------------------------------------------------------------
 // Configuration
-// ---------------------------------------------------------------------------
 
 export interface FormatConfig {
   /** Include session stats header (default: true) */
@@ -41,9 +39,7 @@ const DEFAULT_FORMAT_CONFIG: FormatConfig = {
   messageSeparator: '\n',
 };
 
-// ---------------------------------------------------------------------------
 // Formatters
-// ---------------------------------------------------------------------------
 
 function formatStats(
   stats: SessionStats,
@@ -140,9 +136,7 @@ function formatSubagentSession(
   return parts.join(config.messageSeparator);
 }
 
-// ---------------------------------------------------------------------------
 // Public API
-// ---------------------------------------------------------------------------
 
 /**
  * Format a denoised session as clean markdown.
@@ -194,9 +188,7 @@ export function toMarkdown(
   return parts.join(cfg.messageSeparator) + '\n';
 }
 
-// ---------------------------------------------------------------------------
 // Merged timeline — interleaves subagent messages inline with main session
-// ---------------------------------------------------------------------------
 
 /**
  * Merge main session messages and subagent messages into a single timeline,
@@ -214,9 +206,7 @@ export function mergeTimeline(session: ParsedSession): CleanMessage[] {
   return all;
 }
 
-// ---------------------------------------------------------------------------
 // Export formatter — inline agents, thinking blocks, full detail
-// ---------------------------------------------------------------------------
 
 export interface ExportConfig {
   /** Include tool call annotations (default: true) */
@@ -248,7 +238,7 @@ const DEFAULT_EXPORT_CONFIG: ExportConfig = {
  * - Subagent messages are merged into the main timeline by timestamp
  * - Agent messages get attributed headers: "### Agent: Explore memU-server repo"
  * - Thinking blocks rendered in <details> tags
- * - Designed for archival and memU ingestion
+ * - Suitable for archival and memU ingestion
  */
 export function toExportMarkdown(
   session: ParsedSession,
@@ -449,9 +439,7 @@ function formatDate(timestamp: string): string {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Original formatters (unchanged)
-// ---------------------------------------------------------------------------
+// Compact summary formatter.
 
 /**
  * Format a session as a compact summary (for context injection or quick review).
