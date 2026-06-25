@@ -35,9 +35,12 @@ export const elicitationModeSchema = z.enum(['form', 'url']);
 
 export const stopFailureErrorSchema = z.enum([
   'rate_limit',
+  'overloaded',
   'authentication_failed',
+  'oauth_org_not_allowed',
   'billing_error',
   'invalid_request',
+  'model_not_found',
   'server_error',
   'max_output_tokens',
   'unknown',
@@ -104,6 +107,12 @@ export const baseHookInputSchema = z.object({
   agent_id: z.string().optional(),
   /** Agent name when running under --agent or inside a subagent */
   agent_type: z.string().optional(),
+  /** Effort metadata for the current turn, when provided by Claude Code */
+  effort: z
+    .object({
+      level: z.enum(['low', 'medium', 'high', 'xhigh', 'max']),
+    })
+    .optional(),
 });
 
 /**
@@ -118,6 +127,30 @@ export const baseHookOutputSchema = z.object({
   suppressOutput: z.boolean().optional(),
   /** Optional warning message shown to the user */
   systemMessage: z.string().optional(),
+  /** ANSI escape sequences or similar terminal control output */
+  terminalSequence: z.string().optional(),
+});
+
+/**
+ * Schema for Setup hook inputs
+ */
+export const setupInputSchema = baseHookInputSchema.extend({
+  hook_event_name: z.literal('Setup'),
+  /** How setup was triggered */
+  trigger: z.enum(['init', 'maintenance']),
+});
+
+/**
+ * Schema for Setup hook outputs
+ */
+export const setupOutputSchema = baseHookOutputSchema.extend({
+  hookSpecificOutput: z
+    .object({
+      hookEventName: z.literal('Setup'),
+      /** String added to setup context */
+      additionalContext: z.string().optional(),
+    })
+    .optional(),
 });
 
 // =============================================================================
@@ -150,6 +183,8 @@ export const postToolUseInputSchema = baseHookInputSchema.extend({
   tool_response: z.record(z.string(), z.unknown()),
   /** Unique identifier for this tool use */
   tool_use_id: z.string().min(1),
+  /** Tool execution duration in milliseconds */
+  duration_ms: z.number().optional(),
 });
 
 /**
@@ -186,7 +221,9 @@ export const sessionStartInputSchema = baseHookInputSchema.extend({
   /** How the session was started */
   source: z.enum(['startup', 'resume', 'clear', 'compact']),
   /** The model identifier */
-  model: z.string(),
+  model: z.string().optional(),
+  /** Session title when one is already known */
+  session_title: z.string().optional(),
   /** Agent name if started with --agent */
   agent_type: z.string().optional(),
 });
@@ -222,7 +259,39 @@ export const notificationInputSchema = baseHookInputSchema.extend({
     'idle_prompt',
     'auth_success',
     'elicitation_dialog',
+    'elicitation_complete',
+    'elicitation_response',
   ]),
+});
+
+/**
+ * Schema for MessageDisplay hook inputs
+ */
+export const messageDisplayInputSchema = baseHookInputSchema.extend({
+  hook_event_name: z.literal('MessageDisplay'),
+  /** Unique identifier for the current turn */
+  turn_id: z.string().uuid(),
+  /** Unique identifier for the message being displayed */
+  message_id: z.string().uuid(),
+  /** Zero-based chunk index for this display delta */
+  index: z.number().int().nonnegative(),
+  /** Whether this is the final chunk */
+  final: z.boolean(),
+  /** Delta text being displayed */
+  delta: z.string(),
+});
+
+/**
+ * Schema for MessageDisplay hook outputs
+ */
+export const messageDisplayOutputSchema = baseHookOutputSchema.extend({
+  hookSpecificOutput: z
+    .object({
+      hookEventName: z.literal('MessageDisplay'),
+      /** Optional replacement content for display */
+      displayContent: z.string().optional(),
+    })
+    .optional(),
 });
 
 /**
@@ -319,6 +388,8 @@ export const postToolUseFailureInputSchema = baseHookInputSchema.extend({
   error: z.string(),
   /** Whether the failure was caused by user interruption */
   is_interrupt: z.boolean().optional(),
+  /** Tool execution duration in milliseconds */
+  duration_ms: z.number().optional(),
 });
 
 const postToolBatchResponseSchema = z.union([
@@ -563,7 +634,9 @@ export const postToolUseOutputSchema = baseHookOutputSchema.extend({
       /** Additional information for Claude to consider */
       additionalContext: z.string().optional(),
       /** For MCP tools only: replaces the tool's output with the provided value */
-      updatedMCPToolOutput: z.record(z.string(), z.unknown()).optional(),
+      updatedMCPToolOutput: z.unknown().optional(),
+      /** Replaces the tool output with the provided value */
+      updatedToolOutput: z.unknown().optional(),
     })
     .optional(),
 });
@@ -624,6 +697,14 @@ export const sessionStartOutputSchema = baseHookOutputSchema.extend({
       hookEventName: z.literal('SessionStart'),
       /** String added to the context at session start */
       additionalContext: z.string().optional(),
+      /** Initial user-visible message to seed the session */
+      initialUserMessage: z.string().optional(),
+      /** Sets the session title */
+      sessionTitle: z.string().optional(),
+      /** Dynamic absolute paths to watch */
+      watchPaths: z.array(z.string()).optional(),
+      /** Reload active skills after session setup */
+      reloadSkills: z.boolean().optional(),
     })
     .optional(),
 });
@@ -1004,6 +1085,7 @@ export const multiEditToolInputSchema = z.object({
  */
 export const hookInputSchemas = {
   SessionStart: sessionStartInputSchema,
+  Setup: setupInputSchema,
   UserPromptSubmit: userPromptSubmitInputSchema,
   UserPromptExpansion: userPromptExpansionInputSchema,
   PreToolUse: preToolUseInputSchema,
@@ -1013,6 +1095,7 @@ export const hookInputSchemas = {
   PostToolUseFailure: postToolUseFailureInputSchema,
   PostToolBatch: postToolBatchInputSchema,
   Notification: notificationInputSchema,
+  MessageDisplay: messageDisplayInputSchema,
   SubagentStart: subagentStartInputSchema,
   SubagentStop: subagentStopInputSchema,
   TaskCreated: taskCreatedInputSchema,
@@ -1038,6 +1121,7 @@ export const hookInputSchemas = {
  */
 export const hookOutputSchemas = {
   SessionStart: sessionStartOutputSchema,
+  Setup: setupOutputSchema,
   UserPromptSubmit: userPromptSubmitOutputSchema,
   UserPromptExpansion: userPromptExpansionOutputSchema,
   PreToolUse: preToolUseOutputSchema,
@@ -1047,6 +1131,7 @@ export const hookOutputSchemas = {
   PostToolUseFailure: postToolUseFailureOutputSchema,
   PostToolBatch: postToolBatchOutputSchema,
   Notification: notificationOutputSchema,
+  MessageDisplay: messageDisplayOutputSchema,
   SubagentStart: subagentStartOutputSchema,
   SubagentStop: stopOutputSchema,
   TaskCreated: baseHookOutputSchema,
@@ -1197,10 +1282,11 @@ export const matcherGroupSchema = z.object({
 });
 
 /**
- * All 28 hook event names as a Zod enum
+ * All supported hook event names as a Zod enum
  */
 export const hookEventNameSchema = z.enum([
   'SessionStart',
+  'Setup',
   'UserPromptSubmit',
   'UserPromptExpansion',
   'PreToolUse',
@@ -1210,6 +1296,7 @@ export const hookEventNameSchema = z.enum([
   'PostToolUseFailure',
   'PostToolBatch',
   'Notification',
+  'MessageDisplay',
   'SubagentStart',
   'SubagentStop',
   'TaskCreated',
@@ -1414,6 +1501,7 @@ export type BaseHookOutputSchema = z.infer<typeof baseHookOutputSchema>;
 // Hook event types
 export type PreToolUseInputSchema = z.infer<typeof preToolUseInputSchema>;
 export type PostToolUseInputSchema = z.infer<typeof postToolUseInputSchema>;
+export type SetupInputSchema = z.infer<typeof setupInputSchema>;
 export type UserPromptSubmitInputSchema = z.infer<
   typeof userPromptSubmitInputSchema
 >;
@@ -1423,6 +1511,7 @@ export type UserPromptExpansionInputSchema = z.infer<
 export type SessionStartInputSchema = z.infer<typeof sessionStartInputSchema>;
 export type SessionEndInputSchema = z.infer<typeof sessionEndInputSchema>;
 export type NotificationInputSchema = z.infer<typeof notificationInputSchema>;
+export type MessageDisplayInputSchema = z.infer<typeof messageDisplayInputSchema>;
 export type StopInputSchema = z.infer<typeof stopInputSchema>;
 export type StopFailureInputSchema = z.infer<typeof stopFailureInputSchema>;
 export type SubagentStopInputSchema = z.infer<typeof subagentStopInputSchema>;
@@ -1462,6 +1551,7 @@ export type ElicitationResultInputSchema = z.infer<
 // Hook output types
 export type PreToolUseOutputSchema = z.infer<typeof preToolUseOutputSchema>;
 export type PostToolUseOutputSchema = z.infer<typeof postToolUseOutputSchema>;
+export type SetupOutputSchema = z.infer<typeof setupOutputSchema>;
 export type UserPromptSubmitOutputSchema = z.infer<
   typeof userPromptSubmitOutputSchema
 >;
@@ -1471,6 +1561,9 @@ export type UserPromptExpansionOutputSchema = z.infer<
 export type StopOutputSchema = z.infer<typeof stopOutputSchema>;
 export type SessionStartOutputSchema = z.infer<typeof sessionStartOutputSchema>;
 export type NotificationOutputSchema = z.infer<typeof notificationOutputSchema>;
+export type MessageDisplayOutputSchema = z.infer<
+  typeof messageDisplayOutputSchema
+>;
 export type PermissionRequestOutputSchema = z.infer<
   typeof permissionRequestOutputSchema
 >;
@@ -1570,6 +1663,7 @@ export type TranscriptParseDiagnosticsSchema = z.infer<
 export type HookInputSchema =
   | PreToolUseInputSchema
   | PostToolUseInputSchema
+  | SetupInputSchema
   | PermissionRequestInputSchema
   | PermissionDeniedInputSchema
   | PostToolUseFailureInputSchema
@@ -1579,6 +1673,7 @@ export type HookInputSchema =
   | SessionStartInputSchema
   | SessionEndInputSchema
   | NotificationInputSchema
+  | MessageDisplayInputSchema
   | StopInputSchema
   | StopFailureInputSchema
   | SubagentStartInputSchema

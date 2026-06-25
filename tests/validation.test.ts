@@ -2761,15 +2761,15 @@ describe('Hook Configuration Schemas (settings.json)', () => {
 // =============================================================================
 
 describe('Schema Collection Completeness', () => {
-  it('hookInputSchemas has all 28 event types', () => {
+  it('hookInputSchemas has all 30 event types', () => {
     const keys = Object.keys(hookInputSchemas);
-    expect(keys).toHaveLength(28);
+    expect(keys).toHaveLength(30);
     expect(keys.sort()).toEqual([...hookEventNameSchema.options].sort());
   });
 
-  it('hookOutputSchemas has all 28 event types', () => {
+  it('hookOutputSchemas has all 30 event types', () => {
     const keys = Object.keys(hookOutputSchemas);
-    expect(keys).toHaveLength(28);
+    expect(keys).toHaveLength(30);
     expect(keys.sort()).toEqual([...hookEventNameSchema.options].sort());
   });
 

@@ -117,13 +117,16 @@ async function handleSessionStart(input: SessionStartInput): Promise<void> {
   const { source, session_id, model, agent_type } = input;
   const config = getSessionStartConfig();
   const projectDir = getProjectDir();
+  const modelName = model ?? 'unknown';
 
   logInfo(`Session starting (${source}) - loading project context`);
 
   const contextSections: string[] = [];
 
   // Add basic session information
-  contextSections.push(getSessionInfo(source, session_id, model, agent_type));
+  contextSections.push(
+    getSessionInfo(source, session_id, modelName, agent_type)
+  );
 
   // Load project information
   try {

@@ -27,6 +27,12 @@ export interface BaseHookInput {
   agent_id?: string | undefined;
   /** Agent name when running under --agent or inside a subagent */
   agent_type?: string | undefined;
+  /** Effort metadata for the current turn, when provided by Claude Code */
+  effort?:
+    | {
+        level: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+      }
+    | undefined;
 }
 
 /**
@@ -53,6 +59,8 @@ export interface BaseHookOutput {
   suppressOutput?: boolean;
   /** Optional warning message shown to the user */
   systemMessage?: string;
+  /** ANSI escape sequences or similar terminal control output */
+  terminalSequence?: string;
 }
 
 // =============================================================================
@@ -85,6 +93,8 @@ export interface PostToolUseInput extends BaseHookInput {
   tool_response: Record<string, unknown>;
   /** Unique identifier for this tool use */
   tool_use_id: string;
+  /** Tool execution duration in milliseconds */
+  duration_ms?: number | undefined;
 }
 
 /**
@@ -123,7 +133,9 @@ export interface PostToolUseOutput extends BaseHookOutput {
     /** Additional information for Claude to consider */
     additionalContext?: string;
     /** For MCP tools only: replaces the tool's output with the provided value */
-    updatedMCPToolOutput?: Record<string, unknown>;
+    updatedMCPToolOutput?: unknown;
+    /** Replaces the tool output with the provided value */
+    updatedToolOutput?: unknown;
   };
 }
 
@@ -188,6 +200,8 @@ export interface PostToolUseFailureInput extends BaseHookInput {
   error: string;
   /** Whether the failure was caused by user interruption */
   is_interrupt?: boolean | undefined;
+  /** Tool execution duration in milliseconds */
+  duration_ms?: number | undefined;
 }
 
 /**
@@ -429,7 +443,37 @@ export interface NotificationInput extends BaseHookInput {
     | 'permission_prompt'
     | 'idle_prompt'
     | 'auth_success'
-    | 'elicitation_dialog';
+    | 'elicitation_dialog'
+    | 'elicitation_complete'
+    | 'elicitation_response';
+}
+
+/**
+ * Input for MessageDisplay hooks - runs while assistant text is streaming
+ */
+export interface MessageDisplayInput extends BaseHookInput {
+  hook_event_name: 'MessageDisplay';
+  /** Unique identifier for the current turn */
+  turn_id: string;
+  /** Unique identifier for the message being displayed */
+  message_id: string;
+  /** Zero-based chunk index for this display delta */
+  index: number;
+  /** Whether this is the final chunk */
+  final: boolean;
+  /** Delta text being displayed */
+  delta: string;
+}
+
+/**
+ * MessageDisplay-specific output for overriding rendered content
+ */
+export interface MessageDisplayOutput extends BaseHookOutput {
+  hookSpecificOutput?: {
+    hookEventName: 'MessageDisplay';
+    /** Optional replacement content for display */
+    displayContent?: string;
+  };
 }
 
 /**
@@ -515,7 +559,9 @@ export interface SessionStartInput extends BaseHookInput {
   /** How the session was started: 'startup', 'resume', 'clear', 'compact' */
   source: 'startup' | 'resume' | 'clear' | 'compact';
   /** The model identifier */
-  model: string;
+  model?: string | undefined;
+  /** Session title when one is already known */
+  session_title?: string | undefined;
   /** Agent name if started with --agent */
   agent_type?: string | undefined;
 }
@@ -527,6 +573,34 @@ export interface SessionStartOutput extends BaseHookOutput {
   hookSpecificOutput?: {
     hookEventName: 'SessionStart';
     /** String added to the context at session start */
+    additionalContext?: string;
+    /** Initial user-visible message to seed the session */
+    initialUserMessage?: string;
+    /** Sets the session title */
+    sessionTitle?: string;
+    /** Dynamic absolute paths to watch */
+    watchPaths?: string[];
+    /** Reload active skills after session setup */
+    reloadSkills?: boolean;
+  };
+}
+
+/**
+ * Input for Setup hooks - runs during init-only or maintenance mode
+ */
+export interface SetupInput extends BaseHookInput {
+  hook_event_name: 'Setup';
+  /** How setup was triggered */
+  trigger: 'init' | 'maintenance';
+}
+
+/**
+ * Setup-specific output for context injection
+ */
+export interface SetupOutput extends BaseHookOutput {
+  hookSpecificOutput?: {
+    hookEventName: 'Setup';
+    /** String added to setup context */
     additionalContext?: string;
   };
 }
@@ -554,9 +628,12 @@ export interface StopFailureInput extends BaseHookInput {
   /** API error type */
   error:
     | 'rate_limit'
+    | 'overloaded'
     | 'authentication_failed'
+    | 'oauth_org_not_allowed'
     | 'billing_error'
     | 'invalid_request'
+    | 'model_not_found'
     | 'server_error'
     | 'max_output_tokens'
     | 'unknown';
@@ -746,6 +823,7 @@ export interface ElicitationOutput extends BaseHookOutput {
  * Union of all possible hook input types
  */
 export type HookInput =
+  | SetupInput
   | PreToolUseInput
   | PostToolUseInput
   | PermissionRequestInput
@@ -755,6 +833,7 @@ export type HookInput =
   | UserPromptSubmitInput
   | UserPromptExpansionInput
   | NotificationInput
+  | MessageDisplayInput
   | StopInput
   | StopFailureInput
   | SubagentStartInput
@@ -779,6 +858,7 @@ export type HookInput =
  * Union of all possible hook output types
  */
 export type HookOutput =
+  | SetupOutput
   | PreToolUseOutput
   | PostToolUseOutput
   | PermissionRequestOutput
@@ -786,6 +866,7 @@ export type HookOutput =
   | PostToolUseFailureOutput
   | PostToolBatchOutput
   | SubagentStartOutput
+  | MessageDisplayOutput
   | NotificationOutput
   | UserPromptSubmitOutput
   | UserPromptExpansionOutput
@@ -914,10 +995,11 @@ export interface TaskToolInput {
 // =============================================================================
 
 /**
- * All 28 hook event names
+ * All supported hook event names
  */
 export type HookEventName =
   | 'SessionStart'
+  | 'Setup'
   | 'UserPromptSubmit'
   | 'UserPromptExpansion'
   | 'PreToolUse'
@@ -927,6 +1009,7 @@ export type HookEventName =
   | 'PostToolUseFailure'
   | 'PostToolBatch'
   | 'Notification'
+  | 'MessageDisplay'
   | 'SubagentStart'
   | 'SubagentStop'
   | 'TaskCreated'
