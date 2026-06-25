@@ -33,6 +33,7 @@
 | Doc | Audience |
 |-----|----------|
 | [API Update Checklist](internal/api-update-checklist.md) | Maintainer checklist for tracking Claude Code API changes |
+| [Prometheus Implementation Context](internal/prometheus-implementation-context.md) | Current upstream-gap context for implementation planning |
 | [Export Sessions Script](internal/export-sessions.md) | How the export-sessions utility works |
 | [Tail Sessions Script](internal/tail-session.md) | How the tail-session CLI works (modes, flags, marker offsets) |
 
