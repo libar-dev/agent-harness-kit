@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * WorktreeCreate Hook Handler
- *
- * Runs when Claude Code requests a worktree. This reference handler logs the
- * request without creating a custom worktree path.
+ * WorktreeCreate Hook Handler — Logs worktree creation requests without overriding paths.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

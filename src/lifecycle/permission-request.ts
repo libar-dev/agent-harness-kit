@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * PermissionRequest Hook Handler
- *
- * Runs when Claude Code is about to show a permission dialog. This reference
- * handler logs the request without changing the decision.
+ * PermissionRequest Hook Handler — Logs permission dialogs without changing decisions.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

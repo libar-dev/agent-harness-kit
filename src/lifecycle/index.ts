@@ -1,5 +1,9 @@
 #!/usr/bin/env tsx
 
+/**
+ * Lifecycle Hook Handler — Dispatches lifecycle inputs to event-specific handlers.
+ */
+
 import {
   executeHook,
   logInfo,

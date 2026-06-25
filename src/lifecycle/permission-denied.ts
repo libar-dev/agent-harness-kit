@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * PermissionDenied Hook Handler
- *
- * Runs after auto mode denies a tool call. This reference handler records the
- * denial and explicitly leaves retry disabled.
+ * PermissionDenied Hook Handler — Logs auto-mode denials and leaves retry disabled.
  */
 
 import { executeHook, logInfo, logDebug, outputJson } from '../utils/index.js';

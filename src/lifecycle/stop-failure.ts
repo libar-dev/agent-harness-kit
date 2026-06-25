@@ -1,10 +1,8 @@
 #!/usr/bin/env tsx
 
 /**
- * StopFailure Hook Handler
- *
- * Runs when a turn ends because of an API error. Claude Code ignores output
- * and exit code for this event; this handler is for observability only.
+ * StopFailure Hook Handler — Logs API-error turn endings for observability.
+ * Claude Code ignores output and exit code for this event.
  */
 
 import { executeHook, logInfo, logDebug, outputJson } from '../utils/index.js';

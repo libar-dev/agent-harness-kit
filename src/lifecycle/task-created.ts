@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * TaskCreated Hook Handler
- *
- * Runs when an agent-team task is created. This reference handler logs the
- * task without blocking creation.
+ * TaskCreated Hook Handler — Logs agent-team task creation without blocking it.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

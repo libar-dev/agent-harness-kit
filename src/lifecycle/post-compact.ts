@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * PostCompact Hook Handler
- *
- * Runs after context compaction completes. This reference handler logs the
- * generated summary size for audit/observability use cases.
+ * PostCompact Hook Handler — Logs compaction results for observability.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

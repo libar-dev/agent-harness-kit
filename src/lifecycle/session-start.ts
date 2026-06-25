@@ -1,5 +1,9 @@
 #!/usr/bin/env tsx
 
+/**
+ * SessionStart Hook Handler — Injects project context when a session begins or resumes.
+ */
+
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFile, access, constants } from 'node:fs/promises';

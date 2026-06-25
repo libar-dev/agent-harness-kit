@@ -1,8 +1,5 @@
 /**
- * Shared utilities for lifecycle hooks
- *
- * Contains functions that were previously duplicated across
- * pre-compact.ts, session-end.ts, and subagent-stop.ts.
+ * Lifecycle Hook Utilities — Shares transcript and tool extraction helpers.
  */
 
 import { execFile } from 'node:child_process';

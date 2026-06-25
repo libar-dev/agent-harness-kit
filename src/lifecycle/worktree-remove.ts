@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * WorktreeRemove Hook Handler
- *
- * Runs when Claude Code removes a worktree. This reference handler logs the
- * removal request.
+ * WorktreeRemove Hook Handler — Logs worktree removal requests.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

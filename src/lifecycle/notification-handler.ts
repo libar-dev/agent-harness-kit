@@ -1,5 +1,9 @@
 #!/usr/bin/env tsx
 
+/**
+ * Notification Hook Handler — Delivers Claude Code notifications through configured sinks.
+ */
+
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {

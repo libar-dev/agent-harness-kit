@@ -1,5 +1,9 @@
 #!/usr/bin/env tsx
 
+/**
+ * MessageDisplay Hook Handler — Replaces displayed message deltas with validated content.
+ */
+
 import { executeHook, outputJson } from '../utils/index.js';
 import type {
   MessageDisplayInput,

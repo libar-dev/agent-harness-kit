@@ -1,11 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * Session ID Display Hook
- *
- * Injects the session ID into Claude's context without displaying it.
- * Useful for identifying which session you're working in when running
- * multiple Claude Code sessions simultaneously.
+ * SessionStart Hook Handler — Injects the session ID without displaying hook output.
  */
 
 import { outputJson, executeHook } from '../utils/index.js';

@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * FileChanged Hook Handler
- *
- * Runs when a watched file changes. This reference handler logs the event;
- * projects can extend it to refresh environment state.
+ * FileChanged Hook Handler — Logs watched file changes for environment refresh hooks.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

@@ -1,17 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * SubagentStop Hook Handler
- *
- * This hook runs when Claude Code subagent tasks complete and can control
- * whether the subagent is allowed to stop or should continue with additional work.
- *
- * Use cases:
- * - Validate that subagent tasks were completed successfully
- * - Check for error conditions that require retry or escalation
- * - Aggregate results from multiple subagent operations
- * - Ensure proper handoff to main thread
- * - Log subagent performance metrics
+ * SubagentStop Hook Handler — Validates subagent completion before allowing stop.
  */
 
 import {

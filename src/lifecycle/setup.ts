@@ -1,5 +1,9 @@
 #!/usr/bin/env tsx
 
+/**
+ * Setup Hook Handler — Provides optional setup context before Claude Code starts work.
+ */
+
 import { executeHook, logDebug, logInfo, outputJson } from '../utils/index.js';
 import type { SetupInput, SetupOutput } from '../types/index.js';
 import { validateSetupInput } from '../validation/index.js';
