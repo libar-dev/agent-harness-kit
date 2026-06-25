@@ -42,6 +42,7 @@ import {
   redactRetainedToolResultText,
 } from './tool-result-redaction.js';
 import { compareStrings } from './ordering.js';
+import { imagePlaceholder } from './image-placeholder.js';
 import { isRecord } from '../utils/index.js';
 
 // ---------------------------------------------------------------------------
@@ -219,20 +220,6 @@ function isThinkingBlock(block: ContentBlock): block is ThinkingBlock {
 
 function isImageBlock(block: ContentBlock): block is ImageContentBlock {
   return block.type === 'image';
-}
-
-function imagePlaceholder(source: unknown): string {
-  if (!isRecord(source)) return '[Image]';
-  const mediaType = source['media_type'];
-  if (!isSafeMediaType(mediaType)) return '[Image]';
-  return `[Image: ${mediaType}]`;
-}
-
-function isSafeMediaType(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    /^[A-Za-z0-9.+-]+\/[A-Za-z0-9.+-]+$/.test(value)
-  );
 }
 
 /** Extract user-facing text from a message's content field */

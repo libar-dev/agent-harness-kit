@@ -212,6 +212,23 @@ const ASSISTANT_IMAGE_LINE = JSON.stringify({
   uuid: 'a-image',
 });
 
+function makeImageLine(
+  role: 'user' | 'assistant',
+  source: unknown,
+  uuid: string
+): string {
+  return JSON.stringify({
+    type: role,
+    message: {
+      role,
+      content: [{ type: 'image', source }],
+    },
+    sessionId: 'test-session-001',
+    timestamp: '2026-02-16T20:00:15.000Z',
+    uuid,
+  });
+}
+
 // Build full JSONL content
 const FULL_SESSION_JSONL = [
   USER_TEXT_LINE,
@@ -436,6 +453,43 @@ describe('Processing Pipeline', () => {
       });
 
       const clean = denoiseSession(parseSessionContent('test', session));
+
+      expect(clean.messages[0]?.text).toBe('[Image]');
+    });
+
+    it('denoiseSession image source as array', () => {
+      const clean = denoiseSession(
+        parseSessionContent(
+          'test',
+          makeImageLine(
+            'assistant',
+            [{ media_type: 'image/png' }],
+            'a-image-array'
+          )
+        )
+      );
+
+      expect(clean.messages[0]?.text).toBe('[Image]');
+    });
+
+    it('denoiseSession image source as null', () => {
+      const clean = denoiseSession(
+        parseSessionContent(
+          'test',
+          makeImageLine('assistant', null, 'a-image-null')
+        )
+      );
+
+      expect(clean.messages[0]?.text).toBe('[Image]');
+    });
+
+    it('denoiseSession image source as primitive', () => {
+      const clean = denoiseSession(
+        parseSessionContent(
+          'test',
+          makeImageLine('assistant', 'image/png', 'a-image-primitive')
+        )
+      );
 
       expect(clean.messages[0]?.text).toBe('[Image]');
     });
@@ -1354,6 +1408,51 @@ describe('Processing Pipeline', () => {
       ]);
       expect(JSON.stringify(blocks)).not.toContain('one');
       expect(JSON.stringify(blocks)).not.toContain('two');
+    });
+
+    it('extractBlocks image source as array', () => {
+      const blocks = extractBlocks(
+        parseSessionContent(
+          'test',
+          makeImageLine('user', [{ media_type: 'image/png' }], 'u-image-array')
+        )
+      );
+
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]).toMatchObject({
+        id: 'u-image-array:0',
+        type: 'user_text',
+        content: '[Image]',
+      });
+    });
+
+    it('extractBlocks image source as null', () => {
+      const blocks = extractBlocks(
+        parseSessionContent('test', makeImageLine('user', null, 'u-image-null'))
+      );
+
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]).toMatchObject({
+        id: 'u-image-null:0',
+        type: 'user_text',
+        content: '[Image]',
+      });
+    });
+
+    it('extractBlocks image source as primitive', () => {
+      const blocks = extractBlocks(
+        parseSessionContent(
+          'test',
+          makeImageLine('user', 42, 'u-image-primitive')
+        )
+      );
+
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]).toMatchObject({
+        id: 'u-image-primitive:0',
+        type: 'user_text',
+        content: '[Image]',
+      });
     });
 
     it('extractBlocks emits agent_boundary blocks bracketing subagents', () => {

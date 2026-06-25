@@ -1,4 +1,5 @@
 import { summarizeToolCall, extractToolResultText } from './denoiser.js';
+import { imagePlaceholder } from './image-placeholder.js';
 import type { ContentBlock, RawHistoryLine, SessionBlock } from './types.js';
 import {
   MAX_TOOL_RESULT_LINES,
@@ -168,22 +169,4 @@ export function isSystemNoise(text: string): boolean {
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled content block type: ${JSON.stringify(value)}`);
-}
-
-function imagePlaceholder(source: unknown): string {
-  if (!isRecord(source)) return '[Image]';
-  const mediaType = source['media_type'];
-  if (!isSafeMediaType(mediaType)) return '[Image]';
-  return `[Image: ${mediaType}]`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function isSafeMediaType(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    /^[A-Za-z0-9.+-]+\/[A-Za-z0-9.+-]+$/.test(value)
-  );
 }
