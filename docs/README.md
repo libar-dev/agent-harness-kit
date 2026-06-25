@@ -20,7 +20,7 @@
 
 | Reference | What it covers |
 |-----------|----------------|
-| [Hook Events](reference/hook-events.md) | All 28 events — input fields, output shape, builder method |
+| [Hook Events](reference/hook-events.md) | All 30 events — input fields, output shape, builder method |
 | [HookOutputBuilder](reference/output-builder.md) | Every method with signature and examples |
 | [Validators](reference/validators.md) | Tool-input validators, type guards, content validators, config validators |
 | [Types](reference/types.md) | Full type catalogue — inputs, outputs, tools, config |

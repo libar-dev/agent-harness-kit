@@ -419,6 +419,6 @@ Using `"async": true` so Claude doesn't wait for the notification before continu
 ## See Also
 
 - [HookOutputBuilder Reference](../reference/output-builder.md) — full method signatures
-- [Hook Events Reference](../reference/hook-events.md) — all 28 events with input shapes
+- [Hook Events Reference](../reference/hook-events.md) — all 30 events with input shapes
 - [Validators Reference](../reference/validators.md) — all tool-input validators
 - [Environment Variables](../reference/environment-variables.md) — configure defaults without code changes

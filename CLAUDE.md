@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A standalone TypeScript hooks library (`@libar-dev/agent-harness-kit`) for Claude Code. Hooks are command, HTTP, MCP tool, prompt, or agent handlers that execute at lifecycle points to provide deterministic control over Claude's behavior. The library covers all 28 hook events in the current official docs.
+A standalone TypeScript hooks library (`@libar-dev/agent-harness-kit`) for Claude Code. Hooks are command, HTTP, MCP tool, prompt, or agent handlers that execute at lifecycle points to provide deterministic control over Claude's behavior. The library covers all 30 hook events in the current official docs.
 
 Official docs (mirrored upstream): `docs/upstream/hooks-guide.md`, `docs/upstream/hooks-reference.md`
 
@@ -44,7 +44,7 @@ const bashInput = validateBashToolInput(input); // Returns typed BashToolInput
 
 **Hook I/O protocol**: JSON in via stdin, JSON out via stdout. Exit codes: 0 (success), 1 (non-blocking error), 2 (blocking error). `WorktreeCreate` treats any non-zero exit as a creation failure.
 
-**28 hook events**: SessionStart, UserPromptSubmit, UserPromptExpansion, PreToolUse, PermissionRequest, PermissionDenied, PostToolUse, PostToolUseFailure, PostToolBatch, Notification, SubagentStart, SubagentStop, TaskCreated, TaskCompleted, Stop, StopFailure, TeammateIdle, InstructionsLoaded, ConfigChange, CwdChanged, FileChanged, WorktreeCreate, WorktreeRemove, PreCompact, PostCompact, Elicitation, ElicitationResult, SessionEnd.
+**30 hook events**: Setup, SessionStart, UserPromptSubmit, UserPromptExpansion, PreToolUse, PermissionRequest, PermissionDenied, PostToolUse, PostToolUseFailure, PostToolBatch, Notification, MessageDisplay, SubagentStart, SubagentStop, TaskCreated, TaskCompleted, Stop, StopFailure, TeammateIdle, InstructionsLoaded, ConfigChange, CwdChanged, FileChanged, WorktreeCreate, WorktreeRemove, PreCompact, PostCompact, Elicitation, ElicitationResult, SessionEnd.
 
 **Key modules**:
 - `src/types/index.ts` — All type definitions: hook I/O interfaces, tool input types, hook config types (`HookHandler`, `MatcherGroup`, `HooksConfig`), and `HookEnvironmentVars`

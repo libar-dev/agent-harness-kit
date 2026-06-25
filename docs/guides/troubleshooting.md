@@ -2,7 +2,7 @@
 
 ## Hook didn't fire
 
-**1. Check the event name.** Verify the key in `settings.json` is spelled exactly as one of the 28 event names (case-sensitive: `PreToolUse`, not `pre_tool_use`).
+**1. Check the event name.** Verify the key in `settings.json` is spelled exactly as one of the 30 event names (case-sensitive: `PreToolUse`, not `pre_tool_use`).
 
 **2. Check the matcher.** The `matcher` field is a regex applied to `tool_name` (for tool events) or equivalent primary identifier. An empty matcher or omitting it matches everything. Test your regex:
 

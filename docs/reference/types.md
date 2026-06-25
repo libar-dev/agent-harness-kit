@@ -12,7 +12,7 @@ Public TypeScript types exported by `@libar-dev/agent-harness-kit/types`.
 |------|-------------|
 | `BaseHookInput` | Common fields in every hook input (`session_id`, `transcript_path`, `cwd`, `hook_event_name`, `permission_mode`, `agent_id`, `agent_type`) |
 | `BaseHookOutput` | Common output fields (`continue`, `stopReason`, `suppressOutput`, `systemMessage`) |
-| `HookInput` | Union of all 28 per-event input types |
+| `HookInput` | Union of all 30 per-event input types |
 | `HookOutput` | Union of all per-event output types |
 | `PermissionMode` | `'default' \| 'plan' \| 'acceptEdits' \| 'auto' \| 'dontAsk' \| 'bypassPermissions'` |
 | `PermissionUpdateEntry` | `{ type: string; [key: string]: unknown }` — used in permission update arrays |
@@ -50,6 +50,7 @@ All extend `BaseHookInput`.
 | `UserPromptSubmitInput` | `prompt` |
 | `UserPromptExpansionInput` | `expansion_type`, `command_name`, `command_args`, `command_source`, `prompt` |
 | `NotificationInput` | `message`, `title?`, `notification_type` |
+| `MessageDisplayInput` | `turn_id`, `message_id`, `index`, `final`, `delta` |
 | `ElicitationInput` | `mcp_server_name`, `message`, `mode?`, `requested_schema?`, `url?`, `elicitation_id?` |
 | `ElicitationResultInput` | `mcp_server_name`, `action`, `content?`, `mode?`, `elicitation_id?` |
 
@@ -67,6 +68,7 @@ All extend `BaseHookInput`.
 
 | Type | Key additional fields |
 |------|----------------------|
+| `SetupInput` | `trigger` |
 | `SessionStartInput` | `source`, `model`, `agent_type?` |
 | `SessionEndInput` | `reason` |
 | `StopInput` | `stop_hook_active`, `last_assistant_message?` |
@@ -112,7 +114,9 @@ All extend `BaseHookOutput`.
 | `UserPromptSubmitOutput` | Block prompt or add context/title |
 | `UserPromptExpansionOutput` | Block expansion or add context |
 | `NotificationOutput` | Add `additionalContext` |
+| `MessageDisplayOutput` | Override the currently rendered message chunk |
 | `SubagentStartOutput` | Add `additionalContext` to subagent's system prompt |
+| `SetupOutput` | Add `additionalContext` during setup |
 | `SessionStartOutput` | Add `additionalContext` to session |
 | `StopOutput` | Block stopping via `decision: 'block'` + `reason` |
 | `PreCompactOutput` | Block compaction or inject `additionalContext` |
@@ -157,7 +161,7 @@ All extend `BaseHookOutput`.
 | `HookHandler` | Union of the five handler types (discriminated on `type`) |
 | `MatcherGroup` | `{ matcher?: string; hooks: HookHandler[] }` |
 | `HooksConfig` | `{ hooks?: Partial<Record<HookEventName, MatcherGroup[]>>; allowManagedHooksOnly?; allowedHttpHookUrls?; httpHookAllowedEnvVars? }` |
-| `HookEventName` | Union of all 28 event name strings |
+| `HookEventName` | Union of all 30 event name strings |
 
 All handler types share base fields: `timeout?`, `statusMessage?`, `once?`, `if?`.
 

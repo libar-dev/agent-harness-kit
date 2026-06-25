@@ -1,6 +1,6 @@
 # Hook Events Reference
 
-All 28 Claude Code hook events. For each event: when it fires, its input fields, the output it accepts, and the `HookOutputBuilder` method to use.
+All 30 Claude Code hook events. For each event: when it fires, its input fields, the output it accepts, and the `HookOutputBuilder` method to use.
 
 **Source of truth for types:** [`src/types/index.ts`](../../src/types/index.ts)
 
@@ -15,13 +15,13 @@ All 28 Claude Code hook events. For each event: when it fires, its input fields,
 - [PermissionRequest](#permissionrequest) · [PermissionDenied](#permissiondenied)
 
 **User Interaction**
-- [UserPromptSubmit](#userpromptsubmit) · [UserPromptExpansion](#userpromptexpansion) · [Notification](#notification) · [Elicitation](#elicitation) · [ElicitationResult](#elicitationresult)
+- [UserPromptSubmit](#userpromptsubmit) · [UserPromptExpansion](#userpromptexpansion) · [Notification](#notification) · [MessageDisplay](#messagedisplay) · [Elicitation](#elicitation) · [ElicitationResult](#elicitationresult)
 
 **Subagents & Teams**
 - [SubagentStart](#subagentstart) · [SubagentStop](#subagentstart) · [TeammateIdle](#teammateidle) · [TaskCreated](#taskcreated) · [TaskCompleted](#taskcompleted)
 
 **Session Lifecycle**
-- [SessionStart](#sessionstart) · [Stop](#stop) · [StopFailure](#stopfailure) · [SessionEnd](#sessionend)
+- [Setup](#setup) · [SessionStart](#sessionstart) · [Stop](#stop) · [StopFailure](#stopfailure) · [SessionEnd](#sessionend)
 
 **Instructions & Config**
 - [InstructionsLoaded](#instructionsloaded) · [ConfigChange](#configchange)
@@ -357,6 +357,39 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 
 ---
 
+### MessageDisplay
+
+**When it fires:** While assistant text is streaming. The hook can override the currently rendered chunk content.
+
+**Input** (`MessageDisplayInput`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `turn_id` | `string` | Unique identifier for the current turn |
+| `message_id` | `string` | Unique identifier for the message being displayed |
+| `index` | `number` | Zero-based chunk index for this display delta |
+| `final` | `boolean` | Whether this is the final chunk |
+| `delta` | `string` | Delta text being displayed |
+
+**Output** (`MessageDisplayOutput`):
+
+```typescript
+{
+  hookSpecificOutput: {
+    hookEventName: 'MessageDisplay',
+    displayContent?: string,
+  }
+}
+```
+
+**Builder method:** `HookOutputBuilder.messageDisplayContent(content)`
+
+```typescript
+outputJson(HookOutputBuilder.messageDisplayContent(validatedInput.delta));
+```
+
+---
+
 ### Elicitation
 
 **When it fires:** When an MCP server requests user input via the elicitation protocol.
@@ -487,6 +520,35 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 ---
 
 ## Session Lifecycle
+
+### Setup
+
+**When it fires:** During init-only or maintenance mode before the main session lifecycle begins.
+
+**Input** (`SetupInput`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `trigger` | `'init' \| 'maintenance'` | How setup was triggered |
+
+**Output** (`SetupOutput`):
+
+```typescript
+{
+  hookSpecificOutput: {
+    hookEventName: 'Setup',
+    additionalContext?: string,
+  }
+}
+```
+
+**Builder method:** `HookOutputBuilder.setupContext(context)`
+
+```typescript
+outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
+```
+
+---
 
 ### SessionStart
 
