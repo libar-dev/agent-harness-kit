@@ -109,7 +109,7 @@ pnpm run build        # compile src/ → dist/ (publish only)
 
 ## Status
 
-Version `0.1.0` is not yet published to npm. The public API is stable but may change before the first published release. Pin to a commit hash if you depend on this from another project.
+Version `0.1.0` is the initial npm release candidate. The public API is stable but may change before the first published release. Pin to a commit hash if you depend on this from another project.
 
 ## Contributing
 

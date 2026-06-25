@@ -11,9 +11,9 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ## [0.1.0] - 2026-06-24
 
-First public release of `@libar-dev/agent-harness-kit`.
+First release candidate for `@libar-dev/agent-harness-kit`.
 
-This is the first release under the new `agent-harness-kit` identity.
+This is the first release candidate under the new `agent-harness-kit` identity.
 The package was renamed from `@libar-dev/claude-code-hooks` to
 `@libar-dev/agent-harness-kit`.
 
