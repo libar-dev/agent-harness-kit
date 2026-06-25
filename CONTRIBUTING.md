@@ -76,4 +76,4 @@ Before opening a PR, confirm:
 
 ## Architecture Notes
 
-The high-level structure and the reasoning behind it lives in [docs/architecture/overview.md](docs/architecture/overview.md). The maintainer API-update checklist for tracking Claude Code API changes is in [docs/internal/api-update-checklist.md](docs/internal/api-update-checklist.md).
+The high-level structure and the reasoning behind it lives in [docs/README.md](docs/README.md). The maintainer API-update checklist for tracking Claude Code API changes is in [docs/internal/api-update-checklist.md](docs/internal/api-update-checklist.md).
