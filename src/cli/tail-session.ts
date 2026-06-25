@@ -23,10 +23,10 @@
  *   1 — file not found / read error
  *   2 — invalid arguments
  *
- * Designed for live-ingest consumers that spawn this from
- * any language (Rust, Go, shell). In one-shot mode, pair with notify-style file
- * watchers in the consumer. In --watch mode, this process owns the watching
- * loop and the consumer just streams stdout.
+ * Intended for consumers that spawn this from any language (Rust, Go, shell).
+ * In one-shot mode, pair with notify-style file watchers in the consumer.
+ * In --watch mode, this process owns the watching loop and the consumer
+ * streams stdout.
  */
 
 import { parseArgs } from 'node:util';
@@ -147,9 +147,7 @@ async function main(path: string, cliArgs: CliArgs): Promise<void> {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Watch mode — long-running, emit on each append
-// ---------------------------------------------------------------------------
+// Watch mode: long-running output on each append.
 
 async function runWatch(
   path: string,
@@ -350,9 +348,7 @@ async function runOnePass(
   return result;
 }
 
-// ---------------------------------------------------------------------------
-// Output helpers
-// ---------------------------------------------------------------------------
+// Output helpers.
 
 async function runTail(
   path: string,

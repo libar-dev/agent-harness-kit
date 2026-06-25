@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Export Claude Code sessions as clean markdown and/or structured JSONL.
+ * Export Claude Code sessions as markdown and/or structured JSONL.
  *
  * After install, available as:
  *   claude-session-export [project-path] [options]
@@ -12,6 +12,15 @@
  *   - markdown: human-readable .md
  *   - jsonl:    structured SessionBlock records — for downstream DB / AI ingestion
  *   - both:     emits both per session (default)
+ *
+ * Output contract:
+ *   stdout: progress and written-file summaries
+ *   stderr: fatal argument or export errors
+ *
+ * Exit codes:
+ *   0 — success, including no matching sessions
+ *   1 — project resolution or export failure
+ *   2 — invalid arguments
  */
 
 import { writeFile, mkdir } from 'node:fs/promises';
