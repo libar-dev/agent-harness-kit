@@ -8,8 +8,8 @@ Public TypeScript types exported by `@libar-dev/agent-harness-kit/types`.
 
 | Type | Description |
 |------|-------------|
-| `BaseHookInput` | Common fields in every hook input (`session_id`, `transcript_path`, `cwd`, `hook_event_name`, `permission_mode`, `agent_id`, `agent_type`) |
-| `BaseHookOutput` | Common output fields (`continue`, `stopReason`, `suppressOutput`, `systemMessage`) |
+| `BaseHookInput` | Common fields in every hook input (`session_id`, `transcript_path`, `cwd`, `hook_event_name`, `permission_mode`, `agent_id`, `agent_type`, `effort`) |
+| `BaseHookOutput` | Common output fields (`continue`, `stopReason`, `suppressOutput`, `systemMessage`, `terminalSequence`) |
 | `HookInput` | Union of all 30 per-event input types |
 | `HookOutput` | Union of all per-event output types |
 | `PermissionMode` | `'default' \| 'plan' \| 'acceptEdits' \| 'auto' \| 'dontAsk' \| 'bypassPermissions'` |
@@ -26,8 +26,8 @@ All extend `BaseHookInput`.
 | Type | Key additional fields |
 |------|----------------------|
 | `PreToolUseInput` | `tool_name`, `tool_input`, `tool_use_id` |
-| `PostToolUseInput` | `tool_name`, `tool_input`, `tool_response`, `tool_use_id` |
-| `PostToolUseFailureInput` | `tool_name`, `tool_input`, `tool_use_id`, `error`, `is_interrupt?` |
+| `PostToolUseInput` | `tool_name`, `tool_input`, `tool_response`, `tool_use_id`, `duration_ms?` |
+| `PostToolUseFailureInput` | `tool_name`, `tool_input`, `tool_use_id`, `error`, `is_interrupt?`, `duration_ms?` |
 | `PostToolBatchInput` | `tool_calls: PostToolBatchCall[]` |
 
 `PostToolBatchCall`: `{ tool_name, tool_input, tool_use_id, tool_response }`.
@@ -143,7 +143,7 @@ All extend `BaseHookOutput`.
 
 | Type | Key fields |
 |------|-----------|
-| `CommandHookHandler` | `type: 'command'`, `command: string`, `async?`, `asyncRewake?`, `shell?` |
+| `CommandHookHandler` | `type: 'command'`, `command: string`, `args?: string[]`, `async?`, `asyncRewake?`, `shell?` |
 | `HttpHookHandler` | `type: 'http'`, `url: string`, `headers?`, `allowedEnvVars?` |
 | `McpToolHookHandler` | `type: 'mcp_tool'`, `server: string`, `tool: string`, `input?` |
 | `PromptHookHandler` | `type: 'prompt'`, `prompt: string`, `model?` |

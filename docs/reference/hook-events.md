@@ -127,12 +127,13 @@ outputJson(HookOutputBuilder.permission('allow', 'Redirected to safe path', {
   hookSpecificOutput?: {
     hookEventName: 'PostToolUse',
     additionalContext?: string,
-    updatedMCPToolOutput?: Record<string, unknown>,  // MCP tools only
+    updatedMCPToolOutput?: unknown,  // MCP tool output override
+    updatedToolOutput?: unknown,     // Tool output override
   }
 }
 ```
 
-**Builder method:** `HookOutputBuilder.feedback(reason, additionalContext?, updatedMCPToolOutput?)`
+**Builder method:** `HookOutputBuilder.feedback(reason, additionalContext?, updatedMCPToolOutput?, updatedToolOutput?)`
 
 ```typescript
 outputJson(HookOutputBuilder.feedback('Formatted file with Prettier'));
@@ -329,7 +330,7 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 |-------|------|-------------|
 | `message` | `string` | Notification message |
 | `title` | `string?` | Notification title |
-| `notification_type` | `'permission_prompt' \| 'idle_prompt' \| 'auth_success' \| 'elicitation_dialog'` | Type filter |
+| `notification_type` | `'permission_prompt' \| 'idle_prompt' \| 'auth_success' \| 'elicitation_dialog' \| 'elicitation_complete' \| 'elicitation_response'` | Type filter |
 
 **Output:** `NotificationOutput` — can add `additionalContext`. No decision control.
 

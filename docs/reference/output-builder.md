@@ -99,24 +99,26 @@ outputJson(HookOutputBuilder.permission('allow', 'Approved', {
 
 ## PostToolUse
 
-### `feedback(reason, additionalContext?, updatedMCPToolOutput?)`
+### `feedback(reason, additionalContext?, updatedMCPToolOutput?, updatedToolOutput?)`
 
 ```typescript
 feedback(
   reason: string,
   additionalContext?: string,
-  updatedMCPToolOutput?: Record<string, unknown>
+  updatedMCPToolOutput?: unknown,
+  updatedToolOutput?: unknown
 ): PostToolUseOutput
 ```
 
 Sends feedback to Claude after a tool executes. Sets `decision: 'block'` internally so the reason is shown to Claude. Use for formatter output, type-check results, or any observation Claude should act on.
 
-`updatedMCPToolOutput` replaces the MCP tool's return value (MCP tools only).
+`updatedMCPToolOutput` replaces an MCP tool's return value. `updatedToolOutput` replaces general tool output when you need to return a different result body.
 
 ```typescript
 outputJson(HookOutputBuilder.feedback('Formatted file with Prettier'));
 outputJson(HookOutputBuilder.feedback('TypeScript errors found', tscStderr));
 outputJson(HookOutputBuilder.feedback('MCP result overridden', undefined, { status: 'ok' }));
+outputJson(HookOutputBuilder.feedback('Tool output replaced', undefined, undefined, { summary: 'cleaned output' }));
 ```
 
 ---
