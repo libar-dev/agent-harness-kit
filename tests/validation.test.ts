@@ -270,7 +270,7 @@ describe('Validation Error Handling', () => {
   });
 });
 
-describe('Updated Schema Validation (Phase 1)', () => {
+describe('Hook Input Schema Validation', () => {
   it('should allow permission_mode to be omitted', () => {
     const inputWithoutPermissionMode = {
       session_id: 'test',
@@ -1138,7 +1138,7 @@ describe('Hook-Type-Specific Validators', () => {
   });
 });
 
-describe('Phase 2: New Event Input Schemas', () => {
+describe('Additional Event Input Schemas', () => {
   it('should validate PermissionRequest input', () => {
     const input = createPermissionRequestInput('Bash', {
       command: 'rm -rf node_modules',
@@ -1323,7 +1323,7 @@ describe('Phase 2: New Event Input Schemas', () => {
   });
 });
 
-describe('Phase 2: PermissionRequest Output Schema', () => {
+describe('PermissionRequest Output Schema', () => {
   it('should validate allow decision', () => {
     const output = {
       hookSpecificOutput: {
@@ -1387,7 +1387,7 @@ describe('Phase 2: PermissionRequest Output Schema', () => {
   });
 });
 
-describe('Session A: New Event Output Schemas', () => {
+describe('Additional Event Output Schemas', () => {
   it('accepts UserPromptExpansion context and block output', () => {
     const result = userPromptExpansionOutputSchema.safeParse({
       decision: 'block',
@@ -1499,7 +1499,7 @@ describe('Session A: New Event Output Schemas', () => {
   });
 });
 
-describe('Phase 2: New Type Guards', () => {
+describe('Event Type Guards', () => {
   it('isPermissionRequestInput identifies correctly', () => {
     const input = createPermissionRequestInput('Bash', { command: 'ls' });
     const validated = validateHookInput(input);
@@ -1613,7 +1613,7 @@ describe('Phase 2: New Type Guards', () => {
   });
 });
 
-describe('Phase 2: New Tool Input Validators', () => {
+describe('Additional Tool Input Validators', () => {
   it('validateWebFetchToolInput validates valid input', () => {
     const hookInput = createPreToolUseInput('WebFetch', {
       url: 'https://example.com',
@@ -1879,7 +1879,7 @@ describe('Phase 2: New Tool Input Validators', () => {
   });
 });
 
-describe('Phase 3: Output Schema Updates', () => {
+describe('Output Schema Validation Details', () => {
   describe('PreToolUse output schema', () => {
     it('accepts updatedInput in hookSpecificOutput', () => {
       const output = {
@@ -2058,7 +2058,7 @@ describe('Phase 3: Output Schema Updates', () => {
   });
 });
 
-describe('Phase 3: HookOutputBuilder Updates', () => {
+describe('HookOutputBuilder Schema Helpers', () => {
   describe('permission() with options', () => {
     it('creates output without options (backward compatible)', () => {
       const output = HookOutputBuilder.permission('allow', 'Approved');
@@ -2695,13 +2695,11 @@ describe('Hook Configuration Schemas (settings.json)', () => {
       });
       expect(commandResult.success).toBe(true);
 
-      // prompt handler should strip the async field (not fail, just ignore)
       const promptResult = promptHookHandlerSchema.safeParse({
         type: 'prompt',
         prompt: 'test',
         async: true,
       });
-      // Zod strips unknown fields by default, so this should still succeed
       expect(promptResult.success).toBe(true);
       if (promptResult.success) {
         expect('async' in promptResult.data).toBe(false);
