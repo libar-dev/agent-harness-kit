@@ -57,6 +57,9 @@ interface PackageJsonShape {
   readonly name: string;
   readonly bin?: Record<string, string>;
   readonly scripts?: Record<string, string>;
+  readonly repository?: {
+    readonly url: string;
+  };
   readonly exports: PackageExports;
 }
 
@@ -80,6 +83,10 @@ function isPackageJsonShape(value: unknown): value is PackageJsonShape {
   if (value['bin'] !== undefined && !isRecord(value['bin'])) return false;
   if (value['scripts'] !== undefined && !isRecord(value['scripts']))
     return false;
+  if (value['repository'] !== undefined) {
+    if (!isRecord(value['repository'])) return false;
+    if (typeof value['repository']['url'] !== 'string') return false;
+  }
   return true;
 }
 
@@ -251,9 +258,12 @@ describe('package export contract', () => {
     const pkg = await readPackageJson();
 
     expect(pkg.bin).toEqual({
-      'claude-session-export': './dist/cli/export-sessions.js',
-      'claude-session-tail': './dist/cli/tail-session.js',
+      'claude-session-export': 'dist/cli/export-sessions.js',
+      'claude-session-tail': 'dist/cli/tail-session.js',
     });
+    expect(pkg.repository?.url).toBe(
+      'git+https://github.com/libar-dev/agent-harness-kit.git'
+    );
     await expect(
       access(join(repoRoot, 'src/cli/export-sessions.ts'))
     ).resolves.toBeUndefined();

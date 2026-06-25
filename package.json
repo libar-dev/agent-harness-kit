@@ -7,8 +7,8 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "claude-session-export": "./dist/cli/export-sessions.js",
-    "claude-session-tail": "./dist/cli/tail-session.js"
+    "claude-session-export": "dist/cli/export-sessions.js",
+    "claude-session-tail": "dist/cli/tail-session.js"
   },
   "exports": {
     ".": {
@@ -129,7 +129,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/libar-dev/agent-harness-kit.git"
+    "url": "git+https://github.com/libar-dev/agent-harness-kit.git"
   },
   "bugs": {
     "url": "https://github.com/libar-dev/agent-harness-kit/issues"
