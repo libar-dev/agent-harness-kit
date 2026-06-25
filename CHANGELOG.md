@@ -9,6 +9,19 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- Added `Setup` event coverage to the published Claude Code API parity notes.
+- Added `MessageDisplay` event coverage to the published Claude Code API parity notes.
+- Documented `SessionStart` input and output parity updates.
+- Documented `Notification` and `StopFailure` enum expansions.
+- Documented `CommandHookHandler.args` support.
+- Documented `PostToolUseOutput.updatedToolOutput` support and `PostToolUseOutput.updatedMCPToolOutput` widening to `unknown`.
+- Documented `PostToolUseInput.duration_ms` and `PostToolUseFailureInput.duration_ms` support.
+- Documented `BaseHookInput.effort` and `BaseHookOutput.terminalSequence` support.
+
 ## [0.1.0] - 2026-06-24
 
 First release candidate for `@libar-dev/agent-harness-kit`.
