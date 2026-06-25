@@ -40,7 +40,7 @@
 
 ## Upstream Reference (Mirrored)
 
-Official Anthropic documentation mirrored for offline development use. Always check the [official docs](https://docs.anthropic.com/en/docs/claude-code/hooks) for the canonical, up-to-date version.
+Official Claude Code documentation mirrored for offline development use. Always check the [official docs](https://code.claude.com/docs/en/overview) for the canonical, up-to-date version.
 
 | Doc | Source |
 |-----|--------|

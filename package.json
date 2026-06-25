@@ -61,6 +61,7 @@
     "build": "tsc --project tsconfig.build.json && node scripts/chmod-bins.mjs",
     "build:emergency": "tsc --project tsconfig.emergency.json && node scripts/chmod-bins.mjs",
     "dev": "tsx watch src/index.ts",
+    "docs:sync-upstream": "node scripts/sync-upstream-docs.mjs",
     "type-check": "tsc --noEmit",
     "type-check:strict": "tsc --noEmit --strict --noImplicitAny",
     "check": "pnpm run type-check && pnpm run lint",
