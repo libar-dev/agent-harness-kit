@@ -22,9 +22,9 @@
       "work_id": "claude-code-api-gap-9fd3bac1",
       "active_plan": "/Users/darkomijic/dev-projects/claude-code-hooks/.omo/plans/claude-code-api-gap.md",
       "plan_name": "claude-code-api-gap",
-      "status": "active",
+      "status": "completed",
       "started_at": "2026-06-25T15:02:24.033Z",
-      "updated_at": "2026-06-25T16:25:01.578Z",
+      "updated_at": "2026-06-25T16:28:30.275Z",
       "session_ids": [
         "opencode:ses_100b2481dffewbXAsPXmM4FQDy"
       ],
@@ -97,13 +97,15 @@
           "ended_at": "2026-06-25T16:25:01.578Z",
           "elapsed_ms": 1663601
         }
-      }
+      },
+      "ended_at": "2026-06-25T16:28:30.275Z",
+      "elapsed_ms": 5166242
     }
   },
   "active_plan": "/Users/darkomijic/dev-projects/claude-code-hooks/.omo/plans/claude-code-api-gap.md",
   "started_at": "2026-06-25T15:02:24.033Z",
-  "status": "active",
-  "updated_at": "2026-06-25T16:25:01.578Z",
+  "status": "completed",
+  "updated_at": "2026-06-25T16:28:30.275Z",
   "session_ids": [
     "opencode:ses_100b2481dffewbXAsPXmM4FQDy"
   ],
@@ -177,5 +179,7 @@
       "elapsed_ms": 1663601
     }
   },
-  "agent": "atlas"
+  "agent": "atlas",
+  "ended_at": "2026-06-25T16:28:30.275Z",
+  "elapsed_ms": 5166242
 }
