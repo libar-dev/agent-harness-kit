@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-This library is pre-1.0 release candidate and published from the `main` branch. Security
+This library is a pre-1.0 release candidate and published from the `main` branch. Security
 fixes are applied to the latest released version. Older versions are not maintained.
 
 | Version | Supported          |
