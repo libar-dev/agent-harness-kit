@@ -2,7 +2,6 @@
  * Test suite for ESLint Disable Blocker Hook
  *
  * Tests pattern detection, tool type handling, and feedback messages
- * Following parent project's incremental testing pattern (one test at a time)
  */
 
 import assert from 'node:assert';

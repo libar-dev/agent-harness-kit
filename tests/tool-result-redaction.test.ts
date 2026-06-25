@@ -6,11 +6,11 @@ describe('redactRetainedToolResultText', () => {
   describe('ReDoS regression', () => {
     // The secret-key regex previously had two unbounded `*` quantifiers, which
     // backtracked quadratically on adversarial `token_token_token...` /
-    // `session_session_...` inputs. Both are now bounded ({0,12}); these inputs
+    // `session_session_...` inputs. Both are bounded ({0,12}); these inputs
     // must process in linear time.
     for (const seed of ['token_', 'session_'] as const) {
       it(`processes 20k '${seed}' repetitions quickly and still redacts a real secret`, () => {
-        // A non-word separator (newline) keeps the trailing `\bghp_...` token
+        // A non-word separator (line break) keeps the trailing `\bghp_...` token
         // boundary intact so the genuine secret is still detected/redacted.
         const input = `${seed.repeat(20000)}\nghp_1234567890abcdefghijklmnopqrstuvABCD`;
 
