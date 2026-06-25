@@ -221,6 +221,14 @@ Set `CLAUDE_HOOK_DEBUG=true` or `CLAUDE_CODE_DEBUG_LOG_LEVEL=verbose` for verbos
 
 Planning and context files created for agent workflows are ephemeral and must not be committed to the public repo. Examples include `prometheus-implementation-context.md` and `.omo/notepads/*` scratch files. Delete them before merging. Persistent guidance belongs in user-facing docs or ADRs, not in agent-context scratchpads.
 
+## Comment Style
+
+- Preserve API-contract JSDoc on every exported type, interface, function, class, and method. Keep parameter, return, thrown-error, and behavior notes that public consumers rely on.
+- Strip temporal, AI-workflow, migration, provenance, and marketing phrasing from comments. Avoid examples such as `Following ... pattern`, `incremental`, `Phase`, `recently`, `parent project`, `ported from`, `moved to`, `will`, `currently`, `now`, `new`, `modern`, `legacy`, `comprehensive`, and `designed for`.
+- Treat filler wording as noise. Avoid `automatically` when it adds no technical detail, and avoid `supports` when the code, type, or API name already makes that clear.
+- Keep comments that explain regression rationale, compatibility constraints, security-sensitive behavior, invariants, or non-obvious edge cases.
+- Avoid heavy visual banners such as `// =====`, `// ----`, or long dashed separator lines. Prefer a single blank line between logical blocks.
+
 ## Compatibility Notes
 
 `PermissionRequest` now uses nested `hookSpecificOutput.decision` with `behavior: "allow" | "deny"` and optional permission updates. The old top-level allow/deny style should not be used for new code.
