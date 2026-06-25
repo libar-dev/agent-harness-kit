@@ -1,15 +1,3 @@
-/**
- * Zod-based validators for Claude Code hooks
- *
- * CRITICAL: Always use .safeParse() at system boundaries
- * Never bypass runtime validation - this prevents silent data corruption
- *
- * Following established patterns:
- * - Two-step type assertion: unknown → validate → assert
- * - Custom error types for better debugging
- * - Never use 'any' types
- */
-
 import type { z } from 'zod';
 import {
   hookInputSchemas,
@@ -70,10 +58,6 @@ type ToolBearingHookInput =
 
 const MCP_TOOL_NAME_PATTERN = /^mcp__[^_]+__[^_]+/;
 
-// =============================================================================
-// Custom Error Types
-// =============================================================================
-
 /**
  * Custom error class for hook validation failures
  * Provides structured error information for debugging
@@ -128,10 +112,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
 
-// =============================================================================
-// Hook Input Validation
-// =============================================================================
-
 /**
  * Validate hook input using the two-step type assertion pattern
  *
@@ -140,7 +120,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * @throws HookValidationError if validation fails
  */
 export function validateHookInput(input: unknown): HookInputSchema {
-  // Step 1: Basic structure validation
   if (!isRecord(input)) {
     throw new HookValidationError(
       'Hook input must be a non-null object',
@@ -149,7 +128,6 @@ export function validateHookInput(input: unknown): HookInputSchema {
     );
   }
 
-  // Step 2: Extract hook event name
   const hookEventName = input['hook_event_name'];
   if (
     hookEventName === null ||
@@ -163,21 +141,13 @@ export function validateHookInput(input: unknown): HookInputSchema {
     );
   }
 
-  switch (hookEventName) {
-    case 'Setup':
-      return validateSetupInput(input);
-    case 'MessageDisplay':
-      return validateMessageDisplayInput(input);
-    default:
-      return validateHookInputByEventName(input, hookEventName);
-  }
+  return validateHookInputByEventName(input, hookEventName);
 }
 
 function validateHookInputByEventName(
   input: unknown,
   hookEventName: string
 ): HookInputSchema {
-  // Step 3: Get appropriate schema
   const schema = (
     hookInputSchemas as Record<
       string,
@@ -192,7 +162,6 @@ function validateHookInputByEventName(
     );
   }
 
-  // Step 4: Validate using Zod schema
   const result = schema.safeParse(input);
   if (!result.success) {
     throw new HookValidationError(
@@ -218,7 +187,6 @@ export function validateToolInput(
 ): ToolInputSchema {
   const toolName = hookInput.tool_name;
 
-  // Get appropriate schema for the tool
   const schema = (
     toolInputSchemas as Record<
       string,
@@ -247,7 +215,6 @@ export function validateToolInput(
     );
   }
 
-  // Validate tool input using Zod schema
   const result = schema.safeParse(hookInput.tool_input);
   if (!result.success) {
     throw new HookValidationError(
@@ -260,10 +227,6 @@ export function validateToolInput(
 
   return result.data;
 }
-
-// =============================================================================
-// Specific Tool Validators (Convenience Functions)
-// =============================================================================
 
 /**
  * Validate and extract Bash tool input with proper typing
@@ -672,10 +635,6 @@ export function validateMCPToolInput(
   return result.data;
 }
 
-// =============================================================================
-// Transcript Validators
-// =============================================================================
-
 export type SafeTranscriptValidationResult<T> =
   | { success: true; data: T }
   | { success: false; diagnostics: TranscriptParseDiagnosticsSchema };
@@ -753,10 +712,8 @@ function readIssueString(
   issue: z.ZodIssue,
   key: 'discriminator' | 'note'
 ): string | undefined {
-  if (!(key in issue)) return undefined;
-  const view = issue as unknown;
-  if (!isRecord(view)) return undefined;
-  const value = view[key];
+  if (!isRecord(issue)) return undefined;
+  const value = issue[key];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
@@ -842,10 +799,6 @@ export function validateRawHistoryLine(input: unknown): RawHistoryLineSchema {
 
   return result.data;
 }
-
-// =============================================================================
-// Utility Functions
-// =============================================================================
 
 /**
  * Safe validation that returns success/error result instead of throwing
@@ -1139,10 +1092,6 @@ export function isElicitationResultInput(
   return input.hook_event_name === 'ElicitationResult';
 }
 
-// =============================================================================
-// Hook-Type-Specific Validators
-// =============================================================================
-
 /**
  * Validate that the input is a valid PreToolUse hook
  * Uses Zod validation internally with better error messages
@@ -1354,10 +1303,6 @@ export function validateElicitationResultInput(
   return validateHookInputType(input, 'ElicitationResult');
 }
 
-// =============================================================================
-// Hook Configuration Validators
-// =============================================================================
-
 /**
  * Validate a full hooks configuration block (e.g., parsed from settings.json)
  */
@@ -1416,10 +1361,6 @@ export function validateMatcherGroup(data: unknown): MatcherGroupSchema {
 
   return result.data;
 }
-
-// =============================================================================
-// Content Validators
-// =============================================================================
 
 /**
  * Validation rules for bash commands
@@ -1506,10 +1447,6 @@ export function validateBashCommand(
   };
 }
 
-// =============================================================================
-// File Content Validators
-// =============================================================================
-
 /**
  * Check if file content contains potential secrets
  */
@@ -1588,10 +1525,6 @@ export function validateFileSyntax(
   };
 }
 
-// =============================================================================
-// Path Validators
-// =============================================================================
-
 /**
  * Normalize file paths for consistent processing
  * Handles redundant slashes, trailing slashes, and relative path components
@@ -1620,7 +1553,7 @@ export function normalizeFilePath(filePath: string): string {
     }
   }
 
-  return resolved.join('/') ?? '/';
+  return resolved.join('/');
 }
 
 /**

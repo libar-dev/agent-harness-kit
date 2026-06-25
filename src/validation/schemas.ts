@@ -4,19 +4,9 @@
  * These schemas provide runtime validation for hook data contracts.
  * The library maintains a dual type system: manual TypeScript interfaces
  * in `src/types/index.ts` AND Zod-inferred types here. Both must stay in sync.
- *
- * Principles:
- * - Runtime validation at all boundaries
- * - No `any` types ever
- * - Use .safeParse() for validation
- * - Infer TypeScript types from schemas via z.infer
  */
 
 import { z } from 'zod';
-
-// =============================================================================
-// Shared Schemas
-// =============================================================================
 
 export const permissionModeSchema = z.enum([
   'default',
@@ -85,10 +75,6 @@ const taskLifecycleFields = {
   team_name: z.string().optional(),
 };
 
-// =============================================================================
-// Base Hook Schemas
-// =============================================================================
-
 /**
  * Base schema for all hook inputs - common fields present in every hook
  */
@@ -152,10 +138,6 @@ export const setupOutputSchema = baseHookOutputSchema.extend({
     })
     .optional(),
 });
-
-// =============================================================================
-// Hook Event Specific Schemas
-// =============================================================================
 
 /**
  * Schema for PreToolUse hook inputs
@@ -590,10 +572,6 @@ export const elicitationResultInputSchema = baseHookInputSchema.extend({
   elicitation_id: z.string().optional(),
 });
 
-// =============================================================================
-// Hook Output Schemas
-// =============================================================================
-
 /**
  * Schema for PreToolUse hook outputs - controls permission
  */
@@ -875,10 +853,6 @@ export const elicitationResultOutputSchema = baseHookOutputSchema.extend({
     .optional(),
 });
 
-// =============================================================================
-// Tool Input Schemas
-// =============================================================================
-
 /**
  * Schema for Bash tool inputs
  */
@@ -1076,10 +1050,6 @@ export const multiEditToolInputSchema = z.object({
   ),
 });
 
-// =============================================================================
-// Schema Collections & Type Exports
-// =============================================================================
-
 /**
  * Collection of all hook input schemas by event type
  */
@@ -1171,10 +1141,6 @@ export const toolInputSchemas = {
   TodoWrite: todoWriteToolInputSchema,
   Task: taskToolInputSchema,
 } as const;
-
-// =============================================================================
-// Hook Configuration Schemas (settings.json)
-// =============================================================================
 
 /**
  * Common fields shared by all hook handler types.
@@ -1336,10 +1302,6 @@ export const hooksConfigSchema = z.object({
   httpHookAllowedEnvVars: z.array(z.string()).optional(),
 });
 
-// =============================================================================
-// Transcript Parsing Schemas
-// =============================================================================
-
 export const rawTranscriptPayloadMetadataSchema = z.looseObject({
   type: z.string().optional(),
   sessionId: z.string().optional(),
@@ -1490,10 +1452,6 @@ export const transcriptParseDiagnosticsSchema = z.looseObject({
   issueCount: z.number().int().nonnegative(),
   issues: z.array(transcriptParseIssueSchema),
 });
-
-// =============================================================================
-// Inferred TypeScript Types (Schema-First Approach)
-// =============================================================================
 
 // Base types
 export type BaseHookInputSchema = z.infer<typeof baseHookInputSchema>;

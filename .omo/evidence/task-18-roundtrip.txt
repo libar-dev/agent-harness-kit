@@ -1,5 +1,0 @@
-Task 18 docs round-trip evidence
-
-- `tests/docs-round-trip.test.ts` no longer contains `Setup` or `MessageDisplay` skip rules.
-- Full suite result included: `tests/docs-round-trip.test.ts (72 tests) 65ms`.
-- The validation-skip list now only preserves the generic documented PreToolUse example that omits `tool_use_id`.

@@ -4,8 +4,6 @@ All 30 Claude Code hook events. For each event: when it fires, its input fields,
 
 **Source of truth for types:** [`src/types/index.ts`](../../src/types/index.ts)
 
----
-
 ## Table of Contents
 
 **Tool Lifecycle**
@@ -32,8 +30,6 @@ All 30 Claude Code hook events. For each event: when it fires, its input fields,
 **Compaction**
 - [PreCompact](#precompact) · [PostCompact](#postcompact)
 
----
-
 ## Base Fields
 
 Every event's input includes these fields (from `BaseHookInput`):
@@ -56,8 +52,6 @@ Base output fields (from `BaseHookOutput`, applicable to all events):
 | `stopReason` | `string` | — | Message shown when `continue` is false |
 | `suppressOutput` | `boolean` | `false` | Hide stdout from transcript mode |
 | `systemMessage` | `string` | — | Optional warning shown to the user |
-
----
 
 ## Tool Lifecycle
 
@@ -109,8 +103,6 @@ outputJson(HookOutputBuilder.permission('allow', 'Redirected to safe path', {
 }));
 ```
 
----
-
 ### PostToolUse
 
 **When it fires:** After a tool call succeeds. Used to run formatters, type-checkers, or feed observations back to Claude.
@@ -147,8 +139,6 @@ outputJson(HookOutputBuilder.feedback('Formatted file with Prettier'));
 outputJson(HookOutputBuilder.feedback('TypeScript errors found', tscOutput));
 ```
 
----
-
 ### PostToolUseFailure
 
 **When it fires:** After a tool call fails (error returned). Provides additional context about the failure to Claude.
@@ -168,8 +158,6 @@ outputJson(HookOutputBuilder.feedback('TypeScript errors found', tscOutput));
 **Output** (`PostToolUseFailureOutput`): Same shape as PostToolUse output.
 
 **Builder method:** `HookOutputBuilder.feedback(reason, additionalContext?)`
-
----
 
 ### PostToolBatch
 
@@ -197,8 +185,6 @@ outputJson(HookOutputBuilder.feedback('TypeScript errors found', tscOutput));
 ```
 
 **Builder method:** `HookOutputBuilder.batchBlock(reason)`
-
----
 
 ## Permissions
 
@@ -253,8 +239,6 @@ outputJson(HookOutputBuilder.denyPermission({ message: 'Not allowed in this proj
 outputJson(HookOutputBuilder.permissionRequestSetMode('auto', 'session'));
 ```
 
----
-
 ### PermissionDenied
 
 **When it fires:** When auto mode denies a tool call. The hook can tell Claude whether to retry.
@@ -282,8 +266,6 @@ outputJson(HookOutputBuilder.permissionRequestSetMode('auto', 'session'));
 ```
 
 **Builder method:** `HookOutputBuilder.permissionDeniedRetry(retry)`
-
----
 
 ## User Interaction
 
@@ -319,8 +301,6 @@ outputJson(HookOutputBuilder.addContext('Current date: 2026-04-24'));
 outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 ```
 
----
-
 ### UserPromptExpansion
 
 **When it fires:** Before a slash command or MCP prompt expands. Can add context or block expansion.
@@ -337,8 +317,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 
 **Output:** Same shape as `UserPromptSubmitOutput` but `hookEventName: 'UserPromptExpansion'`.
 
----
-
 ### Notification
 
 **When it fires:** When Claude Code sends a notification to the user (permission prompt, idle, auth, elicitation dialog).
@@ -354,8 +332,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 | `notification_type` | `'permission_prompt' \| 'idle_prompt' \| 'auth_success' \| 'elicitation_dialog'` | Type filter |
 
 **Output:** `NotificationOutput` — can add `additionalContext`. No decision control.
-
----
 
 ### MessageDisplay
 
@@ -388,8 +364,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 outputJson(HookOutputBuilder.messageDisplayContent(validatedInput.delta));
 ```
 
----
-
 ### Elicitation
 
 **When it fires:** When an MCP server requests user input via the elicitation protocol.
@@ -419,8 +393,6 @@ outputJson(HookOutputBuilder.messageDisplayContent(validatedInput.delta));
 
 **Builder method:** `HookOutputBuilder.elicitation(action, content?, hookEventName?)`
 
----
-
 ### ElicitationResult
 
 **When it fires:** After the user responds to an elicitation request. Allows the hook to observe or override the result.
@@ -436,8 +408,6 @@ outputJson(HookOutputBuilder.messageDisplayContent(validatedInput.delta));
 | `elicitation_id` | `string?` | Unique identifier |
 
 **Output:** Same as Elicitation. Pass `hookEventName: 'ElicitationResult'` to the builder.
-
----
 
 ## Subagents & Teams
 
@@ -458,8 +428,6 @@ outputJson(HookOutputBuilder.messageDisplayContent(validatedInput.delta));
 
 **Builder method:** `HookOutputBuilder.subagentContext(context)`
 
----
-
 ### SubagentStop
 
 **When it fires:** When a subagent completes (or is stopped).
@@ -469,8 +437,6 @@ outputJson(HookOutputBuilder.messageDisplayContent(validatedInput.delta));
 **Output** (`StopOutput`): Can block to provide additional context or prevent stopping.
 
 **Builder method:** `HookOutputBuilder.subagentStopContext(reason)`
-
----
 
 ### TeammateIdle
 
@@ -486,8 +452,6 @@ outputJson(HookOutputBuilder.messageDisplayContent(validatedInput.delta));
 **Output:** Exit code only — no JSON decision control. Non-zero exit stops the teammate.
 
 **Builder method:** `HookOutputBuilder.teammateStop(reason)` (sets `continue: false`)
-
----
 
 ### TaskCreated
 
@@ -507,8 +471,6 @@ outputJson(HookOutputBuilder.messageDisplayContent(validatedInput.delta));
 
 **Builder method:** `HookOutputBuilder.taskBlock(reason, 'TaskCreated')`
 
----
-
 ### TaskCompleted
 
 **When it fires:** When a task is being marked as completed. Exit code only (no JSON decision control).
@@ -516,8 +478,6 @@ outputJson(HookOutputBuilder.messageDisplayContent(validatedInput.delta));
 **Input** (`TaskCompletedInput`): Same fields as `TaskCreated`.
 
 **Builder method:** `HookOutputBuilder.taskBlock(reason, 'TaskCompleted')`
-
----
 
 ## Session Lifecycle
 
@@ -548,8 +508,6 @@ outputJson(HookOutputBuilder.messageDisplayContent(validatedInput.delta));
 outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
 ```
 
----
-
 ### SessionStart
 
 **When it fires:** At the beginning of every session (startup, resume, clear, compact).
@@ -568,8 +526,6 @@ outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
 
 **Builder method:** `HookOutputBuilder.sessionStartContext(context)`
 
----
-
 ### Stop
 
 **When it fires:** When Claude finishes responding (end of turn).
@@ -585,8 +541,6 @@ outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
 
 **Builder method:** `HookOutputBuilder.subagentStopContext(reason)` (sets `decision: 'block'`)
 
----
-
 ### StopFailure
 
 **When it fires:** When a turn ends due to an API error.
@@ -601,8 +555,6 @@ outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
 
 **Builder method:** `HookOutputBuilder.stopFailureLog(systemMessage?)`
 
----
-
 ### SessionEnd
 
 **When it fires:** When a session ends.
@@ -616,8 +568,6 @@ outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
 **Output:** None (observability only).
 
 **Total timeout:** `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` (default 1500 ms, max 60000 ms).
-
----
 
 ## Instructions & Config
 
@@ -638,8 +588,6 @@ outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
 
 **Output:** None (observability only).
 
----
-
 ### ConfigChange
 
 **When it fires:** When Claude Code settings change at runtime.
@@ -652,8 +600,6 @@ outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
 | `file_path` | `string?` | Changed file |
 
 **Output** (`ConfigChangeOutput`): `decision: 'block'` + `reason` to reject the change.
-
----
 
 ## File System
 
@@ -672,8 +618,6 @@ outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
 
 **Builder method:** `HookOutputBuilder.watchPaths(paths)`
 
----
-
 ### FileChanged
 
 **When it fires:** When a watched file changes (add, change, or unlink).
@@ -688,8 +632,6 @@ outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
 | `event` | `'change' \| 'add' \| 'unlink'` | Watcher event |
 
 **Output:** Same as `CwdChanged` — can update the watch path list.
-
----
 
 ### WorktreeCreate
 
@@ -707,8 +649,6 @@ outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
 
 **Builder method:** `HookOutputBuilder.worktreePath(absolutePath)`
 
----
-
 ### WorktreeRemove
 
 **When it fires:** When a git worktree is being removed.
@@ -720,8 +660,6 @@ outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
 | `worktree_path` | `string` | Absolute path to the worktree being removed |
 
 **Output:** None (observability only).
-
----
 
 ## Compaction
 
@@ -737,8 +675,6 @@ outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
 | `custom_instructions` | `string` | User-provided instructions (manual) or empty (auto) |
 
 **Output** (`PreCompactOutput`): `decision: 'block'` to prevent compaction, or `additionalContext` to inject into the compaction.
-
----
 
 ### PostCompact
 

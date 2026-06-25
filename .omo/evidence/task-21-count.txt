@@ -1,8 +1,0 @@
-Task 21 stale-count verification
-Date: 2026-06-25
-
-Command:
-grep -R -E "28 (hook|event|events)|all 28" README.md package.json CLAUDE.md docs/ --exclude-dir=upstream
-
-Result:
-No matches found.

@@ -13,18 +13,13 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ### Changed
 
-- Added `Setup` event coverage to the published Claude Code API parity notes.
-- Added `MessageDisplay` event coverage to the published Claude Code API parity notes.
-- Documented `SessionStart` input and output parity updates.
+- Published Claude Code API parity notes now cover `Setup` and `MessageDisplay`.
+- Documented `SessionStart` input/output parity updates.
 - Documented `Notification` and `StopFailure` enum expansions.
-- Documented `CommandHookHandler.args` support.
-- Documented `PostToolUseOutput.updatedToolOutput` support and `PostToolUseOutput.updatedMCPToolOutput` widening to `unknown`.
-- Documented `PostToolUseInput.duration_ms` and `PostToolUseFailureInput.duration_ms` support.
-- Documented `BaseHookInput.effort` and `BaseHookOutput.terminalSequence` support.
+- Documented support for `CommandHookHandler.args`, `PostToolUseOutput.updatedToolOutput`, `PostToolUseInput.duration_ms`, `PostToolUseFailureInput.duration_ms`, `BaseHookInput.effort`, and `BaseHookOutput.terminalSequence`.
+- Documented `PostToolUseOutput.updatedMCPToolOutput` widening to `unknown`.
 
 ## [0.1.0] - 2026-06-24
-
-First release candidate for `@libar-dev/agent-harness-kit`.
 
 This is the first release candidate under the new `agent-harness-kit` identity.
 The package was renamed from `@libar-dev/claude-code-hooks` to
@@ -51,7 +46,7 @@ The package was renamed from `@libar-dev/claude-code-hooks` to
 > pre-publication development milestone under the old `@libar-dev/claude-code-hooks`
 > package name.
 
-Pre-publication development milestone for `@libar-dev/claude-code-hooks` before the first public npm release.
+Development milestone for `@libar-dev/claude-code-hooks` before the first public npm release.
 
 ### Added
 

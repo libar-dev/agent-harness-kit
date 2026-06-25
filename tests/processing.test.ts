@@ -16,6 +16,7 @@ import {
   parseJsonlContent,
   parseSessionContent,
 } from '../src/processing/internal.js';
+import { imagePlaceholder } from '../src/processing/image-placeholder.js';
 import { redactRetainedToolResultText } from '../src/processing/tool-result-redaction.js';
 import { must } from './test-utils.js';
 
@@ -30,10 +31,6 @@ function parseJsonObject(raw: string): Record<string, unknown> {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
-
-// ---------------------------------------------------------------------------
-// Fixtures — realistic JSONL lines from Claude Code sessions
-// ---------------------------------------------------------------------------
 
 const USER_TEXT_LINE = JSON.stringify({
   type: 'user',
@@ -229,7 +226,6 @@ function makeImageLine(
   });
 }
 
-// Build full JSONL content
 const FULL_SESSION_JSONL = [
   USER_TEXT_LINE,
   ASSISTANT_TOOL_USE_LINE,
@@ -241,10 +237,6 @@ const FULL_SESSION_JSONL = [
   THINKING_LINE,
   RESULT_LINE,
 ].join('\n');
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('Processing Pipeline', () => {
   describe('parseJsonlContent', () => {
@@ -389,6 +381,16 @@ describe('Processing Pipeline', () => {
   });
 
   describe('denoiseSession', () => {
+    it('imagePlaceholder only includes safe media_type metadata', () => {
+      expect(
+        imagePlaceholder({ media_type: 'image/png', data: 'secret' })
+      ).toBe('[Image: image/png]');
+      expect(imagePlaceholder({ media_type: 'image/png;data=secret' })).toBe(
+        '[Image]'
+      );
+      expect(imagePlaceholder([{ media_type: 'image/png' }])).toBe('[Image]');
+    });
+
     it('should extract user text messages', () => {
       const raw = parseSessionContent('test', FULL_SESSION_JSONL);
       const clean = denoiseSession(raw);
@@ -504,7 +506,6 @@ describe('Processing Pipeline', () => {
       );
       expect(withTools.length).toBeGreaterThanOrEqual(1);
 
-      // Check Read tool summary format
       const readCall = withTools.find(m =>
         m.toolCalls?.some(tc => tc.includes('Read('))
       );
@@ -517,7 +518,6 @@ describe('Processing Pipeline', () => {
       const raw = parseSessionContent('test', FULL_SESSION_JSONL);
       const clean = denoiseSession(raw);
 
-      // The user message with tool_result (file content) should be filtered
       const allText = clean.messages.map(m => m.text).join(' ');
       expect(allText).not.toContain('Router()');
       expect(allText).not.toContain('getUsers');
@@ -565,7 +565,7 @@ describe('Processing Pipeline', () => {
 
       const allText = clean.messages.map(m => m.text).join(' ');
       expect(allText).not.toContain('[thinking]');
-      expect(allText).toContain('recommendation'); // text block preserved
+      expect(allText).toContain('recommendation');
     });
 
     it('should include thinking blocks when configured', () => {
@@ -616,10 +616,6 @@ describe('Processing Pipeline', () => {
       expect(toolCalls[0]).toContain('Bash(');
       expect(toolCalls[0]).toContain('pnpm run test');
     });
-
-    // -----------------------------------------------------------------------
-    // Coverage for tools added after the original webui-derived implementation
-    // -----------------------------------------------------------------------
 
     function makeToolUseLine(
       name: string,
@@ -735,10 +731,6 @@ describe('Processing Pipeline', () => {
         'SomeFutureTool(thing: value)'
       );
     });
-
-    // -----------------------------------------------------------------------
-    // Tool result body preservation (ported from claude-code-webui)
-    // -----------------------------------------------------------------------
 
     it('captures tool_result content with resolved tool name', () => {
       const session = [
@@ -1010,10 +1002,6 @@ describe('Processing Pipeline', () => {
       expect(result.content).toContain('50 more lines truncated');
     });
 
-    // -----------------------------------------------------------------------
-    // Structured block extraction (live-ingest / DB ingestion path)
-    // -----------------------------------------------------------------------
-
     it('extractBlocks emits typed blocks with stable IDs', () => {
       const session = [
         JSON.stringify({
@@ -1062,7 +1050,6 @@ describe('Processing Pipeline', () => {
       const raw = parseSessionContent('s1', session);
       const blocks = extractBlocks(raw);
 
-      // Expect: user_text, assistant_text, tool_use, tool_result (4 blocks)
       expect(blocks.map(b => b.type)).toEqual([
         'user_text',
         'assistant_text',
@@ -1070,13 +1057,11 @@ describe('Processing Pipeline', () => {
         'tool_result',
       ]);
 
-      // Stable IDs: messageUuid:blockIndex
       expect(must(blocks[0]).id).toBe('msg-1:0');
       expect(must(blocks[1]).id).toBe('msg-2:0'); // text is index 0
       expect(must(blocks[2]).id).toBe('msg-2:1'); // tool_use is index 1
       expect(must(blocks[3]).id).toBe('msg-3:0');
 
-      // Re-running produces identical IDs (idempotent for upsert)
       const blocks2 = extractBlocks(raw);
       expect(blocks2.map(b => b.id)).toEqual(blocks.map(b => b.id));
     });
@@ -1253,7 +1238,6 @@ describe('Processing Pipeline', () => {
         expect(tu.summary).toBe(
           'mcp:claude-in-chrome.navigate(url: https://x.test)'
         );
-        // Original raw name preserved on toolName for filtering
         expect(tu.toolName).toBe('mcp__claude-in-chrome__navigate');
       }
     });
@@ -1635,7 +1619,6 @@ describe('Processing Pipeline', () => {
       ];
       const jsonl = toJsonlBlocks(blocks);
       const lines = jsonl.split('\n');
-      // Two records + trailing empty (from final \n)
       expect(lines).toHaveLength(3);
       expect(lines[2]).toBe('');
       const parsed = parseJsonObject(must(lines[0]));
@@ -1682,7 +1665,6 @@ describe('Processing Pipeline', () => {
       const raw = parseSessionContent('t', session);
       const clean = denoiseSession(raw, { includeToolResults: false });
       const userMsg = clean.messages.find(m => m.role === 'user');
-      // With no text and no results, the user message gets filtered entirely
       expect(userMsg).toBeUndefined();
     });
   });

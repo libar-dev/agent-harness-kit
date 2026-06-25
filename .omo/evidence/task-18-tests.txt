@@ -1,6 +1,0 @@
-Task 18 verification
-
-- Updated `tests/validation.test.ts` with coverage for Setup, MessageDisplay, SessionStart optional fields, SessionStart output parity fields, common `effort`, common `terminalSequence`, `duration_ms` on PostToolUse/PostToolUseFailure, `updatedToolOutput`, widened `updatedMCPToolOutput`, and command handler `args`.
-- Updated `tests/docs-round-trip.test.ts` to stop skipping upstream `Setup` and `MessageDisplay` JSON examples.
-- `pnpm run test:run` passed: `26 passed`, `1185 passed`, `Type Errors no errors`.
-- `pnpm run type-check` passed with no output after `tsc --noEmit`.

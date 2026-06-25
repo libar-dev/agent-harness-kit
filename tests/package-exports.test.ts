@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as rootExports from '../src/index.js';
+import * as lifecycleExports from '../src/lifecycle/index.js';
 import * as processingExports from '../src/processing/index.js';
 
 const repoRoot = process.cwd();
@@ -137,6 +138,11 @@ const removedImplementationExports = [
   'writeMarker',
 ] as const;
 
+const expectedLifecycleHandlerExports = [
+  'handleSetup',
+  'handleMessageDisplay',
+] as const;
+
 describe('package export contract', () => {
   it('defines the documented root and barrel exports', async () => {
     const pkg = await readPackageJson();
@@ -251,6 +257,13 @@ describe('package export contract', () => {
 
     for (const exportName of removedImplementationExports) {
       expect(processingExports).not.toHaveProperty(exportName);
+    }
+  });
+
+  it('exposes lifecycle handlers from the lifecycle barrel', () => {
+    for (const exportName of expectedLifecycleHandlerExports) {
+      expect(lifecycleExports).toHaveProperty(exportName);
+      expect(typeof lifecycleExports[exportName]).toBe('function');
     }
   });
 

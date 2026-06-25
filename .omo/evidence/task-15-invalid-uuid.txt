@@ -1,7 +1,0 @@
-Command: pnpm exec tsx src/lifecycle/message-display.ts
-Input: {"hook_event_name":"MessageDisplay","session_id":"test-display","transcript_path":"/tmp/test.json","cwd":"/tmp","turn_id":"not-a-uuid","message_id":"123e4567-e89b-42d3-a456-426614174001","index":0,"final":false,"delta":"hello"}
-Exit code: 1
-Stdout: <empty>
-Stderr:
-[2026-06-25T15:32:28.851Z] ERROR: Hook execution failed
-Error: Failed to parse hook input JSON: Hook input validation failed for MessageDisplay

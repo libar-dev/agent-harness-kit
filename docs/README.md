@@ -2,8 +2,6 @@
 
 `@libar-dev/agent-harness-kit` developer documentation.
 
----
-
 ## Guides — Start Here
 
 | Guide | What it covers |
@@ -13,8 +11,6 @@
 | [Configuring settings.json](guides/configuring-settings-json.md) | 5 handler types, matcher syntax, `if`/`timeout`/`async` fields |
 | [Cookbook](guides/cookbook.md) | 10 copy-pasteable recipes for common hook patterns |
 | [Troubleshooting](guides/troubleshooting.md) | Hook not firing, exit codes, debug logging, Zod errors |
-
----
 
 ## API Reference
 
@@ -26,18 +22,13 @@
 | [Types](reference/types.md) | Full type catalogue — inputs, outputs, tools, config |
 | [Environment Variables](reference/environment-variables.md) | Every `CLAUDE_HOOK_*` variable with type, default, and description |
 
----
-
 ## Architecture & Internal
 
 | Doc | Audience |
 |-----|----------|
 | [API Update Checklist](internal/api-update-checklist.md) | Maintainer checklist for tracking Claude Code API changes |
-| [Prometheus Implementation Context](internal/prometheus-implementation-context.md) | Current upstream-gap context for implementation planning |
 | [Export Sessions Script](internal/export-sessions.md) | How the export-sessions utility works |
 | [Tail Sessions Script](internal/tail-session.md) | How the tail-session CLI works (modes, flags, marker offsets) |
-
----
 
 ## Upstream Reference (Mirrored)
 

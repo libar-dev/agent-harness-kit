@@ -1,8 +1,0 @@
-Command: pnpm exec tsx -e "import { classifyNotification } from './src/lifecycle/notification-handler.ts'; ..."
-Output:
-{
-  "permission_prompt": "permission",
-  "idle_prompt": "waiting",
-  "auth_success": "info",
-  "elicitation_dialog": "waiting"
-}

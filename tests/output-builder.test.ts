@@ -27,7 +27,7 @@ describe('HookOutputBuilder parity helpers', () => {
     expect(messageDisplayOutputSchema.safeParse(output).success).toBe(true);
   });
 
-  it('sessionStartContext returns valid SessionStartOutput with new fields', () => {
+  it('sessionStartContext returns valid SessionStartOutput with metadata fields', () => {
     const output = HookOutputBuilder.sessionStartContext({
       sessionTitle: 't',
       watchPaths: ['/a'],
@@ -41,6 +41,31 @@ describe('HookOutputBuilder parity helpers', () => {
     expect(output.hookSpecificOutput?.reloadSkills).toBe(true);
     expect(output.hookSpecificOutput?.initialUserMessage).toBe('hi');
     expect(sessionStartOutputSchema.safeParse(output).success).toBe(true);
+  });
+
+  it('sessionStartContext preserves context and explicit reloadSkills false', () => {
+    const output = HookOutputBuilder.sessionStartContext({
+      context: 'Loaded project state',
+      reloadSkills: false,
+    });
+
+    expect(output.hookSpecificOutput).toEqual({
+      hookEventName: 'SessionStart',
+      additionalContext: 'Loaded project state',
+      reloadSkills: false,
+    });
+    expect(sessionStartOutputSchema.safeParse(output).success).toBe(true);
+  });
+
+  it('taskBlock can target TaskCreated output explicitly', () => {
+    const output = HookOutputBuilder.taskBlock(
+      'Task needs more detail',
+      'TaskCreated'
+    );
+
+    expect(output.continue).toBe(false);
+    expect(output.stopReason).toBe('Task needs more detail');
+    expect(output.hookSpecificOutput.hookEventName).toBe('TaskCreated');
   });
 
   it('feedback includes updatedToolOutput when provided', () => {

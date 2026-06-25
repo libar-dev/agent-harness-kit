@@ -1,5 +1,0 @@
-Command: grep -n '"version"' package.json
-3:  "version": "0.1.0",
-
-Command: GIT_MASTER=1 git diff --name-only -- package.json
-(no output)

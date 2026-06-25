@@ -1,16 +1,3 @@
-/**
- * Test utilities for Claude Code hooks
- *
- * Following established testing patterns:
- * - Two-step type assertion for handling unknown types
- * - Incremental test development (one test at a time)
- * - Pre-built test helpers for common patterns
- * - Mock handling patterns
- *
- * CRITICAL: Write only ONE test at a time during development.
- * This prevents API timeouts and complex debugging.
- */
-
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -57,10 +44,6 @@ import {
 } from '../src/validation/index.js';
 import { type HookInputSchema } from '../src/validation/schemas.js';
 
-// =============================================================================
-// Test Data Factories
-// =============================================================================
-
 export function must<T>(value: T | undefined | null, msg?: string): T {
   if (value === undefined || value === null) {
     throw new Error(msg ?? 'expected value to be defined');
@@ -68,9 +51,6 @@ export function must<T>(value: T | undefined | null, msg?: string): T {
   return value;
 }
 
-/**
- * Create a minimal valid hook base input for testing
- */
 type PermissionMode =
   | 'default'
   | 'plan'
@@ -104,9 +84,6 @@ export function createTestHookBase(
   };
 }
 
-/**
- * Create a complete PreToolUse hook input for testing
- */
 export function createPreToolUseInput(
   toolName: string,
   toolInput: Record<string, unknown>,
@@ -121,9 +98,6 @@ export function createPreToolUseInput(
   };
 }
 
-/**
- * Create a complete PostToolUse hook input for testing
- */
 export function createPostToolUseInput(
   toolName: string,
   toolInput: Record<string, unknown>,
@@ -140,13 +114,6 @@ export function createPostToolUseInput(
   };
 }
 
-// =============================================================================
-// Lifecycle Event Factories
-// =============================================================================
-
-/**
- * Create a UserPromptSubmit hook input for testing
- */
 export function createUserPromptSubmitInput(
   prompt: string = 'test prompt',
   overrides: Partial<UserPromptSubmitInputSchema> = {}
@@ -159,9 +126,6 @@ export function createUserPromptSubmitInput(
   };
 }
 
-/**
- * Create a UserPromptExpansion hook input for testing
- */
 export function createUserPromptExpansionInput(
   overrides: Partial<UserPromptExpansionInputSchema> = {}
 ): UserPromptExpansionInputSchema {
@@ -177,9 +141,6 @@ export function createUserPromptExpansionInput(
   };
 }
 
-/**
- * Create a SessionStart hook input for testing
- */
 export function createSessionStartInput(
   overrides: Partial<SessionStartInputSchema> = {}
 ): SessionStartInputSchema {
@@ -218,9 +179,6 @@ export function createMessageDisplayInput(
   };
 }
 
-/**
- * Create a SessionEnd hook input for testing
- */
 export function createSessionEndInput(
   reason: SessionEndInputSchema['reason'] = 'other',
   overrides: Partial<SessionEndInputSchema> = {}
@@ -233,9 +191,6 @@ export function createSessionEndInput(
   };
 }
 
-/**
- * Create a Notification hook input for testing
- */
 export function createNotificationInput(
   message: string,
   notificationType: NotificationInputSchema['notification_type'] = 'idle_prompt',
@@ -250,9 +205,6 @@ export function createNotificationInput(
   };
 }
 
-/**
- * Create a Stop hook input for testing
- */
 export function createStopInput(
   overrides: Partial<StopInputSchema> = {}
 ): StopInputSchema {
@@ -265,9 +217,6 @@ export function createStopInput(
   };
 }
 
-/**
- * Create a StopFailure hook input for testing
- */
 export function createStopFailureInput(
   overrides: Partial<StopFailureInputSchema> = {}
 ): StopFailureInputSchema {
@@ -281,9 +230,6 @@ export function createStopFailureInput(
   };
 }
 
-/**
- * Create a SubagentStop hook input for testing
- */
 export function createSubagentStopInput(
   overrides: Partial<SubagentStopInputSchema> = {}
 ): SubagentStopInputSchema {
@@ -299,9 +245,6 @@ export function createSubagentStopInput(
   };
 }
 
-/**
- * Create a PreCompact hook input for testing
- */
 export function createPreCompactInput(
   overrides: Partial<PreCompactInputSchema> = {}
 ): PreCompactInputSchema {
@@ -314,9 +257,6 @@ export function createPreCompactInput(
   };
 }
 
-/**
- * Create a PostCompact hook input for testing
- */
 export function createPostCompactInput(
   overrides: Partial<PostCompactInputSchema> = {}
 ): PostCompactInputSchema {
@@ -329,9 +269,6 @@ export function createPostCompactInput(
   };
 }
 
-/**
- * Create a PermissionRequest hook input for testing
- */
 export function createPermissionRequestInput(
   toolName: string,
   toolInput: Record<string, unknown>,
@@ -346,9 +283,6 @@ export function createPermissionRequestInput(
   };
 }
 
-/**
- * Create a PermissionDenied hook input for testing
- */
 export function createPermissionDeniedInput(
   toolName: string = 'Bash',
   toolInput: Record<string, unknown> = { command: 'rm -rf /tmp/build' },
@@ -368,9 +302,6 @@ export function createPermissionDeniedInput(
   };
 }
 
-/**
- * Create a PostToolUseFailure hook input for testing
- */
 export function createPostToolUseFailureInput(
   toolName: string,
   toolInput: Record<string, unknown>,
@@ -388,9 +319,6 @@ export function createPostToolUseFailureInput(
   };
 }
 
-/**
- * Create a PostToolBatch hook input for testing
- */
 export function createPostToolBatchInput(
   overrides: Partial<PostToolBatchInputSchema> = {}
 ): PostToolBatchInputSchema {
@@ -409,9 +337,6 @@ export function createPostToolBatchInput(
   };
 }
 
-/**
- * Create a SubagentStart hook input for testing
- */
 export function createSubagentStartInput(
   overrides: Partial<SubagentStartInputSchema> = {}
 ): SubagentStartInputSchema {
@@ -424,9 +349,6 @@ export function createSubagentStartInput(
   };
 }
 
-/**
- * Create a TeammateIdle hook input for testing
- */
 export function createTeammateIdleInput(
   overrides: Partial<TeammateIdleInputSchema> = {}
 ): TeammateIdleInputSchema {
@@ -439,9 +361,6 @@ export function createTeammateIdleInput(
   };
 }
 
-/**
- * Create a TaskCreated hook input for testing
- */
 export function createTaskCreatedInput(
   overrides: Partial<TaskCreatedInputSchema> = {}
 ): TaskCreatedInputSchema {
@@ -454,9 +373,6 @@ export function createTaskCreatedInput(
   };
 }
 
-/**
- * Create a TaskCompleted hook input for testing
- */
 export function createTaskCompletedInput(
   overrides: Partial<TaskCompletedInputSchema> = {}
 ): TaskCompletedInputSchema {
@@ -469,9 +385,6 @@ export function createTaskCompletedInput(
   };
 }
 
-/**
- * Create an InstructionsLoaded hook input for testing
- */
 export function createInstructionsLoadedInput(
   overrides: Partial<InstructionsLoadedInputSchema> = {}
 ): InstructionsLoadedInputSchema {
@@ -485,9 +398,6 @@ export function createInstructionsLoadedInput(
   };
 }
 
-/**
- * Create a ConfigChange hook input for testing
- */
 export function createConfigChangeInput(
   overrides: Partial<ConfigChangeInputSchema> = {}
 ): ConfigChangeInputSchema {
@@ -500,9 +410,6 @@ export function createConfigChangeInput(
   };
 }
 
-/**
- * Create a CwdChanged hook input for testing
- */
 export function createCwdChangedInput(
   overrides: Partial<CwdChangedInputSchema> = {}
 ): CwdChangedInputSchema {
@@ -515,9 +422,6 @@ export function createCwdChangedInput(
   };
 }
 
-/**
- * Create a FileChanged hook input for testing
- */
 export function createFileChangedInput(
   overrides: Partial<FileChangedInputSchema> = {}
 ): FileChangedInputSchema {
@@ -530,9 +434,6 @@ export function createFileChangedInput(
   };
 }
 
-/**
- * Create a WorktreeCreate hook input for testing
- */
 export function createWorktreeCreateInput(
   overrides: Partial<WorktreeCreateInputSchema> = {}
 ): WorktreeCreateInputSchema {
@@ -544,9 +445,6 @@ export function createWorktreeCreateInput(
   };
 }
 
-/**
- * Create a WorktreeRemove hook input for testing
- */
 export function createWorktreeRemoveInput(
   overrides: Partial<WorktreeRemoveInputSchema> = {}
 ): WorktreeRemoveInputSchema {
@@ -558,9 +456,6 @@ export function createWorktreeRemoveInput(
   };
 }
 
-/**
- * Create an Elicitation hook input for testing
- */
 export function createElicitationInput(
   overrides: Partial<ElicitationInputSchema> = {}
 ): ElicitationInputSchema {
@@ -580,9 +475,6 @@ export function createElicitationInput(
   };
 }
 
-/**
- * Create an ElicitationResult hook input for testing
- */
 export function createElicitationResultInput(
   overrides: Partial<ElicitationResultInputSchema> = {}
 ): ElicitationResultInputSchema {
@@ -598,13 +490,6 @@ export function createElicitationResultInput(
   };
 }
 
-// =============================================================================
-// Tool-Specific Test Factories
-// =============================================================================
-
-/**
- * Create a valid Bash tool input for testing
- */
 export function createBashToolInput(
   command: string,
   overrides: Partial<BashToolInputSchema> = {}
@@ -615,9 +500,6 @@ export function createBashToolInput(
   };
 }
 
-/**
- * Create a complete PreToolUse input for Bash tool testing
- */
 export function createBashPreToolUseInput(
   command: string,
   bashOverrides: Partial<BashToolInputSchema> = {},
@@ -630,9 +512,6 @@ export function createBashPreToolUseInput(
   );
 }
 
-/**
- * Create a valid Write tool input for testing
- */
 export function createWriteToolInput(
   filePath: string,
   content: string,
@@ -645,9 +524,6 @@ export function createWriteToolInput(
   };
 }
 
-/**
- * Create a complete PreToolUse input for Write tool testing
- */
 export function createWritePreToolUseInput(
   filePath: string,
   content: string,
@@ -661,9 +537,6 @@ export function createWritePreToolUseInput(
   );
 }
 
-/**
- * Create a valid Edit tool input for testing
- */
 export function createEditToolInput(
   filePath: string,
   oldString: string,
@@ -679,9 +552,6 @@ export function createEditToolInput(
   };
 }
 
-/**
- * Create a valid Read tool input for testing
- */
 export function createReadToolInput(
   filePath: string,
   overrides: Partial<ReadToolInputSchema> = {}
@@ -692,9 +562,6 @@ export function createReadToolInput(
   };
 }
 
-/**
- * Create a valid WebFetch tool input for testing
- */
 export function createWebFetchToolInput(
   url: string,
   prompt: string,
@@ -703,9 +570,6 @@ export function createWebFetchToolInput(
   return { url, prompt, ...overrides };
 }
 
-/**
- * Create a valid WebSearch tool input for testing
- */
 export function createWebSearchToolInput(
   query: string,
   overrides: Partial<WebSearchToolInputSchema> = {}
@@ -713,9 +577,6 @@ export function createWebSearchToolInput(
   return { query, ...overrides };
 }
 
-/**
- * Create a valid Task tool input for testing
- */
 export function createTaskToolInput(
   prompt: string,
   overrides: Partial<TaskToolInputSchema> = {}
@@ -723,14 +584,6 @@ export function createTaskToolInput(
   return { prompt, ...overrides };
 }
 
-// =============================================================================
-// Mock Helpers
-// =============================================================================
-
-/**
- * Create a mock for stdin input in hook testing
- * Simulates JSON input via stdin
- */
 export function createStdinMock(input: HookInputSchema): {
   mockStdin: () => void;
   restoreStdin: () => void;
@@ -761,10 +614,6 @@ export function createStdinMock(input: HookInputSchema): {
   return { mockStdin, restoreStdin };
 }
 
-/**
- * Create a mock for stdout output in hook testing
- * Captures JSON output written to stdout
- */
 function invokeCallback(callback: unknown, ...args: unknown[]): void {
   if (typeof callback === 'function') {
     Reflect.apply(callback, undefined, args);
@@ -818,14 +667,6 @@ export function createStdoutMock(): {
   return { mockStdout, restoreStdout, getOutput, getOutputAsJson };
 }
 
-// =============================================================================
-// Validation Test Helpers
-// =============================================================================
-
-/**
- * Test helper for validating that a function throws a specific error
- * Following parent project's error testing patterns
- */
 export function expectValidationError(
   testFn: () => void,
   expectedCode: string,
@@ -854,10 +695,6 @@ export function expectValidationError(
   }
 }
 
-/**
- * Create test cases for common validation scenarios
- * Helps with systematic testing of validation rules
- */
 export function createValidationTestCases<T>(
   validInput: T,
   invalidCases: Array<{
@@ -896,19 +733,12 @@ export function createValidationTestCases<T>(
   return testCases;
 }
 
-// =============================================================================
-// File System Test Helpers
-// =============================================================================
-
-/**
- * Create temporary test files for file-related hook testing
- */
 export function createTempTestFile(content: string = 'test content'): {
   filePath: string;
   cleanup: () => void;
 } {
   const tempDir = os.tmpdir();
-  const fileName = `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.txt`;
+  const fileName = `test-${Date.now()}-${Math.random().toString(36).slice(2, 11)}.txt`;
   const filePath = path.join(tempDir, fileName);
 
   fs.writeFileSync(filePath, content);
@@ -924,22 +754,10 @@ export function createTempTestFile(content: string = 'test content'): {
   return { filePath, cleanup };
 }
 
-// =============================================================================
-// Async Test Helpers
-// =============================================================================
-
-/**
- * Wait for a specified amount of time
- * Useful for testing timeouts and async behavior
- */
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/**
- * Create a promise that can be resolved externally
- * Useful for testing async coordination patterns
- */
 export function createDeferred<T>(): {
   promise: Promise<T>;
   resolve: (value: T) => void;
@@ -956,26 +774,17 @@ export function createDeferred<T>(): {
   return { promise, resolve, reject };
 }
 
-// =============================================================================
-// Environment Test Helpers
-// =============================================================================
-
-/**
- * Temporarily set environment variables for testing
- */
 export function withEnvVars<T>(
   envVars: Record<string, string>,
   testFn: () => T | Promise<T>
 ): Promise<T> {
   const originalEnv = { ...process.env };
 
-  // Set test env vars
   for (const [key, value] of Object.entries(envVars)) {
     process.env[key] = value;
   }
 
   const cleanup = (): void => {
-    // Restore original env
     process.env = originalEnv;
   };
 
@@ -994,9 +803,6 @@ export function withEnvVars<T>(
   }
 }
 
-/**
- * Set debug mode for testing hook behavior
- */
 export function withDebugMode<T>(testFn: () => T | Promise<T>): Promise<T> {
   return withEnvVars({ CLAUDE_HOOK_DEBUG: 'true' }, testFn);
 }

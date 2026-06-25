@@ -113,13 +113,15 @@ const unexpectedParseSkips = parseSkips.filter(
   block => !classifyBlock(block.source, EXPECTED_PARSE_SKIPS)
 );
 
-const validationCandidates = parsedBlocks.filter(block => {
-  if (!isRecord(block.value)) {
-    return false;
-  }
+const validationCandidates = parsedBlocks.filter(
+  (block): block is ParsedJsonBlock & { value: Record<string, unknown> } => {
+    if (!isRecord(block.value)) {
+      return false;
+    }
 
-  return 'hook_event_name' in block.value || 'hooks' in block.value;
-});
+    return 'hook_event_name' in block.value || 'hooks' in block.value;
+  }
+);
 
 const classifiedValidationSkips: ClassifiedJsonBlock[] =
   validationCandidates.flatMap(block => {
@@ -149,12 +151,6 @@ describe('official docs JSON examples', () => {
   it.each(validationBlocks)(
     'validates hook input or config example $key',
     block => {
-      expect(isRecord(block.value)).toBe(true);
-
-      if (!isRecord(block.value)) {
-        throw new Error(`Expected ${block.key} to parse to an object`);
-      }
-
       if ('hook_event_name' in block.value) {
         expect(() => validateHookInput(block.value)).not.toThrow();
         return;

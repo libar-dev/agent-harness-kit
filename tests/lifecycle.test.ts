@@ -21,11 +21,11 @@ function createBaseHookPayload(): BaseHookPayload {
   };
 }
 
-async function runLifecycleHook(
+function runLifecycleHook(
   script: string,
   input: Record<string, unknown>
 ): Promise<HookCliResult> {
-  return await new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--import', 'tsx', script], {
       cwd: process.cwd(),
       env: process.env,

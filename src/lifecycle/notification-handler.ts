@@ -1,15 +1,5 @@
 #!/usr/bin/env tsx
 
-/**
- * Notification Handler Hook
- *
- * This hook handles Claude Code notifications by:
- * - Sending desktop notifications when Claude needs attention
- * - Logging notifications for audit purposes
- * - Supporting custom notification backends (email, Slack, etc.)
- * - Providing different notification styles based on message type
- */
-
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
@@ -24,21 +14,12 @@ import type { NotificationInput } from '../types/index.js';
 
 const execFileAsync = promisify(execFile);
 
-/**
- * Configuration for notification handling
- */
 interface NotificationConfig {
-  /** Whether to show desktop notifications */
   desktop: boolean;
-  /** Whether to log notifications to console */
   console: boolean;
-  /** Whether to send notifications in CI environments */
   enableInCI: boolean;
-  /** Custom notification command */
   customCommand?: string;
-  /** Slack webhook URL */
   slackWebhook?: string;
-  /** Email settings */
   email?: {
     to: string;
     from?: string;
@@ -46,9 +27,6 @@ interface NotificationConfig {
   };
 }
 
-/**
- * Notification data structure
- */
 interface NotificationData {
   title: string;
   message: string;
@@ -56,9 +34,6 @@ interface NotificationData {
   icon: string;
 }
 
-/**
- * Get notification configuration from environment
- */
 function getNotificationConfig(): NotificationConfig {
   return {
     desktop: process.env['CLAUDE_HOOK_DESKTOP_NOTIFICATIONS'] !== 'false',
@@ -87,24 +62,19 @@ function getNotificationConfig(): NotificationConfig {
   };
 }
 
-/**
- * Main notification handling logic
- */
 async function handleNotification(input: NotificationInput): Promise<void> {
-  const { message, notification_type, session_id: _session_id } = input;
+  const { message, notification_type } = input;
   const config = getNotificationConfig();
 
   logInfo(
     `Notification received: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`
   );
 
-  // Skip notifications in CI unless explicitly enabled
   if (isCI() && !config.enableInCI) {
     logDebug('Skipping notification in CI environment');
     return;
   }
 
-  // Determine notification type and priority
   const notificationType = classifyNotification(message, notification_type);
   const notification = {
     title: getNotificationTitle(notificationType),
@@ -115,35 +85,28 @@ async function handleNotification(input: NotificationInput): Promise<void> {
 
   logDebug('Notification details', notification);
 
-  // Send notifications through configured channels
   const promises: Promise<void>[] = [];
 
-  // Console notification
   if (config.console) {
     promises.push(sendConsoleNotification(notification));
   }
 
-  // Desktop notification
   if (config.desktop) {
     promises.push(sendDesktopNotification(notification));
   }
 
-  // Custom command notification
   if (config.customCommand) {
     promises.push(sendCustomNotification(notification, config.customCommand));
   }
 
-  // Slack notification
   if (config.slackWebhook) {
     promises.push(sendSlackNotification(notification, config.slackWebhook));
   }
 
-  // Email notification
   if (config.email) {
     promises.push(sendEmailNotification(notification, config.email));
   }
 
-  // Execute all notifications in parallel
   try {
     await Promise.all(promises);
     logDebug('All notifications sent successfully');
@@ -152,9 +115,6 @@ async function handleNotification(input: NotificationInput): Promise<void> {
   }
 }
 
-/**
- * Classify notification type based on message content
- */
 function classifyNotification(
   message: string,
   notificationType?: NotificationInput['notification_type']
@@ -179,19 +139,17 @@ function classifyNotification(
 
   if (lowerMessage.includes('permission') || lowerMessage.includes('approve')) {
     return 'permission';
-  } else if (
-    lowerMessage.includes('waiting') ||
-    lowerMessage.includes('input')
-  ) {
-    return 'waiting';
-  } else if (
-    lowerMessage.includes('error') ||
-    lowerMessage.includes('failed')
-  ) {
-    return 'error';
-  } else {
-    return 'info';
   }
+
+  if (lowerMessage.includes('waiting') || lowerMessage.includes('input')) {
+    return 'waiting';
+  }
+
+  if (lowerMessage.includes('error') || lowerMessage.includes('failed')) {
+    return 'error';
+  }
+
+  return 'info';
 }
 
 function assertNeverNotificationType(
@@ -200,9 +158,6 @@ function assertNeverNotificationType(
   throw new Error(`Unhandled notification type: ${String(notificationType)}`);
 }
 
-/**
- * Get notification title based on type
- */
 function getNotificationTitle(type: string): string {
   switch (type) {
     case 'permission':
@@ -217,16 +172,11 @@ function getNotificationTitle(type: string): string {
   }
 }
 
-/**
- * Format notification message for display
- */
 function formatNotificationMessage(message: string, type: string): string {
-  // Truncate very long messages
   if (message.length > 200) {
     message = message.substring(0, 197) + '...';
   }
 
-  // Add context based on type
   switch (type) {
     case 'permission':
       return `${message}\n\nClick to return to Claude Code.`;
@@ -239,9 +189,6 @@ function formatNotificationMessage(message: string, type: string): string {
   }
 }
 
-/**
- * Get notification priority
- */
 function getNotificationPriority(type: string): 'low' | 'normal' | 'high' {
   switch (type) {
     case 'permission':
@@ -254,9 +201,6 @@ function getNotificationPriority(type: string): 'low' | 'normal' | 'high' {
   }
 }
 
-/**
- * Get notification icon based on type
- */
 function getNotificationIcon(type: string): string {
   switch (type) {
     case 'permission':
@@ -270,9 +214,6 @@ function getNotificationIcon(type: string): string {
   }
 }
 
-/**
- * Send console notification
- */
 async function sendConsoleNotification(
   notification: NotificationData
 ): Promise<void> {
@@ -282,34 +223,27 @@ async function sendConsoleNotification(
   console.error(formattedMessage);
 }
 
-/**
- * Send desktop notification using system notification service
- */
 async function sendDesktopNotification(
   notification: NotificationData
 ): Promise<void> {
   try {
-    // Try different notification systems based on platform
     const platform = process.platform;
 
     if (platform === 'darwin') {
-      // macOS - use osascript
       await execFileAsync('osascript', [
         '-e',
         `display notification "${notification.message}" with title "${notification.title}"`,
       ]);
     } else if (platform === 'linux') {
-      // Linux - try notify-send
       await execFileAsync('notify-send', [
         '--urgency',
         notification.priority === 'high' ? 'critical' : 'normal',
         '--icon',
-        'info', // Could map to different icons
+        'info',
         notification.title,
         notification.message,
       ]);
     } else if (platform === 'win32') {
-      // Windows - use PowerShell
       const psScript = `
         Add-Type -AssemblyName System.Windows.Forms;
         [System.Windows.Forms.MessageBox]::Show('${notification.message}', '${notification.title}', 'OK', 'Information');
@@ -323,15 +257,11 @@ async function sendDesktopNotification(
   }
 }
 
-/**
- * Send custom notification using user-defined command
- */
 async function sendCustomNotification(
   notification: NotificationData,
   command: string
 ): Promise<void> {
   try {
-    // Replace placeholders in custom command
     const processedCommand = command
       .replace(/\{title\}/g, notification.title)
       .replace(/\{message\}/g, notification.message)
@@ -344,9 +274,6 @@ async function sendCustomNotification(
   }
 }
 
-/**
- * Send Slack notification
- */
 async function sendSlackNotification(
   notification: NotificationData,
   webhookUrl: string
@@ -371,16 +298,11 @@ async function sendSlackNotification(
   }
 }
 
-/**
- * Send email notification
- */
 async function sendEmailNotification(
   notification: NotificationData,
   emailConfig: NonNullable<NotificationConfig['email']>
 ): Promise<void> {
   try {
-    // Simple email sending using system mail command
-    // For production use, consider using a proper email library
     const subject = notification.title.replace(/[🔐⏳❌🤖]/gu, '').trim();
     const body = `${notification.message}\n\n--\nSent by Claude Code Notification System`;
 
@@ -392,9 +314,6 @@ async function sendEmailNotification(
   }
 }
 
-/**
- * Main execution entry point
- */
 if (import.meta.url === `file://${process.argv[1]}`) {
   executeHook<NotificationInput>(handleNotification).catch(error => {
     console.error('Failed to execute notification hook:', error);
@@ -402,7 +321,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 }
 
-// Export for use in other hooks
 export {
   handleNotification,
   getNotificationConfig,

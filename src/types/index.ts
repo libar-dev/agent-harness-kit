@@ -1,15 +1,4 @@
 /**
- * TypeScript type definitions for Claude Code hooks
- *
- * This file contains comprehensive type definitions for all Claude Code hook events,
- * their input data, and expected output formats.
- */
-
-// =============================================================================
-// Base Hook Interfaces
-// =============================================================================
-
-/**
  * Common fields present in all hook inputs
  */
 export interface BaseHookInput {
@@ -62,10 +51,6 @@ export interface BaseHookOutput {
   /** ANSI escape sequences or similar terminal control output */
   terminalSequence?: string;
 }
-
-// =============================================================================
-// Tool-Related Hook Interfaces
-// =============================================================================
 
 /**
  * Input for PreToolUse hooks - runs before tool execution
@@ -139,10 +124,6 @@ export interface PostToolUseOutput extends BaseHookOutput {
   };
 }
 
-// =============================================================================
-// Permission Request Hook Interfaces
-// =============================================================================
-
 /**
  * Input for PermissionRequest hooks - runs when a permission dialog appears
  * Unlike PreToolUse, does NOT include tool_use_id
@@ -180,10 +161,6 @@ export interface PermissionRequestOutput extends BaseHookOutput {
         };
   };
 }
-
-// =============================================================================
-// Post Tool Use Failure Hook Interfaces
-// =============================================================================
 
 /**
  * Input for PostToolUseFailure hooks - runs when tool execution fails
@@ -289,10 +266,6 @@ export interface PostToolBatchOutput extends BaseHookOutput {
   };
 }
 
-// =============================================================================
-// Subagent Start Hook Interfaces
-// =============================================================================
-
 /**
  * Input for SubagentStart hooks - runs when a subagent is spawned
  */
@@ -314,10 +287,6 @@ export interface SubagentStartOutput extends BaseHookOutput {
     additionalContext?: string;
   };
 }
-
-// =============================================================================
-// Agent Teams Hook Interfaces
-// =============================================================================
 
 /**
  * Input for TeammateIdle hooks - runs when a teammate is about to go idle
@@ -365,10 +334,6 @@ export interface TaskCompletedInput extends BaseHookInput {
   /** Name of the team */
   team_name?: string | undefined;
 }
-
-// =============================================================================
-// Lifecycle Hook Interfaces
-// =============================================================================
 
 /**
  * Input for UserPromptSubmit hooks - runs when user submits a prompt
@@ -815,10 +780,6 @@ export interface ElicitationOutput extends BaseHookOutput {
   };
 }
 
-// =============================================================================
-// Union Types for Type Guards
-// =============================================================================
-
 /**
  * Union of all possible hook input types
  */
@@ -878,10 +839,6 @@ export type HookOutput =
   | WorktreeCreateOutput
   | ElicitationOutput
   | BaseHookOutput; // For hooks that don't have specific output requirements (TeammateIdle, TaskCompleted, etc.)
-
-// =============================================================================
-// Common Tool Input Types
-// =============================================================================
 
 /**
  * Common tool input patterns for frequently used tools
@@ -989,10 +946,6 @@ export interface TaskToolInput {
   subagent_type?: string;
   model?: string;
 }
-
-// =============================================================================
-// Hook Configuration Types (settings.json schema)
-// =============================================================================
 
 /**
  * All supported hook event names
@@ -1139,10 +1092,6 @@ export interface HooksConfig {
   /** Environment variable names HTTP hooks may interpolate */
   httpHookAllowedEnvVars?: string[];
 }
-
-// =============================================================================
-// Utility Types and Helpers
-// =============================================================================
 
 /**
  * Type guard to check if input is a specific hook type

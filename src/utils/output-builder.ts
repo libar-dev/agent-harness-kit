@@ -1,10 +1,3 @@
-/**
- * Standardized hook output builder utilities
- *
- * Provides convenience methods for creating properly structured
- * hook output objects for all hook event types.
- */
-
 import type {
   BaseHookOutput,
   ElicitationAction,
@@ -33,24 +26,6 @@ type SessionStartContextOptions = {
   watchPaths?: string[];
   reloadSkills?: boolean;
 };
-
-function buildSetupContext(context: string): SetupOutput {
-  return {
-    hookSpecificOutput: {
-      hookEventName: 'Setup',
-      additionalContext: context,
-    },
-  };
-}
-
-function buildMessageDisplayContent(content: string): MessageDisplayOutput {
-  return {
-    hookSpecificOutput: {
-      hookEventName: 'MessageDisplay',
-      displayContent: content,
-    },
-  };
-}
 
 function buildSessionStartContext(context: string): SessionStartOutput;
 function buildSessionStartContext(
@@ -247,9 +222,19 @@ export const HookOutputBuilder = {
     },
   }),
 
-  setupContext: buildSetupContext,
+  setupContext: (context: string): SetupOutput => ({
+    hookSpecificOutput: {
+      hookEventName: 'Setup',
+      additionalContext: context,
+    },
+  }),
 
-  messageDisplayContent: buildMessageDisplayContent,
+  messageDisplayContent: (content: string): MessageDisplayOutput => ({
+    hookSpecificOutput: {
+      hookEventName: 'MessageDisplay',
+      displayContent: content,
+    },
+  }),
 
   sessionStartContext: buildSessionStartContext,
 

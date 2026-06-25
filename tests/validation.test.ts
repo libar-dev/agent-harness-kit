@@ -1,16 +1,3 @@
-/**
- * Test file demonstrating Zod-based validation testing patterns
- *
- * CRITICAL: Following parent project's incremental testing rule:
- * Write only ONE test at a time during development!
- *
- * This file demonstrates:
- * - Schema-first validation testing
- * - Two-step type assertion patterns
- * - Comprehensive error testing
- * - Test helper usage
- */
-
 import { describe, it, expect } from 'vitest';
 
 function assertHookValidationError(
@@ -44,9 +31,11 @@ import {
   isPostToolBatchInput,
   isUserPromptSubmitInput,
   isUserPromptExpansionInput,
+  isSetupInput,
   isSessionStartInput,
   isSessionEndInput,
   isNotificationInput,
+  isMessageDisplayInput,
   isStopInput,
   isStopFailureInput,
   isSubagentStartInput,
@@ -144,6 +133,8 @@ import {
   createBashPreToolUseInput,
   createWritePreToolUseInput,
   createTestHookBase,
+  createSetupInput,
+  createMessageDisplayInput,
   createPermissionRequestInput,
   createPermissionDeniedInput,
   createPostToolUseFailureInput,
@@ -175,9 +166,7 @@ import {
 } from './test-utils.js';
 
 describe('Zod-based Hook Validation', () => {
-  // FIRST TEST: Basic hook input validation
   it('should validate basic hook input structure', () => {
-    // Valid input should pass
     const validInput = createPreToolUseInput('Bash', { command: 'echo test' });
     const result = validateHookInput(validInput);
 
@@ -188,7 +177,6 @@ describe('Zod-based Hook Validation', () => {
     }
   });
 
-  // SECOND TEST: Invalid hook input handling
   it('should reject invalid hook input with detailed errors', () => {
     const invalidInput = { invalid: 'structure' };
 
@@ -198,7 +186,6 @@ describe('Zod-based Hook Validation', () => {
     );
   });
 
-  // THIRD TEST: Tool-specific validation
   it('should validate Bash tool input correctly', () => {
     const hookInput = createBashPreToolUseInput('ls -la');
     const toolInput = validateBashToolInput(hookInput);
@@ -206,7 +193,6 @@ describe('Zod-based Hook Validation', () => {
     expect(toolInput.command).toBe('ls -la');
   });
 
-  // FOURTH TEST: Comprehensive validation test cases
   it('should handle various Bash validation scenarios', () => {
     const validBashInput = createBashToolInput('echo hello');
 
@@ -225,23 +211,19 @@ describe('Zod-based Hook Validation', () => {
 
     for (const testCase of testCases) {
       if (testCase.shouldPass) {
-        // Create hook input and validate
         const hookInput = createPreToolUseInput('Bash', testCase.input);
         const result = validateBashToolInput(hookInput);
         expect(result).toBeDefined();
       } else {
-        // Expect validation to fail
         const hookInput = createPreToolUseInput('Bash', testCase.input);
         expect(() => validateBashToolInput(hookInput)).toThrow();
       }
     }
   });
 
-  // FIFTH TEST: Error context validation
   it('should provide detailed error context for debugging', () => {
     const invalidInput = {
       session_id: 'test',
-      // Missing required fields
     };
 
     try {
@@ -298,7 +280,6 @@ describe('Updated Schema Validation (Phase 1)', () => {
       tool_name: 'Bash',
       tool_input: { command: 'echo hi' },
       tool_use_id: 'tuid-1',
-      // permission_mode is missing
     };
     const result = validateHookInput(inputWithoutPermissionMode);
     expect(result.hook_event_name).toBe('PreToolUse');
@@ -320,7 +301,6 @@ describe('Updated Schema Validation (Phase 1)', () => {
       hook_event_name: 'PreToolUse' as const,
       tool_name: 'Bash',
       tool_input: { command: 'echo hi' },
-      // tool_use_id is missing
     };
     expectValidationError(
       () => validateHookInput(input),
@@ -393,6 +373,30 @@ describe('Updated Schema Validation (Phase 1)', () => {
         }),
       'HOOK_VALIDATION_FAILED'
     );
+  });
+
+  it('should route Setup through the common hook validator', () => {
+    const result = validateHookInput(
+      createSetupInput({ trigger: 'maintenance' })
+    );
+
+    expect(result.hook_event_name).toBe('Setup');
+    if (isSetupInput(result)) {
+      expect(result.trigger).toBe('maintenance');
+    }
+  });
+
+  it('should route MessageDisplay through the common hook validator with empty deltas', () => {
+    const result = validateHookInput(
+      createMessageDisplayInput({ index: 2, final: true, delta: '' })
+    );
+
+    expect(result.hook_event_name).toBe('MessageDisplay');
+    if (isMessageDisplayInput(result)) {
+      expect(result.index).toBe(2);
+      expect(result.final).toBe(true);
+      expect(result.delta).toBe('');
+    }
   });
 
   it('should validate SessionStart when model is omitted and session_title is provided', () => {
@@ -813,10 +817,6 @@ describe('Transcript Validation Primitives', () => {
   });
 });
 
-// =============================================================================
-// Phase 2D Tests
-// =============================================================================
-
 describe('HookOutputBuilder', () => {
   it('success() without message returns suppressOutput: true', () => {
     const output = HookOutputBuilder.success();
@@ -956,6 +956,20 @@ describe('Type Guards', () => {
     expect(isNotificationInput(validated)).toBe(true);
   });
 
+  it('isSetupInput identifies correctly', () => {
+    const input = createSetupInput();
+    const validated = validateHookInput(input);
+    expect(isSetupInput(validated)).toBe(true);
+    expect(isMessageDisplayInput(validated)).toBe(false);
+  });
+
+  it('isMessageDisplayInput identifies correctly', () => {
+    const input = createMessageDisplayInput();
+    const validated = validateHookInput(input);
+    expect(isMessageDisplayInput(validated)).toBe(true);
+    expect(isSetupInput(validated)).toBe(false);
+  });
+
   it('isStopInput identifies correctly', () => {
     const input = createStopInput();
     const validated = validateHookInput(input);
@@ -993,11 +1007,7 @@ describe('safeValidateHookInput', () => {
     expect(result.error?.code).toBe('MISSING_HOOK_EVENT_NAME');
   });
 
-  it('wraps unexpected errors with UNEXPECTED_ERROR code', () => {
-    // null input triggers INVALID_INPUT_TYPE which is still a HookValidationError
-    // To test UNEXPECTED_ERROR, we'd need an internal error, but the function
-    // handles all known paths. We verify the catch-all path exists by testing
-    // that non-HookValidationError inputs still return structured results.
+  it('returns structured errors for invalid input types', () => {
     const result = safeValidateHookInput(null);
     expect(result.success).toBe(false);
     expect(result.error).toBeInstanceOf(HookValidationError);
@@ -1128,10 +1138,6 @@ describe('Hook-Type-Specific Validators', () => {
   });
 });
 
-// =============================================================================
-// Phase 2 Tests: New Event Types
-// =============================================================================
-
 describe('Phase 2: New Event Input Schemas', () => {
   it('should validate PermissionRequest input', () => {
     const input = createPermissionRequestInput('Bash', {
@@ -1161,7 +1167,6 @@ describe('Phase 2: New Event Input Schemas', () => {
       ...createTestHookBase({ hook_event_name: 'PermissionRequest' }),
       hook_event_name: 'PermissionRequest' as const,
       tool_input: { command: 'ls' },
-      // tool_name missing
     };
     expectValidationError(
       () => validateHookInput(input),
@@ -1203,7 +1208,6 @@ describe('Phase 2: New Event Input Schemas', () => {
       tool_name: 'Bash',
       tool_input: { command: 'ls' },
       tool_use_id: 'tuid-1',
-      // error missing
     };
     expectValidationError(
       () => validateHookInput(input),
@@ -1261,7 +1265,6 @@ describe('Phase 2: New Event Input Schemas', () => {
       ...createTestHookBase({ hook_event_name: 'TaskCompleted' }),
       hook_event_name: 'TaskCompleted' as const,
       task_subject: 'Test',
-      // task_id missing
     };
     expectValidationError(
       () => validateHookInput(input),
@@ -1876,10 +1879,6 @@ describe('Phase 2: New Tool Input Validators', () => {
   });
 });
 
-// =============================================================================
-// Phase 3: Output Types and HookOutputBuilder Tests
-// =============================================================================
-
 describe('Phase 3: Output Schema Updates', () => {
   describe('PreToolUse output schema', () => {
     it('accepts updatedInput in hookSpecificOutput', () => {
@@ -2361,10 +2360,6 @@ describe('Phase 3: HookOutputBuilder Updates', () => {
   });
 });
 
-// =============================================================================
-// Phase 4+5: Glob/Grep/MultiEdit Tool Schemas & Hook Config Schemas
-// =============================================================================
-
 describe('Glob/Grep/MultiEdit Tool Input Schemas', () => {
   describe('globToolInputSchema', () => {
     it('validates minimal Glob input', () => {
@@ -2769,6 +2764,7 @@ describe('Hook Configuration Schemas (settings.json)', () => {
   describe('hookEventNameSchema', () => {
     const validEvents = [
       'SessionStart',
+      'Setup',
       'UserPromptSubmit',
       'UserPromptExpansion',
       'PreToolUse',
@@ -2778,6 +2774,7 @@ describe('Hook Configuration Schemas (settings.json)', () => {
       'PostToolUseFailure',
       'PostToolBatch',
       'Notification',
+      'MessageDisplay',
       'SubagentStart',
       'SubagentStop',
       'TaskCreated',
@@ -2798,7 +2795,8 @@ describe('Hook Configuration Schemas (settings.json)', () => {
       'SessionEnd',
     ];
 
-    it('accepts all 28 valid event names', () => {
+    it('accepts all 30 valid event names', () => {
+      expect(validEvents).toHaveLength(30);
       for (const event of validEvents) {
         const result = hookEventNameSchema.safeParse(event);
         expect(result.success).toBe(true);
@@ -2826,6 +2824,16 @@ describe('Hook Configuration Schemas (settings.json)', () => {
           Stop: [
             {
               hooks: [{ type: 'prompt', prompt: 'Check tasks: $ARGUMENTS' }],
+            },
+          ],
+          Setup: [
+            {
+              hooks: [{ type: 'command', command: '.claude/hooks/setup.ts' }],
+            },
+          ],
+          MessageDisplay: [
+            {
+              hooks: [{ type: 'command', command: '.claude/hooks/display.ts' }],
             },
           ],
         },
@@ -2947,10 +2955,6 @@ describe('Hook Configuration Schemas (settings.json)', () => {
     });
   });
 });
-
-// =============================================================================
-// Post-Phase 5 Review: Additional Coverage
-// =============================================================================
 
 describe('Schema Collection Completeness', () => {
   it('hookInputSchemas has all 30 event types', () => {
@@ -3182,7 +3186,6 @@ describe('Edge Cases', () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      // Unknown key is stripped, known key is preserved
       expect(result.data.hooks?.['PreToolUse']).toBeDefined();
       expect('FakeEvent' in (result.data.hooks ?? {})).toBe(false);
     }

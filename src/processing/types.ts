@@ -6,10 +6,6 @@
  *   ~/.claude/projects/<project>/<session-id>/subagents/agent-*.jsonl
  */
 
-// ---------------------------------------------------------------------------
-// Raw JSONL types (matches Claude Code session storage format)
-// ---------------------------------------------------------------------------
-
 /** Content block inside an assistant message */
 export interface TextBlock {
   readonly type: 'text';
@@ -86,10 +82,6 @@ export interface RawHistoryLine {
   readonly subagentId?: string | undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Raw transcript records — unsafe exact access requires explicit opt-in
-// ---------------------------------------------------------------------------
-
 export type RawTranscriptRedactionMode = 'unsafe-unredacted';
 
 export interface RawTranscriptRecord {
@@ -129,10 +121,6 @@ export interface RawTranscriptSession {
   readonly sessionId: string;
   readonly records: readonly RawTranscriptRecord[];
 }
-
-// ---------------------------------------------------------------------------
-// Denoised output types
-// ---------------------------------------------------------------------------
 
 /** A cleaned message with only the valuable signal */
 export interface CleanMessage {
@@ -181,10 +169,6 @@ export interface ParsedSubagentSession {
   readonly messages: readonly CleanMessage[];
 }
 
-// ---------------------------------------------------------------------------
-// SessionBlock — discriminated union for structured (JSONL) export
-// ---------------------------------------------------------------------------
-//
 // One record per atomic conversation event. Designed for downstream consumers
 // (live-ingest consumers, vector DB ingestion, AI processing) that need typed blocks
 // rather than rendered markdown.
@@ -290,10 +274,6 @@ export interface SessionStats {
   readonly durationMs: number;
   readonly costUSD: number;
 }
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
 
 export interface DenoiseConfig {
   /** Include tool call summaries (default: true) */

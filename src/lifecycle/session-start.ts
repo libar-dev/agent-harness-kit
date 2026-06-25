@@ -1,16 +1,5 @@
 #!/usr/bin/env tsx
 
-/**
- * Session Start Hook
- *
- * This hook runs when Claude Code sessions start and provides:
- * - Project context and recent changes information
- * - Development environment status checks
- * - Git repository information and recent commits
- * - Package.json and dependency information
- * - Custom project-specific context loading
- */
-
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFile, access, constants } from 'node:fs/promises';
@@ -30,9 +19,6 @@ import type { SessionStartInput } from '../types/index.js';
 
 const execFileAsync = promisify(execFile);
 
-/**
- * Package.json structure
- */
 interface PackageJson {
   name?: string;
   version?: string;
@@ -64,29 +50,16 @@ function parsePackageJson(content: string): PackageJson {
   };
 }
 
-/**
- * Configuration for session start behavior
- */
 interface SessionStartConfig {
-  /** Whether to load git information */
   gitInfo: boolean;
-  /** Whether to load project dependencies info */
   dependencyInfo: boolean;
-  /** Whether to load recent file changes */
   recentChanges: boolean;
-  /** Whether to check development server status */
   devServerStatus: boolean;
-  /** Maximum number of recent commits to include */
   maxCommits: number;
-  /** Maximum number of recent changes to include */
   maxChanges: number;
-  /** Custom context files to load */
   contextFiles: string[];
 }
 
-/**
- * Get session start configuration
- */
 function getSessionStartConfig(): SessionStartConfig {
   return {
     gitInfo: process.env['CLAUDE_HOOK_SESSION_GIT'] !== 'false',
@@ -110,9 +83,6 @@ function getSessionStartConfig(): SessionStartConfig {
   };
 }
 
-/**
- * Main session start logic
- */
 async function handleSessionStart(input: SessionStartInput): Promise<void> {
   const { source, session_id, model, agent_type } = input;
   const config = getSessionStartConfig();
@@ -123,12 +93,10 @@ async function handleSessionStart(input: SessionStartInput): Promise<void> {
 
   const contextSections: string[] = [];
 
-  // Add basic session information
   contextSections.push(
     getSessionInfo(source, session_id, modelName, agent_type)
   );
 
-  // Load project information
   try {
     const projectInfo = await loadProjectInfo(projectDir, config);
     if (projectInfo) {
@@ -138,7 +106,6 @@ async function handleSessionStart(input: SessionStartInput): Promise<void> {
     logError('Failed to load project info', toError(error));
   }
 
-  // Load git information
   if (config.gitInfo) {
     try {
       const gitInfo = await loadGitInfo(projectDir, config);
@@ -153,7 +120,6 @@ async function handleSessionStart(input: SessionStartInput): Promise<void> {
     }
   }
 
-  // Load dependency information
   if (config.dependencyInfo) {
     try {
       const depsInfo = await loadDependencyInfo(projectDir, config);
@@ -165,7 +131,6 @@ async function handleSessionStart(input: SessionStartInput): Promise<void> {
     }
   }
 
-  // Check development server status
   if (config.devServerStatus && isDevelopment()) {
     try {
       const devStatus = await checkDevelopmentStatus(projectDir, config);
@@ -177,7 +142,6 @@ async function handleSessionStart(input: SessionStartInput): Promise<void> {
     }
   }
 
-  // Load recent changes
   if (config.recentChanges) {
     try {
       const recentChanges = await loadRecentChanges(projectDir, config);
@@ -189,7 +153,6 @@ async function handleSessionStart(input: SessionStartInput): Promise<void> {
     }
   }
 
-  // Load custom context files
   try {
     const contextFiles = await loadContextFiles(
       projectDir,
@@ -202,7 +165,6 @@ async function handleSessionStart(input: SessionStartInput): Promise<void> {
     logDebug('Failed to load context files', toError(error));
   }
 
-  // Combine all context sections
   if (contextSections.length > 0) {
     const fullContext = contextSections.join('\n\n---\n\n');
 
@@ -219,9 +181,6 @@ async function handleSessionStart(input: SessionStartInput): Promise<void> {
   }
 }
 
-/**
- * Get basic session information
- */
 function getSessionInfo(
   source: string,
   sessionId: string,
@@ -241,9 +200,6 @@ ${agentType ? `**Agent Type:** ${agentType}\n` : ''}**Timestamp:** ${timestamp}
 `;
 }
 
-/**
- * Load basic project information
- */
 async function loadProjectInfo(
   projectDir: string,
   _config: SessionStartConfig
@@ -283,15 +239,11 @@ async function loadProjectInfo(
   }
 }
 
-/**
- * Load git repository information
- */
 async function loadGitInfo(
   projectDir: string,
   _config: SessionStartConfig
 ): Promise<string | null> {
   try {
-    // Get current branch
     const { stdout: branch } = await execFileAsync(
       'git',
       ['branch', '--show-current'],
@@ -301,7 +253,6 @@ async function loadGitInfo(
       }
     );
 
-    // Get recent commits
     const { stdout: commits } = await execFileAsync(
       'git',
       ['log', `--oneline`, `-${_config.maxCommits}`, '--no-merges'],
@@ -311,7 +262,6 @@ async function loadGitInfo(
       }
     );
 
-    // Get repository status
     const { stdout: status } = await execFileAsync(
       'git',
       ['status', '--porcelain'],
@@ -332,7 +282,6 @@ async function loadGitInfo(
         `**Uncommitted Changes:** ${statusLines.length} files modified`
       );
 
-      // Show first few changed files
       const changedFiles = statusLines
         .slice(0, 5)
         .map(line => `  - ${line.substring(3)}`)
@@ -362,9 +311,6 @@ async function loadGitInfo(
   }
 }
 
-/**
- * Load dependency information
- */
 async function loadDependencyInfo(
   projectDir: string,
   _config: SessionStartConfig
@@ -381,7 +327,6 @@ async function loadDependencyInfo(
       const depCount = Object.keys(packageJson.dependencies).length;
       info.push(`**Production Dependencies:** ${depCount}`);
 
-      // Highlight key dependencies
       const keyDeps = Object.keys(packageJson.dependencies).filter(
         dep =>
           dep.includes('react') ||
@@ -401,7 +346,6 @@ async function loadDependencyInfo(
       info.push(`**Development Dependencies:** ${devDepCount}`);
     }
 
-    // Check if node_modules exists and when it was last modified
     try {
       const nodeModulesPath = join(projectDir, 'node_modules');
       await access(nodeModulesPath, constants.F_OK);
@@ -416,9 +360,6 @@ async function loadDependencyInfo(
   }
 }
 
-/**
- * Check development environment status
- */
 async function checkDevelopmentStatus(
   projectDir: string,
   _config: SessionStartConfig
@@ -426,7 +367,6 @@ async function checkDevelopmentStatus(
   try {
     const info = [`# Development Environment`];
 
-    // Check if TypeScript is configured
     try {
       await access(join(projectDir, 'tsconfig.json'), constants.F_OK);
       info.push(`**TypeScript:** Configured`);
@@ -434,7 +374,6 @@ async function checkDevelopmentStatus(
       info.push(`**TypeScript:** Not configured`);
     }
 
-    // Check if ESLint is configured
     try {
       await access(join(projectDir, '.eslintrc.js'), constants.F_OK);
       info.push(`**ESLint:** Configured`);
@@ -447,7 +386,6 @@ async function checkDevelopmentStatus(
       }
     }
 
-    // Check if Prettier is configured
     try {
       await access(join(projectDir, '.prettierrc'), constants.F_OK);
       info.push(`**Prettier:** Configured`);
@@ -461,15 +399,11 @@ async function checkDevelopmentStatus(
   }
 }
 
-/**
- * Load custom context files
- */
 async function loadRecentChanges(
   projectDir: string,
   _config: SessionStartConfig
 ): Promise<string | null> {
   try {
-    // Get recently modified files from git
     const { stdout: recentFiles } = await execFileAsync(
       'git',
       ['diff', '--name-only', 'HEAD~1'],
@@ -496,9 +430,6 @@ async function loadRecentChanges(
   }
 }
 
-/**
- * Load custom context files
- */
 async function loadContextFiles(
   projectDir: string,
   contextFiles: string[]
@@ -520,7 +451,6 @@ async function loadContextFiles(
 
       loadedFiles.push(`## ${fileName}\n\n${truncatedContent}`);
     } catch {
-      // File doesn't exist or can't be read, skip it
       continue;
     }
   }
@@ -532,9 +462,6 @@ async function loadContextFiles(
   return null;
 }
 
-/**
- * Main execution entry point
- */
 if (import.meta.url === `file://${process.argv[1]}`) {
   executeHook<SessionStartInput>(handleSessionStart).catch(error => {
     console.error('Failed to execute session start hook:', error);
@@ -542,7 +469,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 }
 
-// Export for use in other hooks
 export {
   handleSessionStart,
   getSessionStartConfig,

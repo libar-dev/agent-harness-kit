@@ -4,8 +4,6 @@ Public TypeScript types exported by `@libar-dev/agent-harness-kit/types`.
 
 **Source:** [`src/types/index.ts`](../../src/types/index.ts)
 
----
-
 ## Base Types
 
 | Type | Description |
@@ -18,8 +16,6 @@ Public TypeScript types exported by `@libar-dev/agent-harness-kit/types`.
 | `PermissionUpdateEntry` | `{ type: string; [key: string]: unknown }` — used in permission update arrays |
 | `ElicitationAction` | `'accept' \| 'decline' \| 'cancel'` |
 | `ElicitationMode` | `'form' \| 'url'` |
-
----
 
 ## Per-Event Input Types
 
@@ -97,8 +93,6 @@ All extend `BaseHookInput`.
 | `PreCompactInput` | `trigger`, `custom_instructions` |
 | `PostCompactInput` | `trigger`, `compact_summary` |
 
----
-
 ## Per-Event Output Types
 
 All extend `BaseHookOutput`.
@@ -125,8 +119,6 @@ All extend `BaseHookOutput`.
 | `WorktreeCreateOutput` | Return custom `worktreePath` via `hookSpecificOutput` |
 | `ElicitationOutput` | Programmatic response via `hookSpecificOutput.action` |
 
----
-
 ## Tool Input Types
 
 | Type | Fields |
@@ -147,8 +139,6 @@ All extend `BaseHookOutput`.
 | `MCPToolInput` | `Record<string, unknown>` |
 | `TaskToolInput` | `prompt: string`, `description?`, `subagent_type?`, `model?` |
 
----
-
 ## Hook Handler Types (settings.json)
 
 | Type | Key fields |
@@ -165,8 +155,6 @@ All extend `BaseHookOutput`.
 
 All handler types share base fields: `timeout?`, `statusMessage?`, `once?`, `if?`.
 
----
-
 ## Environment and Config Types
 
 | Type | Description |
@@ -175,8 +163,6 @@ All handler types share base fields: `timeout?`, `statusMessage?`, `once?`, `if?
 | `HookConfig` | Parsed configuration from `getConfig()` |
 
 `HookEnvironmentVars` key fields: `CLAUDE_PROJECT_DIR`, `CLAUDE_CODE_REMOTE?`, `CLAUDE_ENV_FILE?` (SessionStart only), `CLAUDE_PLUGIN_ROOT?`, `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS?`, `CLAUDE_CODE_DEBUG_LOG_LEVEL?`.
-
----
 
 ## Utility
 

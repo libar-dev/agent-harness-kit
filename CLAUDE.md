@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 ## What This Is
 
-A standalone TypeScript hooks library (`@libar-dev/agent-harness-kit`) for Claude Code. Hooks are command, HTTP, MCP tool, prompt, or agent handlers that execute at lifecycle points to provide deterministic control over Claude's behavior. The library covers all 30 hook events in the current official docs.
+A standalone TypeScript hooks library (`@libar-dev/agent-harness-kit`) for Claude Code. Hooks are command, HTTP, MCP tool, prompt, or agent handlers that run at lifecycle points. The library covers all 30 hook events in the current official docs.
 
 Official docs (mirrored upstream): `docs/upstream/hooks-guide.md`, `docs/upstream/hooks-reference.md`
 
@@ -30,7 +30,7 @@ pnpm run hook:test:session      # Session start
 
 ## Absolute Rule: No `any` Types
 
-`any` is forbidden everywhere. Use `unknown` with validation/type assertions instead. `noImplicitAny: true` is set in all tsconfig files. Do not weaken this.
+`any` is forbidden. Use `unknown` with validation/type assertions instead. `noImplicitAny: true` is set in all tsconfig files. Do not weaken this.
 
 ```typescript
 // WRONG
@@ -47,7 +47,7 @@ const bashInput = validateBashToolInput(input); // Returns typed BashToolInput
 **30 hook events**: Setup, SessionStart, UserPromptSubmit, UserPromptExpansion, PreToolUse, PermissionRequest, PermissionDenied, PostToolUse, PostToolUseFailure, PostToolBatch, Notification, MessageDisplay, SubagentStart, SubagentStop, TaskCreated, TaskCompleted, Stop, StopFailure, TeammateIdle, InstructionsLoaded, ConfigChange, CwdChanged, FileChanged, WorktreeCreate, WorktreeRemove, PreCompact, PostCompact, Elicitation, ElicitationResult, SessionEnd.
 
 **Key modules**:
-- `src/types/index.ts` — All type definitions: hook I/O interfaces, tool input types, hook config types (`HookHandler`, `MatcherGroup`, `HooksConfig`), and `HookEnvironmentVars`
+- `src/types/index.ts` — Type definitions: hook I/O interfaces, tool input types, hook config types (`HookHandler`, `MatcherGroup`, `HooksConfig`), and `HookEnvironmentVars`
 - `src/utils/index.ts` — Core I/O (`readStdinJson`, `outputJson`, `executeHook`), logging, config (`getConfig()` reads `CLAUDE_*` env vars)
 - `src/utils/output-builder.ts` — `HookOutputBuilder` with methods for all output patterns
 - `src/validation/` — Zod schemas (`schemas.ts`), validators (`validators.ts`), and re-exports (`index.ts`). Schema-first: define Zod schema -> infer types with `z.infer` -> validate at boundaries
@@ -79,7 +79,7 @@ const bashInput = validateBashToolInput(input); // Returns typed BashToolInput
 
 ## Hook Handler Types
 
-Settings validation supports all current official handler types:
+Settings validation supports these handler types:
 
 ```json
 {
@@ -181,7 +181,7 @@ import { validateHooksConfig } from '../validation/index.js';
 const config = validateHooksConfig(parsed); // validates full settings hooks structure
 ```
 
-Config supports handler common fields `if`, `timeout`, `statusMessage`, and `once`. Command handlers additionally support `async`, `asyncRewake`, and `shell`. Settings-root restriction fields include `allowManagedHooksOnly`, `allowedHttpHookUrls`, and `httpHookAllowedEnvVars`.
+Config supports common handler fields `if`, `timeout`, `statusMessage`, and `once`. Command handlers also support `async`, `asyncRewake`, and `shell`. Settings-root restriction fields include `allowManagedHooksOnly`, `allowedHttpHookUrls`, and `httpHookAllowedEnvVars`.
 
 ## Build System
 
@@ -193,14 +193,14 @@ Config supports handler common fields `if`, `timeout`, `statusMessage`, and `onc
 
 ## Testing
 
-- Tests live in `tests/` and run directly against `.ts` source files via Vitest.
+- Tests live in `tests/` and run against `.ts` source files via Vitest.
 - Use test helpers from `tests/test-utils.ts` (`createPreToolUseInput`, `expectValidationError`, etc.).
 - All test inputs should go through Zod validation.
 - `tests/docs-round-trip.test.ts` validates parseable JSON hook examples from the mirrored official docs. It explicitly skips known pseudocode/commented JSON blocks and the generic official PreToolUse snippet that omits required `tool_use_id`.
 
 ## Config
 
-All hook behavior is configurable through environment variables. The library reads:
+Hook behavior is configurable through environment variables. The library reads:
 
 - Core/runtime: `CLAUDE_PROJECT_DIR`, `CLAUDE_ENV_FILE`, `CLAUDE_CODE_DEBUG_LOG_LEVEL`, `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`, `CLAUDE_CODE_SYNC_PLUGIN_INSTALL`, `CLAUDE_HOOK_DEBUG`, `CLAUDE_HOOK_TIMEOUT`
 - Protection and command policy: `CLAUDE_HOOK_PROTECTED_FILES`, `CLAUDE_HOOK_DANGEROUS_COMMANDS`, `CLAUDE_HOOK_STRICT_PROTECTION`, `CLAUDE_HOOK_EXTRA_PROTECTED`, `CLAUDE_HOOK_READ_ONLY`, `CLAUDE_HOOK_AUTO_APPROVE_READS`
@@ -216,6 +216,10 @@ Processing CLIs have a small separate env surface that is not loaded through
 docs separate.
 
 Set `CLAUDE_HOOK_DEBUG=true` or `CLAUDE_CODE_DEBUG_LOG_LEVEL=verbose` for verbose logging. The default hook timeout is 60 seconds. `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` defaults to 1500 ms and is capped at 60000 ms.
+
+## Public Repository Hygiene
+
+Planning and context files created for agent workflows are ephemeral and must not be committed to the public repo. Examples include `prometheus-implementation-context.md` and `.omo/notepads/*` scratch files. Delete them before merging. Persistent guidance belongs in user-facing docs or ADRs, not in agent-context scratchpads.
 
 ## Compatibility Notes
 

@@ -1,7 +1,0 @@
-validateSetupInput: True
-validateMessageDisplayInput: True
-isSetupInput: True
-isMessageDisplayInput: True
-required_count= 4
-
-Source: src/validation/index.ts

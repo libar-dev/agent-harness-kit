@@ -470,7 +470,6 @@ describe('Tail mode', () => {
     const first = await tailBlocks(jsonlPath);
     expect(first.blocks).toHaveLength(1);
 
-    // Append a second message
     const appended = makeUserTextLine(
       'u-2',
       'second',
@@ -496,7 +495,6 @@ describe('Tail mode', () => {
   });
 
   it('resolves toolName on tool_result added in a later tail call', async () => {
-    // Initial: just the tool_use
     const initial = makeAssistantToolUseLine(
       'a-1',
       'tu-X',
@@ -506,7 +504,6 @@ describe('Tail mode', () => {
     const first = await tailBlocks(jsonlPath);
     expect(first.blocks).toHaveLength(1);
 
-    // Append the matching tool_result later
     const appended = makeUserToolResultLine(
       'u-1',
       'tu-X',
@@ -519,7 +516,6 @@ describe('Tail mode', () => {
     expect(second.blocks).toHaveLength(1);
     const block = must(second.blocks[0]);
     if (block.type === 'tool_result') {
-      // toolName resolved from PREVIOUS scan's tool_use
       expect(block.toolName).toBe('Bash');
       expect(block.content).toBe('output line');
     } else {
@@ -533,12 +529,10 @@ describe('Tail mode', () => {
       'done',
       '2026-02-16T20:00:00.000Z'
     );
-    // Append a partial second line (no terminating newline)
     const partial = `{"type":"user","message":{"role":"user","content":"part`;
     await writeFile(jsonlPath, complete + partial);
 
     const result = await tailBlocks(jsonlPath);
-    // Only the complete first line is parsed
     expect(result.blocks).toHaveLength(1);
     expect(must(result.blocks[0]).id).toBe('u-1:0');
     expect(result.invalidJsonLineCount).toBe(0);
@@ -811,7 +805,6 @@ describe('Tail mode', () => {
     await writeFile(jsonlPath, big);
     await tailBlocks(jsonlPath);
 
-    // Truncate / rewrite the file shorter
     const shorter = makeUserTextLine(
       'u-new',
       'fresh',
@@ -859,7 +852,6 @@ describe('Tail mode', () => {
     const stats = await stat(expected);
     expect(stats.isFile()).toBe(true);
 
-    // Default location should NOT have a marker
     const defaultMarker = await readMarker(getMarkerPath(jsonlPath));
     expect(defaultMarker).toBeNull();
   });
@@ -1387,7 +1379,6 @@ describe('Tail mode', () => {
       '2026-02-16T20:00:00.000Z'
     );
     const later = makeUserTextLine('u-2', 'second', '2026-02-16T20:00:05.000Z');
-    // Write them in reverse
     await writeFile(jsonlPath, later + earlier);
 
     const result = await tailBlocks(jsonlPath);
@@ -1397,7 +1388,6 @@ describe('Tail mode', () => {
   });
 
   it('end-to-end: simulates a live-ingest consumer incremental ingest pattern', async () => {
-    // Round 1: Claude Code creates session, consumer tails first time
     await writeFile(
       jsonlPath,
       makeUserTextLine('u-1', 'analyze repo', '2026-02-16T20:00:00.000Z')
@@ -1405,7 +1395,6 @@ describe('Tail mode', () => {
     const round1 = await tailBlocks(jsonlPath);
     expect(round1.blocks).toHaveLength(1);
 
-    // Round 2: Claude responds with tool call, consumer tails
     await appendFile(
       jsonlPath,
       makeAssistantToolUseLine('a-1', 'tu-1', '2026-02-16T20:00:01.000Z')
@@ -1414,7 +1403,6 @@ describe('Tail mode', () => {
     expect(round2.blocks).toHaveLength(1);
     expect(must(round2.blocks[0]).type).toBe('tool_use');
 
-    // Round 3: Tool result lands, consumer tails — toolName must be resolved
     await appendFile(
       jsonlPath,
       makeUserToolResultLine(
@@ -1431,13 +1419,11 @@ describe('Tail mode', () => {
       expect(tr.toolName).toBe('Bash');
     }
 
-    // Total blocks across all rounds = unique IDs (no duplicates from re-emission)
     const allIds = [...round1.blocks, ...round2.blocks, ...round3.blocks].map(
       b => b.id
     );
     expect(new Set(allIds).size).toBe(allIds.length);
 
-    // The final marker should point to file size
     const finalSize = (await readFile(jsonlPath)).length;
     const marker = must(await readMarker(getMarkerPath(jsonlPath)));
     expect(marker.byteOffset).toBe(finalSize);

@@ -1,6 +1,0 @@
-Command: pnpm exec tsx src/lifecycle/setup.ts
-Input: {"hook_event_name":"Setup","session_id":"test-setup","transcript_path":"/tmp/test.json","cwd":"/tmp","trigger":"init"}
-Exit code: 0
-Stdout: <empty>
-Stderr:
-[2026-06-25T15:32:28.754Z] INFO: Setup hook triggered (init)

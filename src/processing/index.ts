@@ -1,20 +1,3 @@
-/**
- * Session processing module — parse, denoise, and format Claude Code sessions.
- *
- * Pipeline: Raw JSONL → Parse → Denoise → Format (markdown)
- *
- * Usage:
- *   import { readSessionFiles, denoiseSession, toMarkdown } from './processing';
- *
- *   const raw = await readSessionFiles(projectDir, sessionId);
- *   const clean = denoiseSession(raw);
- *   const markdown = toMarkdown(clean);
- */
-
-// ---------------------------------------------------------------------------
-// Imports (single import per module to satisfy no-duplicate-imports)
-// ---------------------------------------------------------------------------
-
 import {
   type RawHistoryLine,
   type RawMessage,
@@ -85,12 +68,7 @@ import {
   writeExportMarker,
 } from './discovery.js';
 
-// ---------------------------------------------------------------------------
-// Re-exports
-// ---------------------------------------------------------------------------
-
 export type {
-  // types.ts — raw + denoised
   RawHistoryLine,
   RawMessage,
   ContentBlock,
@@ -105,7 +83,6 @@ export type {
   ParsedSubagentSession,
   SessionStats,
   DenoiseConfig,
-  // types.ts — structured blocks (live-ingest / DB / AI consumers)
   SessionBlock,
   SessionBlockBase,
   SessionHeaderBlock,
@@ -119,15 +96,11 @@ export type {
   RawTranscriptRedactionMode,
   RawTranscriptSession,
   RawTranscriptTailResult,
-  // parser.ts
   RawSession,
-  // formatter.ts
   FormatConfig,
   ExportConfig,
-  // discovery.ts
   SessionInfo,
   DiscoverOptions,
-  // tail.ts — incremental block emission for live consumers
   TailMarker,
   TailOptions,
   RawTranscriptTailOptions,
@@ -137,25 +110,18 @@ export type {
 };
 
 export {
-  // types.ts
   DEFAULT_DENOISE_CONFIG,
-  // parser.ts
   readSessionFiles,
-  // denoiser.ts
   denoiseSession,
-  // blocks.ts — structured (JSONL) export
   extractBlocks,
   toJsonlBlocks,
-  // tail.ts — incremental block emission
   tailBlocks,
   tailRawTranscriptRecords,
   watchRawTranscriptRecords,
   readRawSessionFiles,
-  // formatter.ts
   toMarkdown,
   toCompactSummary,
   toExportMarkdown,
-  // discovery.ts
   discoverSessions,
   projectDirFromCwd,
   listProjects,
@@ -164,10 +130,6 @@ export {
   readExportMarker,
   writeExportMarker,
 };
-
-// ---------------------------------------------------------------------------
-// Convenience: full pipeline in one call
-// ---------------------------------------------------------------------------
 
 /**
  * Full pipeline: read JSONL from disk → denoise → format as markdown.

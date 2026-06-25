@@ -2,7 +2,7 @@
 
 > **Today: a Claude Code toolkit. Future: harness-agnostic.**
 >
-> This library currently targets [Claude Code hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) — all 30 events, strict types, Zod-validated inputs, and a fluent output builder. The long-term goal is to generalize the harness layer so the same validators, builders, and session tooling work across multiple agent platforms. Claude-specific names in the API (event names, CLI binaries) will remain stable; the package itself is being repositioned to reflect that broader ambition.
+> This library currently targets [Claude Code hooks](https://docs.anthropic.com/en/docs/claude-code/hooks). The long-term goal is to generalize the harness layer so the same validators, builders, and session tooling work across multiple agent platforms. Claude-specific API names (event names, CLI binaries) will remain stable.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![npm version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/libar-dev/agent-harness-kit/releases)
@@ -11,13 +11,13 @@
 TypeScript library for [Claude Code hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) with strict types, Zod-validated inputs, and a fluent output builder for all 30 hook events.
 
 **Why use this instead of raw shell scripts?**  
-Writing hook output JSON by hand is error-prone — field names, nesting, and event-specific shapes vary across 30 event types. This library validates your inputs at the boundary and produces the right output shapes via `HookOutputBuilder`, so you write logic, not plumbing.
+Writing hook output JSON by hand is error-prone: field names, nesting, and event-specific shapes vary across 30 event types. This library validates inputs at the boundary and produces the right output shapes via `HookOutputBuilder`, so you write logic, not plumbing.
 
 It also ships session-processing CLIs: export sessions to clean markdown/JSONL, and tail a live session JSONL as structured blocks for downstream ingestion. Retained tool-result bodies are secret-redacted by default (API keys, tokens, passwords, URL credentials).
 
 ## Install
 
-Runtime support targets Node.js 22 and newer. The library is developed, type-checked, and CI-tested on a Node 24 baseline so maintainers and contributors see the current typings/tooling surface without overstating the consumer runtime floor.
+Runtime support targets Node.js 22 and newer. Development, type-checking, and CI use a Node 24 baseline without raising the consumer runtime floor.
 
 ```bash
 pnpm add @libar-dev/agent-harness-kit

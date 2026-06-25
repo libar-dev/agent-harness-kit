@@ -78,11 +78,6 @@ async function main() {
 
   for (const fileName of targets) {
     const url = upstreamDocs[fileName];
-
-    if (!url) {
-      throw new Error(`Missing URL mapping for ${fileName}`);
-    }
-
     const markdown = await fetchMarkdown(url);
     const destination = resolve(upstreamDir, fileName);
     writeFileSync(destination, markdown, 'utf8');

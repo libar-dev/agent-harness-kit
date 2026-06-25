@@ -1,13 +1,3 @@
-/**
- * Zod-based validation schemas for Claude Code hooks
- *
- * Following a schema-first approach:
- * 1. Define Zod schema
- * 2. Infer TypeScript types with z.infer
- * 3. Use .safeParse() at all system boundaries
- * 4. Never bypass runtime validation
- */
-
 export {
   // Input schemas
   hookInputSchemas,
