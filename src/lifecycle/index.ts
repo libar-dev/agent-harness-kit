@@ -44,6 +44,8 @@ import { handleWorktreeRemove } from './worktree-remove.js';
 import { handlePostCompact } from './post-compact.js';
 import { handleElicitation } from './elicitation.js';
 import { handleElicitationResult } from './elicitation-result.js';
+import { handleSetup } from './setup.js';
+import { handleMessageDisplay } from './message-display.js';
 
 /**
  * Main lifecycle event router
@@ -66,6 +68,12 @@ async function handleLifecycleEvent(input: HookInput): Promise<void> {
 
   // Route to specific handlers based on event type
   switch (hook_event_name) {
+    case 'Setup':
+      if (isHookType(input, 'Setup')) {
+        await handleSetup(input);
+      }
+      break;
+
     case 'UserPromptSubmit':
       if (isHookType(input, 'UserPromptSubmit')) {
         await validateUserPrompt(input);
@@ -75,6 +83,12 @@ async function handleLifecycleEvent(input: HookInput): Promise<void> {
     case 'Notification':
       if (isHookType(input, 'Notification')) {
         await handleNotification(input);
+      }
+      break;
+
+    case 'MessageDisplay':
+      if (isHookType(input, 'MessageDisplay')) {
+        await handleMessageDisplay(input);
       }
       break;
 
@@ -276,3 +290,5 @@ export { handleWorktreeRemove } from './worktree-remove.js';
 export { handlePostCompact } from './post-compact.js';
 export { handleElicitation } from './elicitation.js';
 export { handleElicitationResult } from './elicitation-result.js';
+export { handleSetup } from './setup.js';
+export { handleMessageDisplay } from './message-display.js';

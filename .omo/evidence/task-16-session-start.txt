@@ -1,0 +1,11 @@
+Command: CLAUDE_PROJECT_DIR="/Users/darkomijic/dev-projects/claude-code-hooks" pnpm exec tsx src/lifecycle/session-start.ts
+Input: {"hook_event_name":"SessionStart","session_id":"test-session-start","transcript_path":"/tmp/test.json","cwd":"/tmp","source":"startup"}
+Exit code: 0
+Assertion: output additionalContext contains "**Model:** unknown"
+Stdout excerpt:
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "# Claude Code Session Started\n\n**Session ID:** test-ses...\n**Source:** startup\n**Model:** unknown"
+  }
+}

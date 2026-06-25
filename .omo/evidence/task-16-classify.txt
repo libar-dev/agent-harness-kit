@@ -1,0 +1,6 @@
+Command: pnpm exec tsx -e "import { classifyNotification } from './src/lifecycle/notification-handler.ts'; ..."
+Output:
+{
+  "elicitation_complete": "info",
+  "elicitation_response": "waiting"
+}

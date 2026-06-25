@@ -164,11 +164,15 @@ function classifyNotification(
       return 'permission';
     case 'idle_prompt':
     case 'elicitation_dialog':
+    case 'elicitation_response':
       return 'waiting';
     case 'auth_success':
+    case 'elicitation_complete':
       return 'info';
-    default:
+    case undefined:
       break;
+    default:
+      return assertNeverNotificationType(notificationType);
   }
 
   const lowerMessage = message.toLowerCase();
@@ -188,6 +192,12 @@ function classifyNotification(
   } else {
     return 'info';
   }
+}
+
+function assertNeverNotificationType(
+  notificationType: never
+): 'permission' | 'waiting' | 'error' | 'info' {
+  throw new Error(`Unhandled notification type: ${String(notificationType)}`);
 }
 
 /**
