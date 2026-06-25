@@ -89,4 +89,46 @@ describe('HookOutputBuilder parity helpers', () => {
     expect(output.hookSpecificOutput?.updatedToolOutput).toBeUndefined();
     expect(postToolUseOutputSchema.safeParse(output).success).toBe(true);
   });
+
+  it('feedback accepts string updatedMCPToolOutput', () => {
+    const output = HookOutputBuilder.feedback('r', 'ctx', 'ready');
+
+    expect(output.hookSpecificOutput?.updatedMCPToolOutput).toBe('ready');
+    expect(postToolUseOutputSchema.safeParse(output).success).toBe(true);
+  });
+
+  it('feedback preserves falsy updatedMCPToolOutput values', () => {
+    const cases = [false, 0, '', null];
+
+    for (const updatedMCPToolOutput of cases) {
+      const output = HookOutputBuilder.feedback(
+        'r',
+        'ctx',
+        updatedMCPToolOutput
+      );
+
+      expect(output.hookSpecificOutput?.updatedMCPToolOutput).toBe(
+        updatedMCPToolOutput
+      );
+      expect(postToolUseOutputSchema.safeParse(output).success).toBe(true);
+    }
+  });
+
+  it('feedback passes through fourth positional updatedToolOutput unchanged', () => {
+    const updatedToolOutput = {
+      replaced: true,
+      nested: { value: 'ok' },
+    };
+    const output = HookOutputBuilder.feedback(
+      'r',
+      'ctx',
+      undefined,
+      updatedToolOutput
+    );
+
+    expect(output.hookSpecificOutput?.updatedToolOutput).toBe(
+      updatedToolOutput
+    );
+    expect(postToolUseOutputSchema.safeParse(output).success).toBe(true);
+  });
 });

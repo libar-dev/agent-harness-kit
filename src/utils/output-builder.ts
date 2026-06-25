@@ -109,7 +109,7 @@ export const HookOutputBuilder = {
   feedback: (
     reason: string,
     additionalContext?: string,
-    updatedMCPToolOutput?: Record<string, unknown>,
+    updatedMCPToolOutput?: unknown,
     updatedToolOutput?: unknown
   ): PostToolUseOutput => ({
     decision: 'block',
@@ -117,7 +117,7 @@ export const HookOutputBuilder = {
     hookSpecificOutput: {
       hookEventName: 'PostToolUse',
       ...(additionalContext && { additionalContext }),
-      ...(updatedMCPToolOutput && { updatedMCPToolOutput }),
+      ...(updatedMCPToolOutput !== undefined && { updatedMCPToolOutput }),
       ...(updatedToolOutput !== undefined && { updatedToolOutput }),
     },
   }),
