@@ -96,4 +96,3 @@ Pre-publication development milestone for `@libar-dev/claude-code-hooks` before 
   `--unsafe-raw-unredacted` opt-in; without it, raw records are redacted.
 
 [0.1.0]: https://github.com/libar-dev/agent-harness-kit/releases/tag/v0.1.0
-[1.0.0]: https://github.com/libar-dev/claude-code-hooks/releases/tag/v1.0.0
