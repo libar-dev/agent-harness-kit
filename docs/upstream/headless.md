@@ -1,10 +1,3 @@
-<!--
-  These documents mirror the official Claude Code hooks documentation.
-  They are included here for local reference and API gap analysis.
-  Original source: Anthropic/Claude Code official docs (https://docs.anthropic.com/en/docs/claude-code/hooks).
-  This project makes no claim of ownership over this upstream content.
--->
-
 > ## Documentation Index
 > Fetch the complete documentation index at: https://code.claude.com/docs/llms.txt
 > Use this file to discover all available pages before exploring further.
@@ -15,11 +8,7 @@
 
 The [Agent SDK](/en/agent-sdk/overview) gives you the same tools, agent loop, and context management that power Claude Code. It's available as a CLI for scripts and CI/CD, or as [Python](/en/agent-sdk/python) and [TypeScript](/en/agent-sdk/typescript) packages for full programmatic control.
 
-<Note>
-  The CLI was previously called "headless mode." The `-p` flag and all CLI options work the same way.
-</Note>
-
-To run Claude Code programmatically from the CLI, pass `-p` with your prompt and any [CLI options](/en/cli-reference):
+To run Claude Code in non-interactive mode, pass `-p` with your prompt and any [CLI options](/en/cli-reference):
 
 ```bash theme={null}
 claude -p "Find and fix the bug in auth.py" --allowedTools "Read,Edit,Bash"
@@ -61,7 +50,7 @@ In bare mode Claude has access to the Bash, file read, and file edit tools. Pass
 | Settings                | `--settings <file-or-json>`                             |
 | MCP servers             | `--mcp-config <file-or-json>`                           |
 | Custom agents           | `--agents <json>`                                       |
-| A plugin directory      | `--plugin-dir <path>`                                   |
+| A plugin                | `--plugin-dir <path>`, `--plugin-url <url>`             |
 
 Bare mode skips OAuth and keychain reads. Anthropic authentication must come from `ANTHROPIC_API_KEY` or an `apiKeyHelper` in the JSON passed to `--settings`. Bedrock, Vertex, and Foundry use their usual provider credentials.
 
@@ -69,9 +58,45 @@ Bare mode skips OAuth and keychain reads. Anthropic authentication must come fro
   `--bare` is the recommended mode for scripted and SDK calls, and will become the default for `-p` in a future release.
 </Note>
 
+### Background tasks at exit
+
+If Claude starts a [background Bash task](/en/tools-reference#bash-tool-behavior) during a `claude -p` run, for example a dev server or a watch build, that shell is terminated about five seconds after Claude has returned its final result and stdin has closed. The grace period lets a task that finishes right after the result still deliver its output. Before v2.1.163, a never-exiting background process would hold the `claude -p` invocation open indefinitely.
+
+Background [subagents](/en/sub-agents) and workflows are exempt from the five-second grace because their result is part of the final output, so `claude -p` waits for them to complete. From v2.1.182, that wait is capped at ten minutes by default so a stuck background agent cannot hold the process open indefinitely. Adjust the cap with [`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`](/en/env-vars), or set it to `0` to wait without a limit.
+
 ## Examples
 
 These examples highlight common CLI patterns. For CI and other scripted calls, add [`--bare`](#start-faster-with-bare-mode) so they don't pick up whatever happens to be configured locally.
+
+### Pipe data through Claude
+
+Non-interactive mode reads stdin, so you can pipe data in and redirect the response out like any other command-line tool.
+
+This example pipes a build log into Claude and writes the explanation to a file:
+
+```bash theme={null}
+cat build-error.txt | claude -p 'concisely explain the root cause of this build error' > output.txt
+```
+
+With `--output-format json`, the response payload includes `total_cost_usd` and a per-model cost breakdown, so scripted callers can track spend per invocation without consulting the [usage dashboard](/en/costs).
+
+<Note>
+  As of Claude Code v2.1.128, piped stdin is capped at 10MB. If you exceed the cap, Claude Code exits with a clear error and a non-zero status. To work with larger inputs, write the content to a file and reference the file path in your prompt instead of piping it.
+</Note>
+
+### Add Claude to a build script
+
+You can wrap a non-interactive call in a script to use Claude as a project-specific linter or reviewer.
+
+This `package.json` script pipes the diff against `main` into Claude and asks it to report typos. Piping the diff means Claude doesn't need Bash permission to read it, and the escaped double quotes keep the script portable to Windows:
+
+```json theme={null}
+{
+  "scripts": {
+    "lint:claude": "git diff main | claude -p \"you are a typo linter. for each typo in this diff, report filename:line on one line and the issue on the next. return nothing else.\""
+  }
+}
+```
 
 ### Get structured output
 
@@ -129,24 +154,24 @@ claude -p "Write a poem" --output-format stream-json --verbose --include-partial
 
 When an API request fails with a retryable error, Claude Code emits a `system/api_retry` event before retrying. You can use this to surface retry progress or implement custom backoff logic.
 
-| Field            | Type            | Description                                                                                                                                  |
-| ---------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`           | `"system"`      | message type                                                                                                                                 |
-| `subtype`        | `"api_retry"`   | identifies this as a retry event                                                                                                             |
-| `attempt`        | integer         | current attempt number, starting at 1                                                                                                        |
-| `max_retries`    | integer         | total retries permitted                                                                                                                      |
-| `retry_delay_ms` | integer         | milliseconds until the next attempt                                                                                                          |
-| `error_status`   | integer or null | HTTP status code, or `null` for connection errors with no HTTP response                                                                      |
-| `error`          | string          | error category: `authentication_failed`, `billing_error`, `rate_limit`, `invalid_request`, `server_error`, `max_output_tokens`, or `unknown` |
-| `uuid`           | string          | unique event identifier                                                                                                                      |
-| `session_id`     | string          | session the event belongs to                                                                                                                 |
+| Field            | Type            | Description                                                                                                                                                                                            |
+| ---------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `type`           | `"system"`      | message type                                                                                                                                                                                           |
+| `subtype`        | `"api_retry"`   | identifies this as a retry event                                                                                                                                                                       |
+| `attempt`        | integer         | current attempt number, starting at 1                                                                                                                                                                  |
+| `max_retries`    | integer         | total retries permitted                                                                                                                                                                                |
+| `retry_delay_ms` | integer         | milliseconds until the next attempt                                                                                                                                                                    |
+| `error_status`   | integer or null | HTTP status code, or `null` for connection errors with no HTTP response                                                                                                                                |
+| `error`          | string          | error category: `authentication_failed`, `oauth_org_not_allowed`, `billing_error`, `rate_limit`, `overloaded`, `invalid_request`, `model_not_found`, `server_error`, `max_output_tokens`, or `unknown` |
+| `uuid`           | string          | unique event identifier                                                                                                                                                                                |
+| `session_id`     | string          | session the event belongs to                                                                                                                                                                           |
 
 The `system/init` event reports session metadata including the model, tools, MCP servers, and loaded plugins. It is the first event in the stream unless [`CLAUDE_CODE_SYNC_PLUGIN_INSTALL`](/en/env-vars) is set, in which case `plugin_install` events precede it. Use the plugin fields to fail CI when a plugin did not load:
 
-| Field           | Type  | Description                                                                                                                                                                                                       |
-| --------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `plugins`       | array | plugins that loaded successfully, each with `name` and `path`                                                                                                                                                     |
-| `plugin_errors` | array | plugin load-time errors such as an unsatisfied dependency version, each with `plugin`, `type`, and `message`. Affected plugins are demoted and absent from `plugins`. The key is omitted when there are no errors |
+| Field           | Type  | Description                                                                                                                                                                                                                                                                                  |
+| --------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plugins`       | array | plugins that loaded successfully, each with `name` and `path`                                                                                                                                                                                                                                |
+| `plugin_errors` | array | plugin load-time errors, each with `plugin`, `type`, and `message`. Includes unsatisfied dependency versions and `--plugin-dir` load failures such as a missing path or invalid archive. Affected plugins are demoted and absent from `plugins`. The key is omitted when there are no errors |
 
 When [`CLAUDE_CODE_SYNC_PLUGIN_INSTALL`](/en/env-vars) is set, Claude Code emits `system/plugin_install` events while marketplace plugins install before the first turn. Use these to surface install progress in your own UI.
 
@@ -189,7 +214,7 @@ claude -p "Look at my staged changes and create an appropriate commit" \
 The `--allowedTools` flag uses [permission rule syntax](/en/settings#permission-rule-syntax). The trailing ` *` enables prefix matching, so `Bash(git diff *)` allows any command starting with `git diff`. The space before `*` is important: without it, `Bash(git diff*)` would also match `git diff-index`.
 
 <Note>
-  User-invoked [skills](/en/skills) like `/commit` and [built-in commands](/en/commands) are only available in interactive mode. In `-p` mode, describe the task you want to accomplish instead.
+  User-invoked [skills](/en/skills) and custom commands work in `-p` mode: include `/skill-name` in the prompt string and Claude Code expands it before running. Built-in commands that open an interactive dialog, such as `/login`, are not available in `-p` mode. {/* min-version: 2.1.181 */}To change a setting from a `-p` invocation, pass `key=value` to `/config`, for example `/config thinking=false`.
 </Note>
 
 ### Customize the system prompt
@@ -223,6 +248,8 @@ If you're running multiple conversations, capture the session ID to resume a spe
 session_id=$(claude -p "Start a review" --output-format json | jq -r '.session_id')
 claude -p "Continue that review" --resume "$session_id"
 ```
+
+Run both commands from the same directory: session ID lookup is scoped to the current project directory and its git worktrees. See [Resume a session](/en/sessions#resume-a-session) for the full scope rules.
 
 ## Next steps
 
