@@ -176,8 +176,8 @@ export interface ParsedSubagentSession {
 // IDs are stable (`${messageUuid}:${blockIndex}` for message blocks,
 // `${sessionId}:agent-${direction}:${agentFile}` for synthetic boundaries) so
 // re-running the parser on the same JSONL produces identical IDs — making DB
-// upserts idempotent and enabling tail-mode incremental ingestion of growing
-// session files.
+// upserts idempotent and enabling tail-mode ingestion of growing session
+// files.
 
 export interface SessionBlockBase {
   /** Stable upsert key: `${messageUuid}:${blockIndex}`, sessionId, or namespaced synthetic boundary ID */

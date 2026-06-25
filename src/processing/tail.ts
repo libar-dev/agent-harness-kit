@@ -1,5 +1,5 @@
 /**
- * Tail mode — incremental `SessionBlock` emission for live consumers.
+ * Tail mode — appended-block `SessionBlock` emission for live consumers.
  *
  * Live-ingest consumers can stream new blocks into a database as Claude Code
  * appends to its session JSONL files.
@@ -10,7 +10,7 @@
  *   2. Consumer calls `tailBlocks(jsonlPath)` — gets back only blocks added
  *      since the last successful tail call.
  *   3. Consumer upserts blocks into DB (idempotent via stable `id` field).
- *   4. Marker is automatically advanced to the new file size so the next
+ *   4. Marker advances to the new file size so the next
  *      call returns only newer blocks.
  *
  * Resilience properties:
@@ -251,7 +251,7 @@ export async function tailBlocks(
     );
   }
   // Deliberate divergence from extractBlocks (blocks.ts), which keeps physical
-  // line order: tail emits incrementally as the file grows, so it sorts each
+  // line order: tail emits as the file grows, so it sorts each
   // emitted batch by timestamp to stay robust against out-of-order appends in
   // live sessions. Under the normal time-ordered append pattern this produces
   // the same ordering as extractBlocks, so parity holds for completed sessions.

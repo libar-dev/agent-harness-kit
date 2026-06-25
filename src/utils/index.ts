@@ -128,10 +128,22 @@ export function logInfo(message: string): void {
   stderr.write(`[${timestamp}] INFO: ${message}\n`);
 }
 
+/**
+ * Normalize an unknown value to an Error instance.
+ *
+ * @param error - Value to normalize.
+ * @returns The error if it is an Error, otherwise a new Error wrapping the value.
+ */
 export function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+/**
+ * Check whether a value is a non-null object record.
+ *
+ * @param value - Value to check.
+ * @returns true when the value is a non-null object.
+ */
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
@@ -333,6 +345,11 @@ export function clearGlobRegexCache(): void {
  *
  * Exact matches, glob patterns, and directory prefixes are checked in that
  * order after path normalization.
+ * This is a string-pattern check, not filesystem access control, and it does
+ * not by itself prevent escapes from project bounds.
+ *
+ * @param filePath - Path to check against the configured protected patterns.
+ * @returns true when the path matches a protected pattern.
  */
 export function isProtectedFile(filePath: string): boolean {
   const config = getConfig();
@@ -383,6 +400,11 @@ export function shouldAutoFormat(filePath: string): boolean {
 
 /**
  * Validate that required fields are present in hook input.
+ *
+ * @param input - Hook input object to validate.
+ * @param requiredFields - Field names that must be present and non-null.
+ * @throws Error when any required field is missing, undefined, or null.
+ * @returns void
  */
 export function validateRequiredFields(
   input: Record<string, unknown>,
@@ -401,6 +423,11 @@ export function validateRequiredFields(
 
 /**
  * Validate that a file path is safe and within project bounds.
+ *
+ * @param filePath - File path to validate.
+ * @throws BlockingError when path traversal (`..`) is detected.
+ * Absolute paths outside `CLAUDE_PROJECT_DIR` are logged as a warning.
+ * @returns void
  */
 export function validateFilePath(filePath: string): void {
   if (filePath.includes('..')) {
@@ -417,6 +444,11 @@ export function validateFilePath(filePath: string): void {
 
 /**
  * Strip shell metacharacters used by simple hooks.
+ *
+ * @param command - Command string to sanitize.
+ * @returns command with shell metacharacters stripped.
+ * Removes backticks, `$`, and parentheses, collapses repeated semicolons, and
+ * trims whitespace. This is not a full shell-injection sanitizer.
  */
 export function sanitizeCommand(command: string): string {
   return command

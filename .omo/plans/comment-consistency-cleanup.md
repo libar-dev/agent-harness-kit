@@ -533,10 +533,10 @@ Establish a uniform, professional comment style across `src/` and `tests/` that 
 
 ## Final Verification Wave (MANDATORY)
 > 4 review agents run in PARALLEL. ALL must APPROVE. Present consolidated results to user and get explicit "okay" before completing.
-- [ ] F1. Plan Compliance Audit — oracle: verify the cleanup followed the documented policy and no API-contract JSDoc was removed.
-- [ ] F2. Code Quality Review — unspecified-high: review a sample of source files for consistent style.
-- [ ] F3. Real Manual QA — unspecified-high: run the banned-phrase grep and full test suite.
-- [ ] F4. Scope Fidelity Check — deep: verify no runtime behavior changed and public API comments remain intact.
+- [x] F1. Plan Compliance Audit — oracle: APPROVED
+- [x] F2. Code Quality Review — unspecified-high: APPROVED
+- [x] F3. Real Manual QA — unspecified-high: APPROVED
+- [x] F4. Scope Fidelity Check — deep: APPROVED
 
 ## Commit Strategy
 - One commit per wave group (source groups, test groups) to keep diffs reviewable.

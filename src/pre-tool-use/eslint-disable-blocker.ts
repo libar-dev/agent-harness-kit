@@ -75,11 +75,11 @@ Usage of eslint-disable creates redundant suppression violations and generates m
 
 🔧 USE ARCHITECTURAL DIRECTIVES INSTEAD:
 
-Architectural directives automatically suppress ESLint errors without eslint-disable.
+Architectural directives suppress ESLint errors without eslint-disable.
 They serve as BOTH documentation AND suppression mechanism.
 
 The prevent-unsafe-patterns ESLint rule scans 500 preceding characters and
-automatically suppresses errors when it finds @architectural-directive: pattern.
+suppresses errors when it finds an @architectural-directive: pattern.
 
 Example:
 // @architectural-directive: sequential-for-stability

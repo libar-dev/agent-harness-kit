@@ -133,7 +133,7 @@ async function handleStop(input: StopInput): Promise<void> {
 }
 
 /**
- * Check for incomplete tasks by looking for TODO comments, failing processes, etc.
+ * Check for incomplete tasks by scanning for TODO markers, failing processes, etc.
  */
 async function checkIncompleteTasks(): Promise<string[]> {
   const issues: string[] = [];
