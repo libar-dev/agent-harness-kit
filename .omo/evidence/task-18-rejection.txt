@@ -1,0 +1,43 @@
+{
+  "rejectionsCovered": [
+    {
+      "case": "Setup invalid trigger",
+      "input": {
+        "hook_event_name": "Setup",
+        "trigger": "boot"
+      },
+      "expected": "HOOK_VALIDATION_FAILED"
+    },
+    {
+      "case": "MessageDisplay invalid UUID",
+      "input": {
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "not-a-uuid"
+      },
+      "expected": "HOOK_VALIDATION_FAILED"
+    },
+    {
+      "case": "Common effort invalid level",
+      "input": {
+        "effort": {
+          "level": "turbo"
+        }
+      },
+      "expected": "HOOK_VALIDATION_FAILED"
+    },
+    {
+      "case": "Command hook args invalid entry",
+      "issues": [
+        {
+          "expected": "string",
+          "code": "invalid_type",
+          "path": [
+            "args",
+            1
+          ],
+          "message": "Invalid input: expected string, received number"
+        }
+      ]
+    }
+  ]
+}

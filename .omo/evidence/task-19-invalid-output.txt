@@ -1,0 +1,18 @@
+{
+  "invalidOutput": {
+    "hookSpecificOutput": {
+      "hookEventName": "SessionStart",
+      "watchPaths": [
+        1
+      ],
+      "reloadSkills": "yes"
+    }
+  },
+  "parsed": {
+    "success": false,
+    "error": {
+      "name": "ZodError",
+      "message": "[\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"hookSpecificOutput\",\n      \"watchPaths\",\n      0\n    ],\n    \"message\": \"Invalid input: expected string, received number\"\n  },\n  {\n    \"expected\": \"boolean\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"hookSpecificOutput\",\n      \"reloadSkills\"\n    ],\n    \"message\": \"Invalid input: expected boolean, received string\"\n  }\n]"
+    }
+  }
+}

@@ -79,6 +79,8 @@ import {
   validateWorktreeCreateInput,
   validateWorktreeRemoveInput,
   validatePostCompactInput,
+  validateSetupInput,
+  validateMessageDisplayInput,
   validateElicitationInput,
   validateElicitationResultInput,
   permissionRequestOutputSchema,
@@ -332,6 +334,133 @@ describe('Updated Schema Validation (Phase 1)', () => {
     expect(result.hook_event_name).toBe('SessionStart');
     if ('model' in result) {
       expect(result.model).toBe('claude-sonnet-4-5-20250929');
+    }
+  });
+
+  it('should validate Setup with init and maintenance triggers', () => {
+    const setupInputs = ['init', 'maintenance'].map(trigger => ({
+      ...createTestHookBase({ hook_event_name: 'Setup' }),
+      hook_event_name: 'Setup' as const,
+      trigger,
+    }));
+
+    for (const input of setupInputs) {
+      const result = validateSetupInput(input);
+      expect(result.hook_event_name).toBe('Setup');
+      expect(result.trigger).toBe(input.trigger);
+    }
+  });
+
+  it('should reject Setup with an invalid trigger', () => {
+    expectValidationError(
+      () =>
+        validateSetupInput({
+          ...createTestHookBase({ hook_event_name: 'Setup' }),
+          hook_event_name: 'Setup',
+          trigger: 'boot',
+        }),
+      'HOOK_VALIDATION_FAILED'
+    );
+  });
+
+  it('should validate MessageDisplay with UUID turn and message ids', () => {
+    const result = validateMessageDisplayInput({
+      ...createTestHookBase({ hook_event_name: 'MessageDisplay' }),
+      hook_event_name: 'MessageDisplay',
+      turn_id: '11111111-1111-4111-8111-111111111111',
+      message_id: '22222222-2222-4222-8222-222222222222',
+      index: 0,
+      final: false,
+      delta: 'Hello',
+    });
+
+    expect(result.hook_event_name).toBe('MessageDisplay');
+    expect(result.turn_id).toBe('11111111-1111-4111-8111-111111111111');
+    expect(result.message_id).toBe('22222222-2222-4222-8222-222222222222');
+  });
+
+  it('should reject MessageDisplay with an invalid UUID', () => {
+    expectValidationError(
+      () =>
+        validateMessageDisplayInput({
+          ...createTestHookBase({ hook_event_name: 'MessageDisplay' }),
+          hook_event_name: 'MessageDisplay',
+          turn_id: 'not-a-uuid',
+          message_id: '22222222-2222-4222-8222-222222222222',
+          index: 0,
+          final: true,
+          delta: 'Done',
+        }),
+      'HOOK_VALIDATION_FAILED'
+    );
+  });
+
+  it('should validate SessionStart when model is omitted and session_title is provided', () => {
+    const result = validateHookInput(
+      createSessionStartInput({
+        model: undefined,
+        session_title: 'Recovered session',
+      })
+    );
+
+    expect(result.hook_event_name).toBe('SessionStart');
+    if ('model' in result) {
+      expect(result.model).toBeUndefined();
+    }
+    if ('session_title' in result) {
+      expect(result.session_title).toBe('Recovered session');
+    }
+  });
+
+  it('should validate the common effort field for valid levels', () => {
+    const result = validateHookInput(
+      createSessionStartInput({ effort: { level: 'xhigh' } })
+    );
+
+    expect(result.effort).toEqual({ level: 'xhigh' });
+  });
+
+  it('should reject invalid common effort levels', () => {
+    expectValidationError(
+      () =>
+        validateHookInput({
+          ...createSessionStartInput(),
+          effort: { level: 'turbo' },
+        }),
+      'HOOK_VALIDATION_FAILED'
+    );
+  });
+
+  it('should validate duration_ms on PostToolUse inputs', () => {
+    const result = validatePostToolUseInput(
+      {
+        ...createPostToolUseInput(
+          'Bash',
+          { command: 'pnpm run test:run' },
+          { stdout: 'ok' }
+        ),
+        duration_ms: 125,
+      }
+    );
+
+    expect(result.duration_ms).toBe(125);
+  });
+
+  it('should validate duration_ms on PostToolUseFailure inputs', () => {
+    const result = validateHookInput(
+      {
+        ...createPostToolUseFailureInput(
+          'Bash',
+          { command: 'pnpm run test:run' },
+          'Command failed'
+        ),
+        duration_ms: 250,
+      }
+    );
+
+    expect(result.hook_event_name).toBe('PostToolUseFailure');
+    if ('duration_ms' in result) {
+      expect(result.duration_ms).toBe(250);
     }
   });
 
@@ -1347,6 +1476,28 @@ describe('Session A: New Event Output Schemas', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('accepts SessionStart output with initialUserMessage, sessionTitle, watchPaths, and reloadSkills', () => {
+    const result = sessionStartOutputSchema.safeParse({
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        initialUserMessage: 'hi',
+        sessionTitle: 't',
+        watchPaths: ['/a'],
+        reloadSkills: true,
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts terminalSequence as a common output field', () => {
+    const result = baseHookOutputSchema.safeParse({
+      terminalSequence: '\u001b[2J\u001b[H',
+    });
+
+    expect(result.success).toBe(true);
+  });
 });
 
 describe('Phase 2: New Type Guards', () => {
@@ -1811,6 +1962,24 @@ describe('Phase 3: Output Schema Updates', () => {
   });
 
   describe('PostToolUse output schema', () => {
+    it('accepts updatedToolOutput in hookSpecificOutput', () => {
+      const output = {
+        decision: 'block' as const,
+        reason: 'Tool output replaced',
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          updatedToolOutput: { replaced: true },
+        },
+      };
+      const result = postToolUseOutputSchema.safeParse(output);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.hookSpecificOutput?.updatedToolOutput).toEqual({
+          replaced: true,
+        });
+      }
+    });
+
     it('accepts updatedMCPToolOutput in hookSpecificOutput', () => {
       const output = {
         decision: 'block' as const,
@@ -1826,6 +1995,22 @@ describe('Phase 3: Output Schema Updates', () => {
         expect(result.data.hookSpecificOutput?.updatedMCPToolOutput).toEqual({
           result: 'sanitized data',
         });
+      }
+    });
+
+    it('accepts non-object updatedMCPToolOutput values', () => {
+      const output = {
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          updatedMCPToolOutput: 'sanitized string output',
+        },
+      };
+      const result = postToolUseOutputSchema.safeParse(output);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.hookSpecificOutput?.updatedMCPToolOutput).toBe(
+          'sanitized string output'
+        );
       }
     });
 
@@ -2312,6 +2497,7 @@ describe('Hook Configuration Schemas (settings.json)', () => {
       const result = commandHookHandlerSchema.safeParse({
         type: 'command',
         command: '.claude/hooks/run-tests.sh',
+        args: ['--project', 'hooks'],
         async: true,
         asyncRewake: true,
         shell: 'powershell',
@@ -2321,6 +2507,16 @@ describe('Hook Configuration Schemas (settings.json)', () => {
         once: true,
       });
       expect(result.success).toBe(true);
+    });
+
+    it('rejects command handler with non-string args entries', () => {
+      const result = commandHookHandlerSchema.safeParse({
+        type: 'command',
+        command: '.claude/hooks/run-tests.sh',
+        args: ['--project', 1],
+      });
+
+      expect(result.success).toBe(false);
     });
 
     it('rejects command handler without command', () => {

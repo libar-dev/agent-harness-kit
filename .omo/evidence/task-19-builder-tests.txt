@@ -1,0 +1,10 @@
+Task 19 builder evidence
+
+- Added `tests/output-builder.test.ts` with 5 focused builder tests.
+- Covered builder methods:
+  - `HookOutputBuilder.setupContext('x')`
+  - `HookOutputBuilder.messageDisplayContent('y')`
+  - `HookOutputBuilder.sessionStartContext({ sessionTitle: 't', watchPaths: ['/a'], reloadSkills: true, initialUserMessage: 'hi' })`
+  - `HookOutputBuilder.feedback('r', 'ctx', undefined, { replaced: true })`
+  - `HookOutputBuilder.feedback('r', 'ctx')`
+- Full suite result included: `tests/output-builder.test.ts (5 tests) 7ms`.

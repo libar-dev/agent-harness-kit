@@ -40,16 +40,6 @@ const EXPECTED_VALIDATION_SKIPS: SkipRule[] = [
       source.includes('"hook_event_name": "PreToolUse"') &&
       !source.includes('"tool_use_id"'),
   },
-  {
-    description:
-      'Setup example uses a hook event that is documented upstream but not implemented in this library yet.',
-    matches: source => source.includes('"hook_event_name": "Setup"'),
-  },
-  {
-    description:
-      'MessageDisplay example uses a hook event that is documented upstream but not implemented in this library yet.',
-    matches: source => source.includes('"hook_event_name": "MessageDisplay"'),
-  },
 ];
 
 interface JsonBlock {
