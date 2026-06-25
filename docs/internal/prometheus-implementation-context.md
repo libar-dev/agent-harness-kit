@@ -97,7 +97,7 @@ This is not a rewrite. The repo already covers many of the previously missing ev
 
 ## Guardrails already in place
 
-- `tests/docs-round-trip.test.ts` now intentionally skips the known unsupported upstream examples for `Setup` and `MessageDisplay` instead of failing on mirror drift.
+- `tests/docs-round-trip.test.ts` validates the upstream `Setup` and `MessageDisplay` input/config examples alongside the other supported events; only the generic `PreToolUse` snippet that omits `tool_use_id` remains skipped.
 - `pnpm run docs:sync-upstream` can be rerun at any time to refresh the canonical inputs before planning or implementation.
 
 ## DeepWiki usage policy

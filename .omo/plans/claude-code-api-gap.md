@@ -78,8 +78,8 @@ Make the library accept, validate, and produce the same hook inputs/outputs that
 - No newly added `.passthrough()`: `git diff -- src/validation/schemas.ts | grep '^\+\s*\.passthrough()' | wc -l` outputs 0. (The repo already uses `.passthrough()` in `permissionUpdateEntrySchema` at `src/validation/schemas.ts:75`; do not remove it.)
 - `pnpm run type-check` passes (catches new `any` or type errors).
 - No new explicit `any` in changed TS files: `git diff -- src/ tests/ | grep -E '^\+.*\bany\b' | wc -l` outputs 0.
-- `git diff package.json | grep '"version"'` returns empty.
-- Changed files stay within the allowed set: `git diff --name-only | grep -vE '^(src/(types|validation|utils|lifecycle)/|tests/|docs/|README\.md|package\.json|CLAUDE\.md|CHANGELOG\.md)$' | wc -l` outputs 0.
+- `git diff package.json | grep -E '^[+-]\s*"version"'` returns empty.
+- Changed files stay within the allowed set: `git diff --name-only | grep -vE '^(src/(types|validation|utils|lifecycle)/.*|tests/.*|docs/.*|README\.md|package\.json|CLAUDE\.md|CHANGELOG\.md|\.omo/(plans|evidence|notepads)/.*)$' | wc -l` outputs 0. (Work-tracking artifacts under `.omo/` are allowed because the plan requires evidence and notepad files.)
 - Upstream docs are untouched: `git diff --name-only -- docs/upstream | wc -l` outputs 0.
 - No existing public exports removed: `git diff src/types/index.ts src/validation/index.ts src/utils/index.ts src/lifecycle/index.ts | grep -E '^-\s*(export|export type|export const)' | grep -v '^{' | wc -l` outputs 0.
 - No stricter config semantics added: `git diff src/validation/schemas.ts src/validation/validators.ts | grep -E '^\+.*(allowedHandlerTypes|restrictTo|matcher.*Schema|handlerTypeRestriction)' | wc -l` outputs 0.
@@ -122,7 +122,7 @@ Wave 5: Final verification (mandatory)
 
 ## TODOs
 
-- [ ] 1. Expand `HookEventName` and `hookEventNameSchema` to 30 events
+- [x] 1. Expand `HookEventName` and `hookEventNameSchema` to 30 events
 
   **What to do**: Add `'Setup'` and `'MessageDisplay'` to the `HookEventName` union in `src/types/index.ts` and to the `hookEventNameSchema` enum in `src/validation/schemas.ts`. Keep the existing 28 events intact.
 
@@ -169,7 +169,7 @@ Wave 5: Final verification (mandatory)
 
   **Commit**: YES | Message: `feat(types): expand HookEventName to 30 events` | Files: `src/types/index.ts`, `src/validation/schemas.ts`
 
-- [ ] 2. Add `Setup` TypeScript interfaces
+- [x] 2. Add `Setup` TypeScript interfaces
 
   **What to do**: Add `SetupInput` and `SetupOutput` interfaces to `src/types/index.ts`. `SetupInput` extends `BaseHookInput` with `hook_event_name: 'Setup'` and `trigger: 'init' | 'maintenance'`. `SetupOutput` extends `BaseHookOutput` with `hookSpecificOutput?: { hookEventName: 'Setup'; additionalContext?: string }`.
 
@@ -210,7 +210,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-2-type-check.ts; STATUS=$?; rm task-2
 
   **Commit**: NO (folded into Wave 1 commit)
 
-- [ ] 3. Add `MessageDisplay` TypeScript interfaces
+- [x] 3. Add `MessageDisplay` TypeScript interfaces
 
   **What to do**: Add `MessageDisplayInput` and `MessageDisplayOutput` interfaces to `src/types/index.ts`. `MessageDisplayInput` extends `BaseHookInput` with `hook_event_name: 'MessageDisplay'`, `turn_id`, `message_id`, `index`, `final`, and `delta`. `MessageDisplayOutput` extends `BaseHookOutput` with `hookSpecificOutput?: { hookEventName: 'MessageDisplay'; displayContent?: string }`.
 
@@ -251,7 +251,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into Wave 1 commit)
 
-- [ ] 4. Add `Setup` Zod schemas
+- [x] 4. Add `Setup` Zod schemas
 
   **What to do**: Add `setupInputSchema` and `setupOutputSchema` to `src/validation/schemas.ts`. Input: `baseHookInputSchema.extend({ hook_event_name: z.literal('Setup'), trigger: z.enum(['init', 'maintenance']) })`. Output: extend `baseHookOutputSchema` with `hookSpecificOutput` containing `hookEventName: 'Setup'` and `additionalContext` optional.
 
@@ -291,7 +291,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into Wave 1 commit)
 
-- [ ] 5. Add `MessageDisplay` Zod schemas
+- [x] 5. Add `MessageDisplay` Zod schemas
 
   **What to do**: Add `messageDisplayInputSchema` and `messageDisplayOutputSchema` to `src/validation/schemas.ts`. Input: `baseHookInputSchema.extend({ hook_event_name: z.literal('MessageDisplay'), turn_id: z.string().uuid(), message_id: z.string().uuid(), index: z.number().int().nonnegative(), final: z.boolean(), delta: z.string() })`. Output: extend `baseHookOutputSchema` with `hookSpecificOutput` containing `hookEventName: 'MessageDisplay'` and `displayContent` optional.
 
@@ -330,7 +330,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into Wave 1 commit)
 
-- [ ] 6. Update `HookInput`/`HookOutput` unions and schema collections
+- [x] 6. Update `HookInput`/`HookOutput` unions and schema collections
 
   **What to do**: Add `SetupInput`, `SetupOutput`, `MessageDisplayInput`, `MessageDisplayOutput` to the `HookInput` and `HookOutput` unions in `src/types/index.ts`. Add `Setup`, `MessageDisplay` entries to `hookInputSchemas` and `hookOutputSchemas` in `src/validation/schemas.ts`.
 
@@ -369,7 +369,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into Wave 1 commit)
 
-- [ ] 7. Update `SessionStart` input parity
+- [x] 7. Update `SessionStart` input parity
 
   **What to do**: In `src/types/index.ts`, make `model?: string | undefined` in `SessionStartInput` and add `session_title?: string | undefined`. In `src/validation/schemas.ts`, update `sessionStartInputSchema` accordingly (`model: z.string().optional()`).
 
@@ -408,7 +408,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into Wave 1 commit)
 
-- [ ] 8. Update `SessionStart` output parity
+- [x] 8. Update `SessionStart` output parity
 
   **What to do**: In `src/types/index.ts`, extend `SessionStartOutput.hookSpecificOutput` with `initialUserMessage?: string`, `sessionTitle?: string`, `watchPaths?: string[]`, `reloadSkills?: boolean`. Update `sessionStartOutputSchema` in `src/validation/schemas.ts` to match.
 
@@ -446,7 +446,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into Wave 1 commit)
 
-- [ ] 9. Expand `Notification` and `StopFailure` enums
+- [x] 9. Expand `Notification` and `StopFailure` enums
 
   **What to do**: In `src/types/index.ts`, add `'elicitation_complete' | 'elicitation_response'` to `NotificationInput.notification_type`. In `src/validation/schemas.ts`, update `notificationInputSchema` enum. In `src/types/index.ts`, add `'overloaded' | 'oauth_org_not_allowed' | 'model_not_found'` to `StopFailureInput.error`. In `src/validation/schemas.ts`, update `stopFailureErrorSchema`.
 
@@ -486,7 +486,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into Wave 1 commit)
 
-- [ ] 10. Add common `effort`/`terminalSequence`, `PostToolUse.duration_ms`, and `PostToolUseOutput.updatedToolOutput`
+- [x] 10. Add common `effort`/`terminalSequence`, `PostToolUse.duration_ms`, and `PostToolUseOutput.updatedToolOutput`
 
   **What to do**: Add `effort?: { level: 'low' | 'medium' | 'high' | 'xhigh' | 'max' } | undefined` to `BaseHookInput` and `baseHookInputSchema`. Add `terminalSequence?: string | undefined` to `BaseHookOutput` and `baseHookOutputSchema`. Add `duration_ms?: number | undefined` to `PostToolUseInput` and `postToolUseInputSchema`, and to `PostToolUseFailureInput` and `postToolUseFailureInputSchema`. Add `updatedToolOutput?: unknown` to `PostToolUseOutput.hookSpecificOutput` in `src/types/index.ts` and to `postToolUseOutputSchema` in `src/validation/schemas.ts`. Widen `updatedMCPToolOutput` from `Record<string, unknown>` to `unknown` in `PostToolUseOutput` and from `z.record(z.string(), z.unknown())` to `z.unknown()` in `postToolUseOutputSchema`, keeping the field intact.
 
@@ -552,7 +552,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into Wave 1 commit)
 
-- [ ] 11. Add `Setup`/`MessageDisplay` validators, type guards, and exports
+- [x] 11. Add `Setup`/`MessageDisplay` validators, type guards, and exports
 
   **What to do**: Add `isSetupInput`, `isMessageDisplayInput` type guards and `validateSetupInput`, `validateMessageDisplayInput` functions in `src/validation/validators.ts`. Export them from `src/validation/index.ts`. Update `validateHookInput` dispatch to route the new events.
 
@@ -593,7 +593,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: YES | Message: `feat(validation): add Setup and MessageDisplay validators` | Files: `src/validation/validators.ts`, `src/validation/index.ts`
 
-- [ ] 12. Update `HookOutputBuilder` for new outputs and fields
+- [x] 12. Update `HookOutputBuilder` for new outputs and fields
 
   **What to do**: In `src/utils/output-builder.ts`:
   - Add `setupContext(context: string): SetupOutput` builder.
@@ -643,7 +643,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: YES | Message: `feat(utils): extend HookOutputBuilder for Setup, MessageDisplay, SessionStart, and updatedToolOutput` | Files: `src/utils/output-builder.ts`
 
-- [ ] 13. Support command hook exec form `args`
+- [x] 13. Support command hook exec form `args`
 
   **What to do**: Add `args?: string[]` to `CommandHookHandler` in `src/types/index.ts`. Add `args: z.array(z.string()).optional()` to `commandHookHandlerSchema` in `src/validation/schemas.ts`.
 
@@ -682,7 +682,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into Wave 2 commit)
 
-- [ ] 14. Create `src/lifecycle/setup.ts` and wire into router
+- [x] 14. Create `src/lifecycle/setup.ts` and wire into router
 
   **What to do**: Create a minimal reference handler `src/lifecycle/setup.ts` that reads `SetupInput` and outputs any `additionalContext` (or exits 0). Wire it into `src/lifecycle/index.ts` under the `'Setup'` case.
 
@@ -720,7 +720,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into Wave 2 commit)
 
-- [ ] 15. Create `src/lifecycle/message-display.ts` and wire into router
+- [x] 15. Create `src/lifecycle/message-display.ts` and wire into router
 
   **What to do**: Create a minimal reference handler `src/lifecycle/message-display.ts` that reads `MessageDisplayInput` and, when no transformation is applied, returns a `MessageDisplayOutput` whose `displayContent` equals the input `delta`. Wire it into `src/lifecycle/index.ts` under the `'MessageDisplay'` case.
 
@@ -758,9 +758,11 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into Wave 2 commit)
 
-- [ ] 16. Update existing lifecycle handlers for new fields/enums
+- [x] 16. Update existing lifecycle handlers for new fields/enums
 
   **What to do**: Update `src/lifecycle/session-start.ts` to handle optional `model` (default to `'unknown'` when logging). Export `classifyNotification` from `src/lifecycle/notification-handler.ts` and update its switch to handle `elicitation_complete` as `'info'` and `elicitation_response` as `'waiting'`.
+
+  **Rationale**: `elicitation_complete` signals that a user-facing form/URL elicitation has finished, which is an informational lifecycle event. `elicitation_response` signals that Claude is waiting on the user's response to an elicitation, matching the existing `'waiting'` semantic of `idle_prompt` and `elicitation_dialog`.
 
   **Must NOT do**: Crash when `model` is absent; change classification of existing notification types.
 
@@ -803,7 +805,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into Wave 2 commit)
 
-- [ ] 17. Export new inferred schema types
+- [x] 17. Export new inferred schema types
 
   **What to do**: Add `SetupInputSchema`, `SetupOutputSchema`, `MessageDisplayInputSchema`, `MessageDisplayOutputSchema` inferred type exports in `src/validation/schemas.ts` and re-export them from `src/validation/index.ts`.
 
@@ -841,7 +843,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into Wave 2 commit)
 
-- [ ] 18. Add/extend unit tests for new schemas and validators
+- [x] 18. Add/extend unit tests for new schemas and validators
 
   **What to do**: In `tests/`:
   - Extend `tests/docs-round-trip.test.ts` to stop skipping `Setup` and `MessageDisplay` input/config examples.
@@ -891,7 +893,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: YES | Message: `test(hooks): cover Setup, MessageDisplay, SessionStart parity, and common fields` | Files: `tests/docs-round-trip.test.ts`, `tests/validation.test.ts`, `tests/hooks.test.ts`
 
-- [ ] 19. Add output-builder tests for new methods and fields
+- [x] 19. Add output-builder tests for new methods and fields
 
   **What to do**: Add builder tests in `tests/hooks.test.ts` (or create `tests/output-builder.test.ts` if no existing builder tests) for `setupContext`, `messageDisplayContent`, extended `sessionStartContext`, and `feedback` with `updatedToolOutput`. Ensure outputs validate against their schemas.
 
@@ -929,7 +931,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: NO (folded into task 18 commit or separate if a new builder test file is created)
 
-- [ ] 20. Add lifecycle handler smoke tests
+- [x] 20. Add lifecycle handler smoke tests
 
   **What to do**: Add minimal smoke tests in `tests/cli.test.ts` (or create `tests/lifecycle.test.ts` if no suitable existing file) for `src/lifecycle/setup.ts` and `src/lifecycle/message-display.ts` that pipe JSON via stdin, assert exit code 0, and assert expected stdout.
 
@@ -970,7 +972,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
 ## Wave 4: Documentation and package metadata
 
-- [ ] 21. Update hook-count references from 28 to 30 and add handler test scripts
+- [x] 21. Update hook-count references from 28 to 30 and add handler test scripts
 
   **What to do**: Search for "28 hook events" / "28 events" in `README.md`, `package.json` description, `CLAUDE.md`, and project docs under `docs/` (excluding `docs/upstream/`). Update to 30 and list `Setup` and `MessageDisplay` in summaries. Also add `hook:test:setup` and `hook:test:message-display` scripts to `package.json` alongside the existing `hook:test:*` scripts.
 
@@ -1022,7 +1024,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 
   **Commit**: YES | Message: `docs: update hook count references to 30, list new events, and add handler test scripts` | Files: `README.md`, `package.json`, `CLAUDE.md`, `docs/README.md`, `docs/guides/getting-started.md`, `docs/guides/writing-your-first-hook.md`, `docs/guides/cookbook.md`, `docs/reference/hook-events.md`, `docs/reference/types.md`
 
-- [ ] 22. Add CHANGELOG entry
+- [x] 22. Add CHANGELOG entry
 
   **What to do**: Add a `CHANGELOG.md` entry under the upcoming version with explicit bullets for: `Setup` and `MessageDisplay` events, `SessionStart` input/output parity, `Notification`/`StopFailure` enum expansions, `CommandHookHandler.args`, `PostToolUseOutput.updatedToolOutput`, `PostToolUseOutput.updatedMCPToolOutput` widened to `unknown`, `PostToolUseInput.duration_ms` and `PostToolUseFailureInput.duration_ms`, and `BaseHookInput.effort` / `BaseHookOutput.terminalSequence`.
 
@@ -1152,11 +1154,11 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
   **Acceptance Criteria**:
   - [ ] All Must Have items are addressed.
   - [ ] No Must NOT Have items are violated.
-  - [ ] Changed files are within the allowed set (`git diff --name-only | grep -vE '^(src/(types|validation|utils|lifecycle)/|tests/|docs/|README\.md|package\.json|CLAUDE\.md|CHANGELOG\.md)$' | wc -l` outputs 0).
+  - [ ] Changed files are within the allowed set (`git diff --name-only | grep -vE '^(src/(types|validation|utils|lifecycle)/.*|tests/.*|docs/.*|README\.md|package\.json|CLAUDE\.md|CHANGELOG\.md|\.omo/(plans|evidence|notepads)/.*)$' | wc -l` outputs 0).
   - [ ] Upstream docs are untouched (`git diff --name-only -- docs/upstream | wc -l` outputs 0).
   - [ ] No new explicit `any` in changed TS files (`git diff -- src/ tests/ | grep -E '^\+.*\bany\b' | wc -l` outputs 0).
   - [ ] No newly added `.passthrough()` (`git diff -- src/validation/schemas.ts | grep '^\+\s*\.passthrough()' | wc -l` outputs 0).
-  - [ ] `package.json` version is unchanged (`git diff package.json | grep '"version"'` returns empty).
+  - [ ] `package.json` version is unchanged (`git diff package.json | grep -E '^[+-]\s*"version"'` returns empty).
   - [ ] Reviewer provides APPROVE verdict.
 
   **QA Scenarios**:
@@ -1164,7 +1166,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
   Scenario: Scope diff check
     Tool: Bash
     Steps: |
-      echo "Unexpected files:" && git diff --name-only | grep -vE '^(src/(types|validation|utils|lifecycle)/|tests/|docs/|README\.md|package\.json|CLAUDE\.md|CHANGELOG\.md)$' || true
+      echo "Unexpected files:" && git diff --name-only | grep -vE '^(src/(types|validation|utils|lifecycle)/.*|tests/.*|docs/.*|README\.md|package\.json|CLAUDE\.md|CHANGELOG\.md|\.omo/(plans|evidence|notepads)/.*)$' || true
       echo "Upstream docs changed:" && git diff --name-only -- docs/upstream | wc -l
       echo "New any count:" && git diff -- src/ tests/ | grep -E '^\+.*\bany\b' | wc -l
       echo "New passthrough count:" && git diff -- src/validation/schemas.ts | grep '^\+\s*\.passthrough()' | wc -l
