@@ -17,9 +17,16 @@ This is the first release candidate under the new `agent-harness-kit` identity.
 The package was renamed from `@libar-dev/claude-code-hooks` to
 `@libar-dev/agent-harness-kit`.
 
+### Added
+
+- Added support for image content blocks in transcript processing.
+
 ### Changed
 
 - Package name changed from `@libar-dev/claude-code-hooks` to `@libar-dev/agent-harness-kit`.
+- Normalized npm bin paths in package metadata.
+- Updated the repository URL to the public GitHub location.
+- Added `publishConfig.access: public` for npm publishing.
 
 ---
 
