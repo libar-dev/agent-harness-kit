@@ -1065,7 +1065,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
 > 4 review agents run in PARALLEL. ALL must APPROVE. Present consolidated results to user and get explicit "okay" before completing.
 > Do NOT auto-proceed after verification. Wait for user's explicit approval.
 
-- [ ] F1. Plan Compliance Audit — oracle
+- [x] F1. Plan Compliance Audit — oracle
 
   **What to do**: Verify that every implementation task references an existing file path, every acceptance criterion is agent-executable, and no business-logic assumption remains ungrounded. Confirm that all 30 hook events are represented in the plan and that the scope boundaries (Must NOT Have) are respected.
 
@@ -1090,7 +1090,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
     Evidence: .omo/evidence/F1-oracle.txt
   ```
 
-- [ ] F2. Code Quality Review — unspecified-high
+- [x] F2. Code Quality Review — unspecified-high
 
   **What to do**: After implementation, review changed source files for lint/type errors, adherence to the "no any" rule, consistent naming, and minimal diff size. Ensure new files follow the existing header/module pattern.
 
@@ -1115,7 +1115,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
     Evidence: .omo/evidence/F2-check.txt
   ```
 
-- [ ] F3. Real Manual QA — unspecified-high
+- [x] F3. Real Manual QA — unspecified-high
 
   **What to do**: Run the full test suite, execute the new handler scripts via stdin with sample upstream JSON, and confirm `docs-round-trip.test.ts` no longer skips `Setup`/`MessageDisplay`.
 
@@ -1140,7 +1140,7 @@ pnpm exec tsc --noEmit --skipLibCheck task-3-type-check.ts; STATUS=$?; rm task-3
     Evidence: .omo/evidence/F3-tests.txt
   ```
 
-- [ ] F4. Scope Fidelity Check — deep
+- [x] F4. Scope Fidelity Check — deep
 
   **What to do**: Compare the merged branch against the original request and the Must Have/Must NOT Have list. Run the concrete enforcement checks listed in the Must NOT Have section.
 
