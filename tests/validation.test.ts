@@ -126,6 +126,7 @@ import {
   hookInputSchemas,
   hookOutputSchemas,
   toolInputSchemas,
+  imageContentBlockSchema,
   rawHistoryLineSchema,
   rawTranscriptPayloadMetadataSchema,
   safeValidateRawHistoryLine,
@@ -515,14 +516,37 @@ describe('Transcript Validation Primitives', () => {
     }
   });
 
-  it('keeps concrete diagnostics for unsupported content block discriminators', () => {
+  it('accepts image content blocks with source metadata', () => {
     const result = safeValidateRawHistoryLine({
       type: 'assistant',
       ...baseHistoryFields,
       uuid: 'hist-009',
       message: {
         role: 'assistant',
-        content: [{ type: 'image', source: 'future-block' }],
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: 'abc123',
+            },
+          },
+        ],
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('keeps concrete diagnostics for unsupported content block discriminators', () => {
+    const result = safeValidateRawHistoryLine({
+      type: 'assistant',
+      ...baseHistoryFields,
+      uuid: 'hist-009-unsupported',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'document', source: 'future-block' }],
       },
     });
 
@@ -535,6 +559,70 @@ describe('Transcript Validation Primitives', () => {
           'Invalid input (discriminator: type; No matching discriminator)',
       });
     }
+  });
+
+  it('validates user image content blocks', () => {
+    const result = safeValidateRawHistoryLine({
+      type: 'user',
+      ...baseHistoryFields,
+      uuid: 'hist-image-user',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { media_type: 'image/jpeg', data: 'abc' } },
+        ],
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('validates assistant image content blocks', () => {
+    const result = safeValidateRawHistoryLine({
+      type: 'assistant',
+      ...baseHistoryFields,
+      uuid: 'hist-image-assistant',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'image', source: { media_type: 'image/webp', data: 'abc' } },
+        ],
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('validates mixed text and image content blocks', () => {
+    const result = safeValidateRawHistoryLine({
+      type: 'assistant',
+      ...baseHistoryFields,
+      uuid: 'hist-image-mixed',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'See this screenshot.' },
+          { type: 'image', source: { media_type: 'image/png', data: 'abc' } },
+        ],
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('validates image-only content blocks', () => {
+    const result = imageContentBlockSchema.safeParse({
+      type: 'image',
+      source: { media_type: 'image/png', data: 'abc' },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('validates image content blocks with missing source', () => {
+    const result = imageContentBlockSchema.safeParse({ type: 'image' });
+
+    expect(result.success).toBe(true);
   });
 
   it('returns structured diagnostics for malformed history line shapes', () => {

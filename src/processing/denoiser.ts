@@ -26,6 +26,7 @@ import {
   type TextBlock,
   type ToolUseBlock,
   type ThinkingBlock,
+  type ImageContentBlock,
   type CleanMessage,
   type ToolResultEntry,
   type ParsedSession,
@@ -216,6 +217,24 @@ function isThinkingBlock(block: ContentBlock): block is ThinkingBlock {
   return block.type === 'thinking';
 }
 
+function isImageBlock(block: ContentBlock): block is ImageContentBlock {
+  return block.type === 'image';
+}
+
+function imagePlaceholder(source: unknown): string {
+  if (!isRecord(source)) return '[Image]';
+  const mediaType = source['media_type'];
+  if (!isSafeMediaType(mediaType)) return '[Image]';
+  return `[Image: ${mediaType}]`;
+}
+
+function isSafeMediaType(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^[A-Za-z0-9.+-]+\/[A-Za-z0-9.+-]+$/.test(value)
+  );
+}
+
 /** Extract user-facing text from a message's content field */
 function extractText(
   content: string | readonly ContentBlock[],
@@ -229,6 +248,8 @@ function extractText(
   for (const block of content) {
     if (isTextBlock(block) && block.text.trim()) {
       textParts.push(block.text);
+    } else if (isImageBlock(block)) {
+      textParts.push(imagePlaceholder(block.source));
     }
   }
 
@@ -480,6 +501,8 @@ function extractUserText(msg: RawMessage, config: DenoiseConfig): string {
       if (!isSystemNoise(block.text)) {
         textParts.push(block.text);
       }
+    } else if (isImageBlock(block)) {
+      textParts.push(imagePlaceholder(block.source));
     }
     // tool_result blocks in user messages are Claude Code feeding back
     // tool output — this is noise (file contents, command output, etc.)

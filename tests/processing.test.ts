@@ -10,6 +10,7 @@ import {
   toJsonlBlocks,
   exportSession,
   type SessionBlock,
+  type UserTextBlock,
 } from '../src/processing/index.js';
 import {
   parseJsonlContent,
@@ -191,6 +192,26 @@ const THINKING_LINE = JSON.stringify({
   uuid: 'a-004',
 });
 
+const ASSISTANT_IMAGE_LINE = JSON.stringify({
+  type: 'assistant',
+  message: {
+    role: 'assistant',
+    content: [
+      {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: 'image/png',
+          data: 'raw-base64-image-data',
+        },
+      },
+    ],
+  },
+  sessionId: 'test-session-001',
+  timestamp: '2026-02-16T20:00:11.000Z',
+  uuid: 'a-image',
+});
+
 // Build full JSONL content
 const FULL_SESSION_JSONL = [
   USER_TEXT_LINE,
@@ -230,6 +251,16 @@ describe('Processing Pipeline', () => {
       const lines = parseJsonlContent('', diagnostics);
       expect(lines).toHaveLength(0);
       expect(diagnostics).toHaveLength(0);
+    });
+
+    it('parses JSONL with image blocks without invalid-shape diagnostics', () => {
+      const diagnostics: Parameters<typeof parseJsonlContent>[1] = [];
+      const lines = parseJsonlContent(ASSISTANT_IMAGE_LINE, diagnostics);
+
+      expect(lines).toHaveLength(1);
+      expect(
+        diagnostics.filter(diagnostic => diagnostic.kind === 'invalid_shape')
+      ).toHaveLength(0);
     });
 
     it('should parse BOM-prefixed JSONL content', () => {
@@ -357,6 +388,56 @@ describe('Processing Pipeline', () => {
       const assistantMsgs = clean.messages.filter(m => m.role === 'assistant');
       const textMsg = assistantMsgs.find(m => m.text.includes('routing'));
       expect(textMsg).toBeDefined();
+    });
+
+    it('extracts image placeholders from assistant image blocks', () => {
+      const clean = denoiseSession(
+        parseSessionContent('test', ASSISTANT_IMAGE_LINE)
+      );
+
+      expect(clean.messages[0]?.text).toBe('[Image: image/png]');
+      expect(clean.messages[0]?.text).not.toContain('raw-base64-image-data');
+    });
+
+    it('preserves mixed text and image order in denoised text', () => {
+      const session = JSON.stringify({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Before' },
+            {
+              type: 'image',
+              source: { media_type: 'image/jpeg', data: 'secret-image-data' },
+            },
+            { type: 'text', text: 'After' },
+          ],
+        },
+        sessionId: 'test-session-001',
+        timestamp: '2026-02-16T20:00:12.000Z',
+        uuid: 'a-image-mixed',
+      });
+
+      const clean = denoiseSession(parseSessionContent('test', session));
+
+      expect(clean.messages[0]?.text).toBe(
+        'Before\n\n[Image: image/jpeg]\n\nAfter'
+      );
+      expect(clean.messages[0]?.text).not.toContain('secret-image-data');
+    });
+
+    it('extracts generic image placeholders when source is missing', () => {
+      const session = JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: [{ type: 'image' }] },
+        sessionId: 'test-session-001',
+        timestamp: '2026-02-16T20:00:13.000Z',
+        uuid: 'u-image-missing-source',
+      });
+
+      const clean = denoiseSession(parseSessionContent('test', session));
+
+      expect(clean.messages[0]?.text).toBe('[Image]');
     });
 
     it('should summarize tool calls', () => {
@@ -1225,6 +1306,56 @@ describe('Processing Pipeline', () => {
       expect(blocks).toHaveLength(0);
     });
 
+    it('extractBlocks emits image placeholders as text blocks', () => {
+      const blocks = extractBlocks(
+        parseSessionContent('test-session-001', ASSISTANT_IMAGE_LINE)
+      );
+
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]).toMatchObject({
+        id: 'a-image:0',
+        type: 'assistant_text',
+        content: '[Image: image/png]',
+      });
+      expect(JSON.stringify(blocks)).not.toContain('raw-base64-image-data');
+    });
+
+    it('extractBlocks emits one placeholder per image block', () => {
+      const session = JSON.stringify({
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'image', source: { media_type: 'image/png', data: 'one' } },
+            {
+              type: 'image',
+              source: { media_type: 'image/webp', data: 'two' },
+            },
+          ],
+        },
+        sessionId: 'test-session-001',
+        timestamp: '2026-02-16T20:00:14.000Z',
+        uuid: 'u-image-multiple',
+      });
+
+      const blocks = extractBlocks(parseSessionContent('test', session));
+
+      const imageBlocks = blocks.filter(
+        (block): block is UserTextBlock => block.type === 'user_text'
+      );
+
+      expect(blocks.map(block => block.type)).toEqual([
+        'user_text',
+        'user_text',
+      ]);
+      expect(imageBlocks.map(block => block.content)).toEqual([
+        '[Image: image/png]',
+        '[Image: image/webp]',
+      ]);
+      expect(JSON.stringify(blocks)).not.toContain('one');
+      expect(JSON.stringify(blocks)).not.toContain('two');
+    });
+
     it('extractBlocks emits agent_boundary blocks bracketing subagents', () => {
       const main = JSON.stringify({
         type: 'assistant',
@@ -1494,6 +1625,23 @@ describe('Processing Pipeline', () => {
       const md = toMarkdown(clean, { includeToolAnnotations: false });
 
       expect(md).not.toContain('*Tools:*');
+    });
+
+    it('includes image placeholders without raw image data', () => {
+      const raw = parseSessionContent('test', ASSISTANT_IMAGE_LINE);
+      const clean = denoiseSession(raw);
+      const md = toMarkdown(clean);
+
+      expect(md).toContain('[Image: image/png]');
+      expect(md).not.toContain('raw-base64-image-data');
+      expect(md).not.toContain('data:image');
+    });
+
+    it('renders image-only messages with an image placeholder', () => {
+      const raw = parseSessionContent('test', ASSISTANT_IMAGE_LINE);
+      const md = toMarkdown(denoiseSession(raw));
+
+      expect(md).toContain('[Image: image/png]');
     });
   });
 

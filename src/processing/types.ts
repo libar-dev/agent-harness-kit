@@ -37,11 +37,17 @@ export interface ThinkingBlock {
   readonly thinking: string;
 }
 
+export interface ImageContentBlock {
+  readonly type: 'image';
+  readonly source?: unknown;
+}
+
 export type ContentBlock =
   | TextBlock
   | ToolUseBlock
   | ToolResultBlock
-  | ThinkingBlock;
+  | ThinkingBlock
+  | ImageContentBlock;
 
 export interface RawMessage {
   readonly role: 'user' | 'assistant';

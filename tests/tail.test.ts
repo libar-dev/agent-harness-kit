@@ -148,6 +148,29 @@ function makeUserTextLine(uuid: string, text: string, ts: string): string {
   })}\n`;
 }
 
+function makeAssistantImageLine(
+  uuid: string,
+  mediaType: string,
+  data: string,
+  ts: string
+): string {
+  return `${JSON.stringify({
+    type: 'assistant',
+    message: {
+      role: 'assistant',
+      content: [
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: mediaType, data },
+        },
+      ],
+    },
+    sessionId: 's1',
+    timestamp: ts,
+    uuid,
+  })}\n`;
+}
+
 function makeUnknownLine(
   type: string,
   uuid: string | undefined,
@@ -284,6 +307,54 @@ describe('Tail mode', () => {
     });
     expect(result.invalidJsonLineCount).toBe(0);
     expect(result.newByteOffset).toBe(Buffer.byteLength(content));
+  });
+
+  it('emits image transcript lines as structured tail blocks', async () => {
+    const content = makeAssistantImageLine(
+      'a-image',
+      'image/png',
+      'raw-base64-image-data',
+      '2026-02-16T20:00:00.000Z'
+    );
+    await writeFile(jsonlPath, content);
+
+    const result = await tailBlocks(jsonlPath, {
+      dryRun: true,
+      fromStart: true,
+    });
+
+    expect(result.blocks.length).toBeGreaterThan(0);
+    expect(result.blocks[0]).toMatchObject({
+      id: 'a-image:0',
+      type: 'assistant_text',
+      content: '[Image: image/png]',
+    });
+    expect(JSON.stringify(result.blocks)).not.toContain(
+      'raw-base64-image-data'
+    );
+    expect(result.invalidShapeLineCount).toBe(0);
+  });
+
+  it('emits image transcript lines in raw record tail mode', async () => {
+    const content = makeAssistantImageLine(
+      'a-image-raw',
+      'image/png',
+      'raw-base64-image-data',
+      '2026-02-16T20:00:00.000Z'
+    );
+    await writeFile(jsonlPath, content);
+
+    const result = await tailRawTranscriptRecords(jsonlPath, {
+      dryRun: true,
+      fromStart: true,
+    });
+
+    expect(result.records.length).toBeGreaterThan(0);
+    expect(result.records[0]).toMatchObject({
+      id: 's1:main:a-image-raw',
+      type: 'assistant',
+    });
+    expect(result.invalidShapeLineCount).toBe(0);
   });
 
   it('redacts structured tail tool_result content and keeps replay output byte-identical', async () => {

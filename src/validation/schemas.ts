@@ -1292,11 +1292,17 @@ export const thinkingContentBlockSchema = z.looseObject({
   thinking: z.string(),
 });
 
+export const imageContentBlockSchema = z.looseObject({
+  type: z.literal('image'),
+  source: z.unknown().optional(),
+});
+
 export const contentBlockSchema = z.discriminatedUnion('type', [
   textContentBlockSchema,
   toolUseContentBlockSchema,
   toolResultContentBlockSchema,
   thinkingContentBlockSchema,
+  imageContentBlockSchema,
 ]);
 
 const rawMessageFields = {
@@ -1529,6 +1535,7 @@ export type ToolResultContentBlockSchema = z.infer<
 export type ThinkingContentBlockSchema = z.infer<
   typeof thinkingContentBlockSchema
 >;
+export type ImageContentBlockSchema = z.infer<typeof imageContentBlockSchema>;
 export type ContentBlockSchema = z.infer<typeof contentBlockSchema>;
 export type RawUserMessageSchema = z.infer<typeof rawUserMessageSchema>;
 export type RawAssistantMessageSchema = z.infer<
