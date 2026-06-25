@@ -1199,6 +1199,7 @@ export const commandHookHandlerSchema = z.object({
   type: z.literal('command'),
   /** Shell command to execute */
   command: z.string().min(1),
+  args: z.array(z.string()).optional(),
   /** If true, runs in the background without blocking. Only for command hooks */
   async: z.boolean().optional(),
   /** If true, runs in the background and wakes Claude on exit code 2 */

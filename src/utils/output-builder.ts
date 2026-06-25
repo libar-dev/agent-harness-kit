@@ -9,6 +9,7 @@ import type {
   BaseHookOutput,
   ElicitationAction,
   ElicitationOutput,
+  MessageDisplayOutput,
   PermissionDeniedOutput,
   PermissionMode,
   PermissionUpdateEntry,
@@ -17,12 +18,72 @@ import type {
   PostToolBatchOutput,
   PermissionRequestOutput,
   SubagentStartOutput,
+  SetupOutput,
   SessionStartOutput,
   StopOutput,
   UserPromptSubmitOutput,
   WatchPathsOutput,
   WorktreeCreateOutput,
 } from '../types/index.js';
+
+type SessionStartContextOptions = {
+  context?: string;
+  initialUserMessage?: string;
+  sessionTitle?: string;
+  watchPaths?: string[];
+  reloadSkills?: boolean;
+};
+
+function buildSetupContext(context: string): SetupOutput {
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'Setup',
+      additionalContext: context,
+    },
+  };
+}
+
+function buildMessageDisplayContent(content: string): MessageDisplayOutput {
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'MessageDisplay',
+      displayContent: content,
+    },
+  };
+}
+
+function buildSessionStartContext(context: string): SessionStartOutput;
+function buildSessionStartContext(
+  options: SessionStartContextOptions
+): SessionStartOutput;
+function buildSessionStartContext(
+  contextOrOptions: string | SessionStartContextOptions
+): SessionStartOutput {
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'SessionStart',
+      ...(typeof contextOrOptions === 'string'
+        ? { additionalContext: contextOrOptions }
+        : {
+            ...(contextOrOptions.context && {
+              additionalContext: contextOrOptions.context,
+            }),
+            ...(contextOrOptions.initialUserMessage && {
+              initialUserMessage: contextOrOptions.initialUserMessage,
+            }),
+            ...(contextOrOptions.sessionTitle && {
+              sessionTitle: contextOrOptions.sessionTitle,
+            }),
+            ...(contextOrOptions.watchPaths && {
+              watchPaths: contextOrOptions.watchPaths,
+            }),
+            ...(contextOrOptions.reloadSkills !== undefined && {
+              reloadSkills: contextOrOptions.reloadSkills,
+            }),
+          }),
+    },
+  };
+}
 
 type LifecycleStopOutput = BaseHookOutput & {
   hookSpecificOutput: {
@@ -64,7 +125,8 @@ export const HookOutputBuilder = {
   feedback: (
     reason: string,
     additionalContext?: string,
-    updatedMCPToolOutput?: Record<string, unknown>
+    updatedMCPToolOutput?: Record<string, unknown>,
+    updatedToolOutput?: unknown
   ): PostToolUseOutput => ({
     decision: 'block',
     reason,
@@ -72,6 +134,7 @@ export const HookOutputBuilder = {
       hookEventName: 'PostToolUse',
       ...(additionalContext && { additionalContext }),
       ...(updatedMCPToolOutput && { updatedMCPToolOutput }),
+      ...(updatedToolOutput !== undefined && { updatedToolOutput }),
     },
   }),
 
@@ -184,12 +247,11 @@ export const HookOutputBuilder = {
     },
   }),
 
-  sessionStartContext: (context: string): SessionStartOutput => ({
-    hookSpecificOutput: {
-      hookEventName: 'SessionStart',
-      additionalContext: context,
-    },
-  }),
+  setupContext: buildSetupContext,
+
+  messageDisplayContent: buildMessageDisplayContent,
+
+  sessionStartContext: buildSessionStartContext,
 
   addContext: (context: string): UserPromptSubmitOutput => ({
     hookSpecificOutput: {

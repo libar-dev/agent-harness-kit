@@ -1050,6 +1050,7 @@ export interface CommandHookHandler extends HookHandlerBase {
   type: 'command';
   /** Shell command to execute */
   command: string;
+  args?: string[];
   /** If true, runs in the background without blocking. Only for command hooks */
   async?: boolean;
   /** If true, runs in the background and wakes Claude on exit code 2 */
