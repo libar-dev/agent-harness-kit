@@ -130,7 +130,7 @@ Establish a uniform, professional comment style across `src/` and `tests/` that 
 - Wave 4: 1 agent (verification).
 
 ## TODOs
-- [ ] 1. Document comment-style policy in `AGENTS.md`
+- [x] 1. Document comment-style policy in `AGENTS.md`
 
   **What to do**: Add a `## Comment Style` section to `AGENTS.md` that records the library-grade explicit policy: keep API-contract JSDoc, strip temporal/AI-workflow/migration/marketing language, avoid heavy banners.
 
@@ -162,7 +162,7 @@ Establish a uniform, professional comment style across `src/` and `tests/` that 
 
   **Commit**: YES | Message: `docs(agents): document library-grade explicit comment style` | Files: `AGENTS.md`
 
-- [ ] 2. Run banned-phrase grep and produce target list
+- [x] 2. Run banned-phrase grep and produce target list
 
   **What to do**: Search `src/` and `tests/` for banned phrases and heavy banner patterns. Produce a structured report (file, line, comment text, suggested action).
 
@@ -193,7 +193,7 @@ Establish a uniform, professional comment style across `src/` and `tests/` that 
 
   **Commit**: NO
 
-- [ ] 3. Clean core source comments: types, schemas, validators, builder
+- [x] 3. Clean core source comments: types, schemas, validators, builder
 
   **What to do**: Edit `src/types/index.ts`, `src/validation/schemas.ts`, `src/validation/validators.ts`, `src/validation/index.ts`, `src/utils/output-builder.ts` to:
   - Restore concise file-level headers where they were stripped.
@@ -237,7 +237,7 @@ Establish a uniform, professional comment style across `src/` and `tests/` that 
 
   **Commit**: YES | Message: `style(src): standardize comments in types, validation, and builder` | Files: `src/types/index.ts`, `src/validation/*.ts`, `src/utils/output-builder.ts`
 
-- [ ] 4. Clean lifecycle handler comments
+- [x] 4. Clean lifecycle handler comments
 
   **What to do**: Edit `src/lifecycle/*.ts` to:
   - Standardize file headers: keep concise "{Event} Hook Handler — {one-line purpose}" headers.
@@ -274,7 +274,7 @@ Establish a uniform, professional comment style across `src/` and `tests/` that 
 
   **Commit**: YES | Message: `style(src): standardize lifecycle handler comments` | Files: `src/lifecycle/*.ts`
 
-- [ ] 5. Clean pre-tool-use / post-tool-use handler comments
+- [x] 5. Clean pre-tool-use / post-tool-use handler comments
 
   **What to do**: Edit `src/pre-tool-use/*.ts` and `src/post-tool-use/*.ts` to:
   - Keep concise "{Purpose} Hook" headers.
@@ -308,7 +308,7 @@ Establish a uniform, professional comment style across `src/` and `tests/` that 
 
   **Commit**: YES | Message: `style(src): standardize pre-tool-use and post-tool-use comments` | Files: `src/pre-tool-use/*.ts`, `src/post-tool-use/*.ts`
 
-- [ ] 6. Clean processing module comments
+- [x] 6. Clean processing module comments
 
   **What to do**: Edit `src/processing/*.ts` to:
   - Restore concise file-level headers where stripped (e.g., `src/processing/index.ts`).
@@ -345,7 +345,7 @@ Establish a uniform, professional comment style across `src/` and `tests/` that 
 
   **Commit**: YES | Message: `style(src): standardize processing module comments` | Files: `src/processing/*.ts`
 
-- [ ] 7. Clean CLI entrypoint comments
+- [x] 7. Clean CLI entrypoint comments
 
   **What to do**: Edit `src/cli/*.ts` to:
   - Keep concise headers describing CLI purpose and I/O contract.
@@ -379,7 +379,7 @@ Establish a uniform, professional comment style across `src/` and `tests/` that 
 
   **Commit**: YES | Message: `style(src): standardize CLI entrypoint comments` | Files: `src/cli/*.ts`
 
-- [ ] 8. Clean validation/output-builder/lifecycle test comments
+- [x] 8. Clean validation/output-builder/lifecycle test comments
 
   **What to do**: Edit `tests/validation.test.ts`, `tests/output-builder.test.ts`, `tests/lifecycle.test.ts` to:
   - Remove temporal/phase/test-order comments.
@@ -415,7 +415,7 @@ Establish a uniform, professional comment style across `src/` and `tests/` that 
 
   **Commit**: YES | Message: `style(tests): standardize validation, builder, and lifecycle test comments` | Files: `tests/validation.test.ts`, `tests/output-builder.test.ts`, `tests/lifecycle.test.ts`
 
-- [ ] 9. Clean processing/tail/docs-round-trip test comments
+- [x] 9. Clean processing/tail/docs-round-trip test comments
 
   **What to do**: Edit `tests/processing.test.ts`, `tests/tail.test.ts`, `tests/docs-round-trip.test.ts` to:
   - Remove temporal/test-step comments ("Append a second message", "Round 1", etc.).
@@ -451,7 +451,7 @@ Establish a uniform, professional comment style across `src/` and `tests/` that 
 
   **Commit**: YES | Message: `style(tests): standardize processing, tail, and docs-round-trip test comments` | Files: `tests/processing.test.ts`, `tests/tail.test.ts`, `tests/docs-round-trip.test.ts`
 
-- [ ] 10. Clean remaining test comments
+- [x] 10. Clean remaining test comments
 
   **What to do**: Edit `tests/hooks.test.ts`, `tests/content-validators.test.ts`, `tests/eslint-disable-blocker.test.ts`, `tests/package-exports.test.ts`, `tests/processing-core-hardening.test.ts`, `tests/tool-result-redaction.test.ts`, `tests/test-utils.ts` to:
   - Remove temporal/AI-workflow/migration language from headers.
@@ -486,7 +486,7 @@ Establish a uniform, professional comment style across `src/` and `tests/` that 
 
   **Commit**: YES | Message: `style(tests): standardize remaining test file comments` | Files: `tests/hooks.test.ts`, `tests/content-validators.test.ts`, `tests/eslint-disable-blocker.test.ts`, `tests/package-exports.test.ts`, `tests/processing-core-hardening.test.ts`, `tests/tool-result-redaction.test.ts`, `tests/test-utils.ts`
 
-- [ ] 11. Final verification wave
+- [x] 11. Final verification wave
 
   **What to do**:
   - Run the banned-phrase grep across all `src/` and `tests/` files; review each match to confirm it is either outside a comment or a documented API-behavior opt-out. Zero unreviewed slop matches may remain in comments.
