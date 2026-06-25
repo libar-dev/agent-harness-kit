@@ -10,3 +10,4 @@
 
 2026-06-25: `MessageDisplay` smoke-test fixtures must use UUID-shaped `turn_id` and `message_id` values, because the public schema enforces `z.string().uuid()` for both fields; placeholder IDs like `turn-1` make a package script fail even when the handler implementation is correct.
 2026-06-25: For pure API parity release notes, an `Unreleased` changelog block with one explicit bullet per surfaced field or event keeps grep-based QA honest, because terms like `updatedToolOutput`, `duration_ms`, and `terminalSequence` can be proven present without relying on umbrella wording.
+2026-06-25: The `tests/test-utils.ts` lifecycle helpers should keep new event factories next to `createSessionStartInput`, with literal fields marked via `as const`, so the shared test-data file stays easy to scan and the event-specific contracts remain discoverable.
