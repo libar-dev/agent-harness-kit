@@ -1,3 +1,8 @@
+/**
+ * Public validation barrel for hook schemas, validators, type guards, and inferred schema types.
+ * Consumers import from this module to validate hook JSON and tool inputs at runtime boundaries.
+ */
+
 export {
   // Input schemas
   hookInputSchemas,

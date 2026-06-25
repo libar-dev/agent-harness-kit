@@ -1,9 +1,6 @@
 /**
- * Zod schemas for Claude Code hooks
- *
- * These schemas provide runtime validation for hook data contracts.
- * The library maintains a dual type system: manual TypeScript interfaces
- * in `src/types/index.ts` AND Zod-inferred types here. Both must stay in sync.
+ * Zod schemas for Claude Code hook input, output, settings, and transcript contracts.
+ * These schemas validate JSON boundaries and stay aligned with `src/types/index.ts`.
  */
 
 import { z } from 'zod';
@@ -146,7 +143,7 @@ export const preToolUseInputSchema = baseHookInputSchema.extend({
   hook_event_name: z.literal('PreToolUse'),
   /** Name of the tool about to be executed */
   tool_name: z.string().min(1),
-  /** Parameters that will be passed to the tool - kept as Record for flexibility */
+  /** Parameters passed to the tool; kept as Record for flexibility. */
   tool_input: z.record(z.string(), z.unknown()),
   /** Unique identifier for this tool use */
   tool_use_id: z.string().min(1),
@@ -487,7 +484,7 @@ export const cwdChangedInputSchema = baseHookInputSchema.extend({
   hook_event_name: z.literal('CwdChanged'),
   /** Previous working directory */
   old_cwd: z.string().min(1),
-  /** New working directory */
+  /** Working directory after the change. */
   new_cwd: z.string().min(1),
 });
 
@@ -507,7 +504,7 @@ export const fileChangedInputSchema = baseHookInputSchema.extend({
  */
 export const worktreeCreateInputSchema = baseHookInputSchema.extend({
   hook_event_name: z.literal('WorktreeCreate'),
-  /** Slug identifier for the new worktree */
+  /** Slug identifier for the worktree being created. */
   name: z.string().min(1),
 });
 
@@ -576,11 +573,11 @@ export const elicitationResultInputSchema = baseHookInputSchema.extend({
  * Schema for PreToolUse hook outputs - controls permission
  */
 export const preToolUseOutputSchema = baseHookOutputSchema.extend({
-  /** Legacy fields - deprecated but maintained for compatibility */
+  /** Deprecated compatibility fields. */
   decision: z.enum(['approve', 'block']).optional(),
   reason: z.string().optional(),
 
-  /** Modern hook-specific output format */
+  /** Structured hook-specific output. */
   hookSpecificOutput: z
     .object({
       hookEventName: z.literal('PreToolUse'),
@@ -600,12 +597,12 @@ export const preToolUseOutputSchema = baseHookOutputSchema.extend({
  * Schema for PostToolUse hook outputs - provides feedback
  */
 export const postToolUseOutputSchema = baseHookOutputSchema.extend({
-  /** Legacy decision field */
+  /** Deprecated compatibility decision field. */
   decision: z.enum(['block']).optional(),
   /** Explanation for the decision */
   reason: z.string().optional(),
 
-  /** Modern hook-specific output */
+  /** Structured hook-specific output. */
   hookSpecificOutput: z
     .object({
       hookEventName: z.literal('PostToolUse'),

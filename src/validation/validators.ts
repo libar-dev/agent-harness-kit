@@ -1,3 +1,8 @@
+/**
+ * Runtime validators and type guards for hook inputs, tool inputs, settings, and transcript records.
+ * Public validators accept unknown JSON boundary data and return typed values or HookValidationError.
+ */
+
 import type { z } from 'zod';
 import {
   hookInputSchemas,
@@ -58,10 +63,7 @@ type ToolBearingHookInput =
 
 const MCP_TOOL_NAME_PATTERN = /^mcp__[^_]+__[^_]+/;
 
-/**
- * Custom error class for hook validation failures
- * Provides structured error information for debugging
- */
+/** Validation error with a stable code, context object, and optional Zod error details. */
 export class HookValidationError extends Error {
   public readonly code: string;
   public readonly context: Record<string, unknown>;
@@ -87,9 +89,7 @@ export class HookValidationError extends Error {
     }
   }
 
-  /**
-   * Create a detailed error message including Zod validation details
-   */
+  /** Return a detailed message with Zod issues and validation context. */
   public getDetailedMessage(): string {
     let message = `${this.message} (Code: ${this.code})`;
 
@@ -228,9 +228,7 @@ export function validateToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Bash tool input with proper typing
- */
+/** Validate and extract Bash tool input. */
 export function validateBashToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Bash> {
@@ -255,9 +253,7 @@ export function validateBashToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Write tool input with proper typing
- */
+/** Validate and extract Write tool input. */
 export function validateWriteToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Write> {
@@ -282,9 +278,7 @@ export function validateWriteToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Edit tool input with proper typing
- */
+/** Validate and extract Edit tool input. */
 export function validateEditToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Edit> {
@@ -309,9 +303,7 @@ export function validateEditToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Read tool input with proper typing
- */
+/** Validate and extract Read tool input. */
 export function validateReadToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Read> {
@@ -336,9 +328,7 @@ export function validateReadToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract WebFetch tool input with proper typing
- */
+/** Validate and extract WebFetch tool input. */
 export function validateWebFetchToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.WebFetch> {
@@ -363,9 +353,7 @@ export function validateWebFetchToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract WebSearch tool input with proper typing
- */
+/** Validate and extract WebSearch tool input. */
 export function validateWebSearchToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.WebSearch> {
@@ -390,9 +378,7 @@ export function validateWebSearchToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Glob tool input with proper typing
- */
+/** Validate and extract Glob tool input. */
 export function validateGlobToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Glob> {
@@ -417,9 +403,7 @@ export function validateGlobToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Grep tool input with proper typing
- */
+/** Validate and extract Grep tool input. */
 export function validateGrepToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Grep> {
@@ -444,9 +428,7 @@ export function validateGrepToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract MultiEdit tool input with proper typing
- */
+/** Validate and extract MultiEdit tool input. */
 export function validateMultiEditToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.MultiEdit> {
@@ -471,9 +453,7 @@ export function validateMultiEditToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Task tool input with proper typing
- */
+/** Validate and extract Task tool input. */
 export function validateTaskToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Task> {
@@ -498,9 +478,7 @@ export function validateTaskToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Agent tool input with proper typing
- */
+/** Validate and extract Agent tool input. */
 export function validateAgentToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Agent> {
@@ -525,9 +503,7 @@ export function validateAgentToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract AskUserQuestion tool input with proper typing
- */
+/** Validate and extract AskUserQuestion tool input. */
 export function validateAskUserQuestionToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.AskUserQuestion> {
@@ -554,9 +530,7 @@ export function validateAskUserQuestionToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract ExitPlanMode tool input with proper typing
- */
+/** Validate and extract ExitPlanMode tool input. */
 export function validateExitPlanModeToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.ExitPlanMode> {
@@ -581,9 +555,7 @@ export function validateExitPlanModeToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract TodoWrite tool input with proper typing
- */
+/** Validate and extract TodoWrite tool input. */
 export function validateTodoWriteToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.TodoWrite> {
@@ -608,9 +580,7 @@ export function validateTodoWriteToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract generic MCP tool input with proper typing
- */
+/** Validate and extract generic MCP tool input. */
 export function validateMCPToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof mcpToolInputSchema> {

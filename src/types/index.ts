@@ -1,6 +1,9 @@
 /**
- * Common fields present in all hook inputs
+ * Type contracts for Claude Code hook inputs, outputs, tool inputs, and settings.
+ * These declarations mirror the JSON read from stdin and written to stdout by hook handlers.
  */
+
+/** Common fields present in all hook inputs. */
 export interface BaseHookInput {
   /** Unique identifier for the current Claude Code session */
   session_id: string;
@@ -59,7 +62,7 @@ export interface PreToolUseInput extends BaseHookInput {
   hook_event_name: 'PreToolUse';
   /** Name of the tool about to be executed */
   tool_name: string;
-  /** Parameters that will be passed to the tool */
+  /** Parameters passed to the tool. */
   tool_input: Record<string, unknown>;
   /** Unique identifier for this tool use */
   tool_use_id: string;
@@ -90,7 +93,7 @@ export interface PreToolUseOutput extends BaseHookOutput {
   decision?: 'approve' | 'block'; // Deprecated: use hookSpecificOutput instead
   /** Reason for the decision */
   reason?: string; // Deprecated: use hookSpecificOutput instead
-  /** Modern hook-specific output format */
+  /** Structured hook-specific output. */
   hookSpecificOutput?: {
     hookEventName: 'PreToolUse';
     /** Permission decision: allow bypasses permission system, deny blocks, ask prompts user */
@@ -665,7 +668,7 @@ export interface CwdChangedInput extends BaseHookInput {
   hook_event_name: 'CwdChanged';
   /** Previous working directory */
   old_cwd: string;
-  /** New working directory */
+  /** Working directory after the change. */
   new_cwd: string;
 }
 
@@ -693,7 +696,7 @@ export interface WatchPathsOutput extends BaseHookOutput {
  */
 export interface WorktreeCreateInput extends BaseHookInput {
   hook_event_name: 'WorktreeCreate';
-  /** Slug identifier for the new worktree */
+  /** Slug identifier for the worktree being created. */
   name: string;
 }
 
@@ -1103,13 +1106,13 @@ export function isHookType<T extends HookInput>(
   return input.hook_event_name === eventName;
 }
 
-// HookOutputBuilder moved to src/utils/output-builder.ts — re-export for compatibility
+// Compatibility export for HookOutputBuilder.
 export { HookOutputBuilder } from '../utils/output-builder.js';
 
 /**
  * Environment variables provided by Claude Code to hook processes.
  *
- * These are set in the hook's execution environment automatically.
+ * Claude Code sets these variables in the hook's execution environment.
  * Not all variables are available for all event types.
  */
 export interface HookEnvironmentVars {
