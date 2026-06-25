@@ -1,0 +1,41 @@
+{
+  "output": {
+    "decision": "block",
+    "reason": "Issue found",
+    "hookSpecificOutput": {
+      "hookEventName": "PostToolUse",
+      "additionalContext": "extra context",
+      "updatedMCPToolOutput": {
+        "server": "mcp",
+        "value": 1
+      },
+      "updatedToolOutput": [
+        "replacement",
+        {
+          "nested": true
+        }
+      ]
+    }
+  },
+  "parsed": {
+    "success": true,
+    "data": {
+      "decision": "block",
+      "reason": "Issue found",
+      "hookSpecificOutput": {
+        "hookEventName": "PostToolUse",
+        "additionalContext": "extra context",
+        "updatedMCPToolOutput": {
+          "server": "mcp",
+          "value": 1
+        },
+        "updatedToolOutput": [
+          "replacement",
+          {
+            "nested": true
+          }
+        ]
+      }
+    }
+  }
+}

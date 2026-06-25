@@ -1,0 +1,61 @@
+F2 Code Quality Review
+
+Verdict: APPROVE
+
+Review scope
+- Branch: fix/publication-blockers
+- Working tree src/tests diff: clean
+- Committed review baseline: public-release...HEAD (main has no merge base with this branch)
+
+Required command outputs
+
+$ pnpm run check
+
+> @libar-dev/agent-harness-kit@0.1.0 check /Users/darkomijic/dev-projects/claude-code-hooks
+> pnpm run type-check && pnpm run lint
+
+
+> @libar-dev/agent-harness-kit@0.1.0 type-check /Users/darkomijic/dev-projects/claude-code-hooks
+> tsc --noEmit
+
+
+> @libar-dev/agent-harness-kit@0.1.0 lint /Users/darkomijic/dev-projects/claude-code-hooks
+> eslint . --cache --cache-location .eslint-custom.cache
+
+Exit code: 0
+
+$ git diff -- src/ tests/ | grep -E '^\+.*\bany\b' | wc -l
+0
+
+Additional branch-scope verification
+
+$ git diff public-release...HEAD -- src/ tests/ | grep -E '^\+.*\bany\b' | wc -l
+0
+
+Reviewed source files
+- src/lifecycle/index.ts
+- src/lifecycle/message-display.ts
+- src/lifecycle/notification-handler.ts
+- src/lifecycle/session-start.ts
+- src/lifecycle/setup.ts
+- src/processing/block-decomposition.ts
+- src/processing/denoiser.ts
+- src/processing/image-placeholder.ts
+- src/processing/index.ts
+- src/processing/types.ts
+- src/types/index.ts
+- src/utils/output-builder.ts
+- src/validation/index.ts
+- src/validation/schemas.ts
+- src/validation/validators.ts
+
+Specific findings
+- No blocking lint or type issues. `pnpm run check` passed.
+- No introduced `any` types in the working tree diff or committed branch diff.
+- Naming is consistent across the new parity surface: `SetupInput`/`setupInputSchema`/`validateSetupInput`/`handleSetup` and `MessageDisplayInput`/`messageDisplayInputSchema`/`validateMessageDisplayInput`/`handleMessageDisplay` align with existing repo conventions.
+- New executable lifecycle files `src/lifecycle/setup.ts` and `src/lifecycle/message-display.ts` follow the existing module pattern: shebang, typed imports, validation at the boundary, `executeHook(...)` entrypoint guard, and named export.
+- `src/utils/output-builder.ts`, `src/validation/schemas.ts`, `src/validation/validators.ts`, and `src/types/index.ts` carry the largest source diffs, but the added lines are tightly coupled to the new Claude Code API parity surface (Setup, MessageDisplay, SessionStart expansion, updated tool output fields, command args, transcript image support). The source diff remains focused rather than sprawling.
+- LSP spot-check on the priority files found no errors. Non-blocking TypeScript deprecation hints appear in `src/validation/validators.ts` (`ZodIssue`) and `src/validation/schemas.ts` (deprecated Zod API signatures), but they do not fail typecheck or lint and are pre-existing library-surface/tooling compatibility concerns rather than correctness defects in this parity wave.
+
+Conclusion
+- APPROVE

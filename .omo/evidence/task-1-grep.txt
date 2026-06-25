@@ -1,0 +1,12 @@
+src/types/index.ts:  hook_event_name: 'MessageDisplay';
+src/types/index.ts:    hookEventName: 'MessageDisplay';
+src/types/index.ts:  hook_event_name: 'Setup';
+src/types/index.ts:    hookEventName: 'Setup';
+src/types/index.ts:  | 'Setup'
+src/types/index.ts:  | 'MessageDisplay'
+src/validation/schemas.ts:  hook_event_name: z.literal('Setup'),
+src/validation/schemas.ts:      hookEventName: z.literal('Setup'),
+src/validation/schemas.ts:  hook_event_name: z.literal('MessageDisplay'),
+src/validation/schemas.ts:      hookEventName: z.literal('MessageDisplay'),
+src/validation/schemas.ts:  'Setup',
+src/validation/schemas.ts:  'MessageDisplay',

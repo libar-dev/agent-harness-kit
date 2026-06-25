@@ -1,0 +1,15 @@
+{
+  "invalidOutput": {
+    "hookSpecificOutput": {
+      "hookEventName": "MessageDisplay",
+      "displayContent": 42
+    }
+  },
+  "parsed": {
+    "success": false,
+    "error": {
+      "name": "ZodError",
+      "message": "[\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"hookSpecificOutput\",\n      \"displayContent\"\n    ],\n    \"message\": \"Invalid input: expected string, received number\"\n  }\n]"
+    }
+  }
+}

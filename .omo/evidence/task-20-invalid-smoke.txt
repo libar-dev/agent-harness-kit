@@ -1,0 +1,17 @@
+2026-06-25 task 20 invalid-input smoke evidence
+
+Command intent:
+Run lifecycle smoke tests that include invalid stdin cases for:
+- missing Setup.trigger
+- invalid MessageDisplay.turn_id UUID
+
+Observed assertions from tests/lifecycle.test.ts:
+- expect(result.code).not.toBe(0) for missing Setup trigger
+- expect(result.stderr).toContain('Failed to parse hook input JSON')
+- expect(result.code).not.toBe(0) for invalid MessageDisplay UUID input
+- expect(result.stderr).toContain('Failed to parse hook input JSON')
+
+Verification result:
+✓ tests/lifecycle.test.ts (4 tests)
+  ✓ exits non-zero when trigger is missing
+  ✓ exits non-zero when message-display UUID input is invalid

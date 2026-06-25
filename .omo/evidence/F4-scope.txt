@@ -1,0 +1,98 @@
+F4 Scope Fidelity Check
+=======================
+
+Verdict: APPROVE
+
+Reason: All requested F4 enforcement commands match the expected outputs. The prior F4 blocker is resolved because `tests/test-utils.ts` now declares both `createSetupInput` and `createMessageDisplayInput`.
+
+Plan criteria source
+--------------------
+
+Read: `.omo/plans/claude-code-api-gap.md`, Must Have lines 52-66 and Must NOT Have lines 68-75.
+
+Required enforcement command outputs
+------------------------------------
+
+1. Changed files within allowed set
+
+Command:
+git diff --name-only | grep -vE '^(src/(types|validation|utils|lifecycle)/.*|tests/.*|docs/.*|README\.md|package\.json|CLAUDE\.md|CHANGELOG\.md|\.omo/(plans|evidence|notepads)/.*)$' | wc -l
+
+Output:
+       0
+
+Expected: 0
+Result: PASS
+
+2. Upstream docs untouched
+
+Command:
+git diff --name-only -- docs/upstream | wc -l
+
+Output:
+       0
+
+Expected: 0
+Result: PASS
+
+3. No new explicit `any` in changed TS files
+
+Command:
+git diff -- src/ tests/ | grep -E '^\+.*\bany\b' | wc -l
+
+Output:
+       0
+
+Expected: 0
+Result: PASS
+
+4. No newly added `.passthrough()`
+
+Command:
+git diff -- src/validation/schemas.ts | grep '^\+\s*\.passthrough()' | wc -l
+
+Output:
+       0
+
+Expected: 0
+Result: PASS
+
+5. `package.json` version unchanged
+
+Command:
+git diff package.json | grep -E '^[+-]\s*"version"'
+
+Output:
+
+Expected: empty
+Result: PASS
+
+6. Test factories exist
+
+Command:
+grep -E "createSetupInput|createMessageDisplayInput" tests/test-utils.ts
+
+Output:
+export function createSetupInput(
+export function createMessageDisplayInput(
+
+Expected: both function declarations found
+Result: PASS
+
+Must Have / Must NOT Have cross-check
+-------------------------------------
+
+Must Have findings:
+- PASS: Scope remains limited to allowed implementation, test, docs, package metadata, and `.omo` evidence paths.
+- PASS: Upstream docs remain untouched.
+- PASS: The no-new-`any`, no-new-`.passthrough()`, and no-version-bump constraints pass.
+- PASS: Required `Setup` and `MessageDisplay` test factories now exist in `tests/test-utils.ts`, satisfying the previously rejected Must Have item for test factories.
+
+Must NOT Have findings:
+- PASS: No disallowed file-scope changes detected.
+- PASS: No upstream docs changes detected.
+- PASS: No newly added `.passthrough()` detected.
+- PASS: No new explicit `any` detected in changed TS files.
+- PASS: No `package.json` version bump detected.
+
+Final verdict: APPROVE

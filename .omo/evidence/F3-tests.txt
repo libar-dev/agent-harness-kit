@@ -1,0 +1,129 @@
+Final Verification Wave F3: Real Manual QA
+Date: 2026-06-25
+Repo: /Users/darkomijic/dev-projects/claude-code-hooks
+
+VERDICT: APPROVE
+
+Reason:
+- All required verification commands passed.
+- `hook:test:session` passed once `CLAUDE_PROJECT_DIR` was set to the repo root as required.
+- `tests/docs-round-trip.test.ts` no longer contains skip rules for `Setup` or `MessageDisplay`.
+
+1) Command: pnpm run test:run
+Exit: 0
+Output:
+> @libar-dev/agent-harness-kit@0.1.0 test:run /Users/darkomijic/dev-projects/claude-code-hooks
+> vitest run
+
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+RUN v4.1.7 /Users/darkomijic/dev-projects/claude-code-hooks
+
+✓ tests/output-builder.test.ts (5 tests)
+✓ tests/docs-round-trip.test.ts (72 tests)
+✓ tests/validation.test.ts (266 tests)
+✓ tests/package-exports.test.ts (7 tests)
+✓ tests/processing.test.ts (80 tests)
+✓ tests/tool-result-redaction.test.ts (14 tests)
+✓ tests/processing-core-hardening.test.ts (14 tests)
+✓ tests/content-validators.test.ts (31 tests)
+✓ tests/eslint-disable-blocker.test.ts (22 tests)
+✓ tests/hooks.test.ts (60 tests)
+✓ tests/lifecycle.test.ts (4 tests)
+✓ tests/tail.test.ts (44 tests)
+✓ tests/cli.test.ts (21 tests)
+✓ TS tests/cli.test.ts (19 tests)
+✓ TS tests/tail.test.ts (44 tests)
+✓ TS tests/lifecycle.test.ts (4 tests)
+✓ TS tests/processing.test.ts (80 tests)
+✓ TS tests/validation.test.ts (266 tests)
+✓ TS tests/docs-round-trip.test.ts (3 tests)
+✓ TS tests/hooks.test.ts (42 tests)
+✓ TS tests/output-builder.test.ts (5 tests)
+✓ TS tests/package-exports.test.ts (7 tests)
+✓ TS tests/processing-core-hardening.test.ts (9 tests)
+✓ TS tests/content-validators.test.ts (31 tests)
+✓ TS tests/tool-result-redaction.test.ts (13 tests)
+✓ TS tests/eslint-disable-blocker.test.ts (22 tests)
+
+Test Files 26 passed (26)
+Tests 1185 passed (1185)
+Type Errors no errors
+Duration 12.77s
+
+2) Command: pnpm run check
+Exit: 0
+Output:
+> @libar-dev/agent-harness-kit@0.1.0 check /Users/darkomijic/dev-projects/claude-code-hooks
+> pnpm run type-check && pnpm run lint
+
+> @libar-dev/agent-harness-kit@0.1.0 type-check /Users/darkomijic/dev-projects/claude-code-hooks
+> tsc --noEmit
+
+> @libar-dev/agent-harness-kit@0.1.0 lint /Users/darkomijic/dev-projects/claude-code-hooks
+> eslint . --cache --cache-location .eslint-custom.cache
+
+3) Command: CLAUDE_PROJECT_DIR=/Users/darkomijic/dev-projects/claude-code-hooks pnpm run hook:test:session
+Exit: 0
+Output:
+> @libar-dev/agent-harness-kit@0.1.0 hook:test:session /Users/darkomijic/dev-projects/claude-code-hooks
+> echo '{"hook_event_name":"SessionStart","session_id":"test","transcript_path":"/tmp/test.json","cwd":"/tmp","permission_mode":"default","source":"startup","model":"claude-sonnet-4-5-20250929"}' | tsx src/lifecycle/session-start.ts
+
+[2026-06-25T16:11:56.955Z] INFO: Session starting (startup) - loading project context
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "# Claude Code Session Started\n\n**Session ID:** test...\n**Source:** startup\n**Model:** claude-sonnet-4-5-20250929\n**Timestamp:** 2026-06-25T16:11:56.956Z\n**Project:** /Users/darkomijic/dev-projects/claude-code-hooks\n\n... (project context truncated in terminal output)"
+  }
+}
+[2026-06-25T16:11:57.052Z] INFO: Session context loaded (7 sections)
+
+4) Command: pnpm run hook:test:setup
+Exit: 0
+Output:
+> @libar-dev/agent-harness-kit@0.1.0 hook:test:setup /Users/darkomijic/dev-projects/claude-code-hooks
+> echo '{"hook_event_name":"Setup","session_id":"test","transcript_path":"/tmp/test.json","cwd":"/tmp","permission_mode":"default","trigger":"init"}' | tsx src/lifecycle/setup.ts
+
+[2026-06-25T16:11:56.965Z] INFO: Setup hook triggered (init)
+
+[Category+Skill Reminder]
+
+**Built-in**: playwright, frontend-ui-ux, git-master, review-work, remove-ai-slops, init-deep, debugging, security-research (+2 more)
+**⚡ YOUR SKILLS (PRIORITY)**: setup-pre-commit, setup-matt-pocock-skills, firecrawl-download, full-output-enforcement, handoff, ubiquitous-language, firecrawl, firecrawl-agent (+59 more)
+
+> User-installed skills OVERRIDE built-in defaults. ALWAYS prefer YOUR SKILLS when domain matches.
+
+```typescript
+task(category="visual-engineering", load_skills=["setup-pre-commit"], run_in_background=true)
+```
+
+5) Command: pnpm run hook:test:message-display
+Exit: 0
+Output:
+> @libar-dev/agent-harness-kit@0.1.0 hook:test:message-display /Users/darkomijic/dev-projects/claude-code-hooks
+> echo '{"hook_event_name":"MessageDisplay","session_id":"test","transcript_path":"/tmp/test.json","cwd":"/tmp","permission_mode":"default","turn_id":"11111111-1111-4111-8111-111111111111","message_id":"22222222-2222-4222-8222-222222222222","index":0,"final":false,"delta":"Test message"}' | tsx src/lifecycle/message-display.ts
+
+{
+  "hookSpecificOutput": {
+    "hookEventName": "MessageDisplay",
+    "displayContent": "Test message"
+  }
+}
+
+6) Grep: grep -E "Setup|MessageDisplay" tests/docs-round-trip.test.ts
+Result:
+No matches found
+
+Follow-up inspection of tests/docs-round-trip.test.ts:
+- `EXPECTED_PARSE_SKIPS` only contains three known non-JSON snippet rules:
+  - ellipsis
+  - `true | false` prose syntax
+  - commented JSON example
+- `EXPECTED_VALIDATION_SKIPS` contains only one schema skip:
+  - generic `PreToolUse` example missing `tool_use_id`
+- There are no skip rules for `Setup` or `MessageDisplay`.
+
+Conclusion:
+- `tests/docs-round-trip.test.ts` no longer skips `Setup` or `MessageDisplay`.
+- F3 passes end-to-end.
