@@ -26,15 +26,11 @@ async function runLifecycleHook(
   input: Record<string, unknown>
 ): Promise<HookCliResult> {
   return await new Promise((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      ['--import', 'tsx', script],
-      {
-        cwd: process.cwd(),
-        env: process.env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }
-    );
+    const child = spawn(process.execPath, ['--import', 'tsx', script], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
 
     let stdout = '';
     let stderr = '';
@@ -108,7 +104,9 @@ describe('message-display handler smoke test', () => {
     });
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toBe(`{\n  "hookSpecificOutput": {\n    "hookEventName": "MessageDisplay",\n    "displayContent": "Streaming chunk"\n  }\n}`);
+    expect(result.stdout).toBe(
+      `{\n  "hookSpecificOutput": {\n    "hookEventName": "MessageDisplay",\n    "displayContent": "Streaming chunk"\n  }\n}`
+    );
     expect(result.stderr).toBe('');
   });
 

@@ -1,7 +1,10 @@
 #!/usr/bin/env tsx
 
 import { executeHook, outputJson } from '../utils/index.js';
-import type { MessageDisplayInput, MessageDisplayOutput } from '../types/index.js';
+import type {
+  MessageDisplayInput,
+  MessageDisplayOutput,
+} from '../types/index.js';
 import { validateMessageDisplayInput } from '../validation/index.js';
 
 async function handleMessageDisplay(input: MessageDisplayInput): Promise<void> {

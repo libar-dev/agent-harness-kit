@@ -1512,7 +1512,9 @@ export type UserPromptExpansionInputSchema = z.infer<
 export type SessionStartInputSchema = z.infer<typeof sessionStartInputSchema>;
 export type SessionEndInputSchema = z.infer<typeof sessionEndInputSchema>;
 export type NotificationInputSchema = z.infer<typeof notificationInputSchema>;
-export type MessageDisplayInputSchema = z.infer<typeof messageDisplayInputSchema>;
+export type MessageDisplayInputSchema = z.infer<
+  typeof messageDisplayInputSchema
+>;
 export type StopInputSchema = z.infer<typeof stopInputSchema>;
 export type StopFailureInputSchema = z.infer<typeof stopFailureInputSchema>;
 export type SubagentStopInputSchema = z.infer<typeof subagentStopInputSchema>;

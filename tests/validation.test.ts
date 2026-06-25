@@ -432,31 +432,27 @@ describe('Updated Schema Validation (Phase 1)', () => {
   });
 
   it('should validate duration_ms on PostToolUse inputs', () => {
-    const result = validatePostToolUseInput(
-      {
-        ...createPostToolUseInput(
-          'Bash',
-          { command: 'pnpm run test:run' },
-          { stdout: 'ok' }
-        ),
-        duration_ms: 125,
-      }
-    );
+    const result = validatePostToolUseInput({
+      ...createPostToolUseInput(
+        'Bash',
+        { command: 'pnpm run test:run' },
+        { stdout: 'ok' }
+      ),
+      duration_ms: 125,
+    });
 
     expect(result.duration_ms).toBe(125);
   });
 
   it('should validate duration_ms on PostToolUseFailure inputs', () => {
-    const result = validateHookInput(
-      {
-        ...createPostToolUseFailureInput(
-          'Bash',
-          { command: 'pnpm run test:run' },
-          'Command failed'
-        ),
-        duration_ms: 250,
-      }
-    );
+    const result = validateHookInput({
+      ...createPostToolUseFailureInput(
+        'Bash',
+        { command: 'pnpm run test:run' },
+        'Command failed'
+      ),
+      duration_ms: 250,
+    });
 
     expect(result.hook_event_name).toBe('PostToolUseFailure');
     if ('duration_ms' in result) {

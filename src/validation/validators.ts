@@ -931,7 +931,9 @@ export function isUserPromptExpansionInput(
   return input.hook_event_name === 'UserPromptExpansion';
 }
 
-export function isSetupInput(input: HookInputSchema): input is SetupInputSchema {
+export function isSetupInput(
+  input: HookInputSchema
+): input is SetupInputSchema {
   return input.hook_event_name === 'Setup';
 }
 

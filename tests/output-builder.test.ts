@@ -44,12 +44,9 @@ describe('HookOutputBuilder parity helpers', () => {
   });
 
   it('feedback includes updatedToolOutput when provided', () => {
-    const output = HookOutputBuilder.feedback(
-      'r',
-      'ctx',
-      undefined,
-      { replaced: true }
-    );
+    const output = HookOutputBuilder.feedback('r', 'ctx', undefined, {
+      replaced: true,
+    });
 
     expect(output.reason).toBe('r');
     expect(output.hookSpecificOutput?.additionalContext).toBe('ctx');
