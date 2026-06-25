@@ -3,14 +3,11 @@
 /**
  * ESLint Disable Blocker Hook
  *
- * This PreToolUse hook prevents the use of eslint-disable directives by:
- * - Blocking Write/Edit/MultiEdit operations containing eslint-disable patterns
- * - Providing educational feedback about architectural directives
- * - Referencing project documentation for proper alternatives
+ * Blocks eslint-disable directives in Write, Edit, and MultiEdit payloads.
  *
  * WHY: eslint-disable creates redundant suppression violations and generates
  * more lint errors. Architectural directives are BOTH documentation AND
- * suppression mechanism - they automatically suppress ESLint errors.
+ * suppression mechanism.
  */
 
 import { executeHook, logInfo, outputJson } from '../utils/index.js';
@@ -18,7 +15,7 @@ import { HookOutputBuilder, type PreToolUseInput } from '../types/index.js';
 import { validatePreToolUseInput } from '../validation/index.js';
 
 /**
- * Extract content to check based on tool type
+ * Extract editable content from file modification tool input.
  */
 function extractContentToCheck(input: PreToolUseInput): string | null {
   const toolInput = input.tool_input;
@@ -59,17 +56,17 @@ function extractContentToCheck(input: PreToolUseInput): string | null {
 }
 
 /**
- * Check if content contains eslint-disable patterns
+ * Check whether content contains eslint-disable directives.
  */
 function containsEslintDisable(content: string): boolean {
-  // Create a new regex instance for each test to avoid state issues
+  // Recreate the stateful global regex for each test.
   const pattern =
     /\/\/\s*eslint-disable(?:-next-line|-line)?|\/\*\s*eslint-disable(?:-next-line|-line)?/gi;
   return pattern.test(content);
 }
 
 /**
- * Generate educational feedback message
+ * Generate feedback for blocked eslint-disable directives.
  */
 function generateFeedbackMessage(): string {
   return `❌ ESLint disable directives are FORBIDDEN
@@ -101,22 +98,19 @@ for (const id of ids) {
 }
 
 /**
- * Main handler for ESLint disable blocker
+ * Block file edits that introduce eslint-disable directives.
  */
 async function handleEslintDisableBlocker(
   input: PreToolUseInput
 ): Promise<void> {
-  // Validate input
   validatePreToolUseInput(input);
 
-  // Only check Write, Edit, and MultiEdit tools
   if (!['Write', 'Edit', 'MultiEdit'].includes(input.tool_name)) {
     return; // Allow other tools to proceed
   }
 
   logInfo(`Checking ${input.tool_name} operation for eslint-disable patterns`);
 
-  // Extract content to check
   const content = extractContentToCheck(input);
 
   if (!content) {
@@ -124,22 +118,16 @@ async function handleEslintDisableBlocker(
     return;
   }
 
-  // Check for eslint-disable patterns
   if (containsEslintDisable(content)) {
     logInfo('ESLint disable pattern detected - blocking operation');
 
-    // Block the operation with educational feedback
     outputJson(HookOutputBuilder.permission('deny', generateFeedbackMessage()));
     return;
   }
 
   logInfo('No eslint-disable patterns found - allowing operation');
-  // Allow the operation to proceed (no output needed)
 }
 
-/**
- * Main execution entry point
- */
 if (import.meta.url === `file://${process.argv[1]}`) {
   executeHook<PreToolUseInput>(handleEslintDisableBlocker).catch(error => {
     console.error('Failed to execute eslint-disable-blocker hook:', error);
@@ -147,7 +135,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 }
 
-// Export for testing
 export {
   handleEslintDisableBlocker,
   containsEslintDisable,

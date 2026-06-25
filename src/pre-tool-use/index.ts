@@ -1,13 +1,9 @@
 #!/usr/bin/env tsx
 
 /**
- * Combined PreToolUse Hook Handler
+ * Combined PreToolUse Hook
  *
- * This hook combines multiple PreToolUse validators and protections:
- * - Bash command validation and security checking
- * - File protection for sensitive files and directories
- * - Path traversal and security validation
- * - Automatic approval for safe operations
+ * Coordinates PreToolUse validators and protection handlers.
  */
 
 import { executeHook, logInfo, logDebug, getConfig } from '../utils/index.js';
@@ -18,7 +14,7 @@ import { protectFiles } from './file-protector.js';
 import { handleUserPromptExpansion } from './user-prompt-expansion.js';
 
 /**
- * Main PreToolUse hook handler that coordinates all validations
+ * Coordinate PreToolUse validators for tool-specific policies.
  */
 async function handlePreToolUse(input: PreToolUseInput): Promise<void> {
   validatePreToolUseInput(input);
@@ -38,7 +34,6 @@ async function handlePreToolUse(input: PreToolUseInput): Promise<void> {
     });
   }
 
-  // Run different validators based on tool type
   switch (tool_name) {
     case 'Bash':
       logDebug('Running bash command validation');
@@ -54,40 +49,34 @@ async function handlePreToolUse(input: PreToolUseInput): Promise<void> {
       break;
 
     case 'Task':
-      // For subagent tasks, we might want special handling
       logDebug('Task tool detected - applying subagent policies');
       await handleSubagentTask(input);
       break;
 
     case 'WebFetch':
     case 'WebSearch':
-      // Web operations might need URL validation
       logDebug('Web operation detected - applying web policies');
       await handleWebOperation(input);
       break;
 
     default:
-      // For unknown tools, apply general safety checks
       logDebug(`Unknown tool ${tool_name} - applying general safety checks`);
       await handleGenericTool(input);
       break;
   }
 
-  // If we reach here without outputting a decision, let the normal flow continue
   logDebug('PreToolUse hook completed - allowing normal permission flow');
 }
 
 /**
- * Handle Task tool (subagent) operations
+ * Inspect Task tool prompts for high-risk phrasing.
  */
 async function handleSubagentTask(input: PreToolUseInput): Promise<void> {
   const taskInput = input.tool_input;
 
-  // Check if the task description contains concerning patterns
   let description = '';
   let prompt = '';
 
-  // Safely extract description and prompt if they exist
   if (typeof taskInput === 'object' && taskInput !== null) {
     const obj = taskInput as Record<string, unknown>;
     if (typeof obj['description'] === 'string') {
@@ -118,7 +107,7 @@ async function handleSubagentTask(input: PreToolUseInput): Promise<void> {
 }
 
 /**
- * Handle web operations (WebFetch, WebSearch)
+ * Inspect WebFetch and WebSearch URLs for internal destinations.
  */
 async function handleWebOperation(input: PreToolUseInput): Promise<void> {
   const webInput = input.tool_input;
@@ -129,7 +118,6 @@ async function handleWebOperation(input: PreToolUseInput): Promise<void> {
     try {
       const parsedUrl = new URL(url);
 
-      // Check for potentially dangerous URLs
       const dangerousDomains = [
         'localhost',
         '127.0.0.1',
@@ -154,13 +142,11 @@ async function handleWebOperation(input: PreToolUseInput): Promise<void> {
 }
 
 /**
- * Handle generic tools with basic safety checks
+ * Inspect generic tool string inputs for risky paths or shell fragments.
  */
 async function handleGenericTool(input: PreToolUseInput): Promise<void> {
-  // For tools we don't specifically handle, apply general safety patterns
   const toolInput = input.tool_input;
 
-  // Check for file paths in any tool input
   const possiblePaths = Object.values(toolInput)
     .filter((value): value is string => typeof value === 'string')
     .filter(value => value.includes('/') || value.includes('\\'));
@@ -174,7 +160,6 @@ async function handleGenericTool(input: PreToolUseInput): Promise<void> {
     }
   }
 
-  // Check for potentially dangerous content in any string fields
   const dangerousPatterns = [
     /rm\s+-rf/,
     /sudo.*rm/,
@@ -193,9 +178,6 @@ async function handleGenericTool(input: PreToolUseInput): Promise<void> {
   }
 }
 
-/**
- * Main execution entry point
- */
 if (import.meta.url === `file://${process.argv[1]}`) {
   executeHook<PreToolUseInput>(handlePreToolUse).catch(error => {
     console.error('Failed to execute PreToolUse hook:', error);
@@ -203,7 +185,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 }
 
-// Export for testing and composition
 export {
   handlePreToolUse,
   handleSubagentTask,

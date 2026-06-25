@@ -1,13 +1,9 @@
 #!/usr/bin/env tsx
 
 /**
- * Combined PostToolUse Hook Handler
+ * Combined PostToolUse Hook
  *
- * This hook combines multiple PostToolUse processors:
- * - Automatic code formatting (Prettier, ESLint)
- * - TypeScript validation and compilation checks
- * - Convex schema validation and codegen
- * - File content validation and feedback
+ * Coordinates PostToolUse formatting, validation, and analysis handlers.
  */
 
 import { executeHook, logInfo, logDebug, getConfig } from '../utils/index.js';
@@ -19,7 +15,7 @@ import { handlePostToolBatch } from './post-tool-batch.js';
 import { handlePostToolUseFailure } from './post-tool-use-failure.js';
 
 /**
- * Main PostToolUse hook handler that coordinates all post-processing
+ * Coordinate post-processing for completed tool calls.
  */
 async function handlePostToolUse(input: PostToolUseInput): Promise<void> {
   validatePostToolUseInput(input);
@@ -40,7 +36,6 @@ async function handlePostToolUse(input: PostToolUseInput): Promise<void> {
     });
   }
 
-  // Process different tools based on their type
   switch (tool_name) {
     case 'Write':
     case 'Edit':
@@ -79,29 +74,22 @@ async function handlePostToolUse(input: PostToolUseInput): Promise<void> {
 }
 
 /**
- * Handle file modification operations (Write, Edit, MultiEdit)
+ * Run formatting and validation after file modifications.
  */
 async function handleFileModification(input: PostToolUseInput): Promise<void> {
-  // Run formatting and validation in sequence (formatting first, then validation)
-  // This ensures that validation runs on properly formatted code
-
   try {
-    // Step 1: Format code
     logDebug('Running code formatting');
     await formatCode(input);
 
-    // Step 2: Validate TypeScript (if applicable)
     logDebug('Running TypeScript validation');
     await validateTypeScript(input);
 
-    // Step 3: Additional file-specific validations
     await runAdditionalFileValidations(input);
   } catch (error) {
     logInfo(
       `Post-processing error (non-blocking): ${error instanceof Error ? error.message : String(error)}`
     );
 
-    // Don't block execution for post-processing errors unless specifically configured
     if (process.env['CLAUDE_HOOK_STRICT_POST_VALIDATION'] === 'true') {
       throw error;
     }
@@ -109,13 +97,12 @@ async function handleFileModification(input: PostToolUseInput): Promise<void> {
 }
 
 /**
- * Handle bash command execution
+ * Record Bash execution results and analyze failures.
  */
 async function handleBashExecution(input: PostToolUseInput): Promise<void> {
   const toolInput = input.tool_input;
   const toolResponse = input.tool_response;
 
-  // Log command execution for audit trail — safe property access
   const command =
     typeof toolInput['command'] === 'string' ? toolInput['command'] : 'unknown';
   const success = toolResponse['success'] !== false; // Default to true if not specified
@@ -124,7 +111,6 @@ async function handleBashExecution(input: PostToolUseInput): Promise<void> {
     `Bash command ${success ? 'succeeded' : 'failed'}: ${command.substring(0, 100)}${command.length > 100 ? '...' : ''}`
   );
 
-  // Check for specific command patterns that might require follow-up
   if (command.includes('convex codegen')) {
     logInfo('Convex codegen detected - types may have been updated');
   } else if (command.includes('npm install') || command.includes('yarn add')) {
@@ -136,7 +122,6 @@ async function handleBashExecution(input: PostToolUseInput): Promise<void> {
     logInfo('Git operation detected - codebase may have changed');
   }
 
-  // If command failed, we might want to provide suggestions
   const stderrValue = toolResponse['stderr'];
   if (!success && typeof stderrValue === 'string') {
     const stderr = stderrValue;
@@ -145,14 +130,13 @@ async function handleBashExecution(input: PostToolUseInput): Promise<void> {
 }
 
 /**
- * Handle subagent (Task) completion
+ * Record subagent task completion.
  */
 async function handleSubagentCompletion(
   input: PostToolUseInput
 ): Promise<void> {
   const taskResponse = input.tool_response;
 
-  // Log subagent completion
   logInfo('Subagent task completed');
 
   if (getConfig().debug) {
@@ -161,51 +145,33 @@ async function handleSubagentCompletion(
       success: taskResponse['success'] !== false,
     });
   }
-
-  // Could add logic here to:
-  // - Analyze subagent results
-  // - Chain additional subagents based on results
-  // - Validate subagent outputs
 }
 
 /**
- * Handle web operations
+ * Record completed web operations.
  */
 async function handleWebOperation(input: PostToolUseInput): Promise<void> {
   logInfo(`Web operation completed: ${input.tool_name}`);
-
-  // Could add logic here to:
-  // - Cache web responses
-  // - Validate web content
-  // - Extract and process data from web responses
 }
 
 /**
- * Handle generic tools
+ * Record completed generic tools.
  */
 async function handleGenericTool(input: PostToolUseInput): Promise<void> {
-  // Basic logging and analysis for unknown tools
   logDebug(`Generic tool ${input.tool_name} completed`);
-
-  // Could add generic patterns like:
-  // - Response size analysis
-  // - Performance timing
-  // - Error pattern detection
 }
 
 /**
- * Run additional file-specific validations
+ * Log file-specific follow-up guidance.
  */
 async function runAdditionalFileValidations(
   input: PostToolUseInput
 ): Promise<void> {
-  // Extract file path via safe property access
   const rawFilePath = input.tool_input['file_path'];
   const filePath = typeof rawFilePath === 'string' ? rawFilePath : undefined;
 
   if (!filePath) return;
 
-  // File-specific validations based on file type/path
   if (filePath.includes('package.json')) {
     logInfo('package.json modified - consider running npm install');
   } else if (filePath.includes('convex/schema.ts')) {
@@ -218,13 +184,12 @@ async function runAdditionalFileValidations(
 }
 
 /**
- * Analyze bash command failures and provide suggestions
+ * Analyze bash command failures and log guidance.
  */
 async function analyzeCommandFailure(
   _command: string,
   stderr: string
 ): Promise<void> {
-  // Common error patterns and suggestions
   const errorPatterns = [
     {
       pattern: /command not found/i,
@@ -266,9 +231,6 @@ async function analyzeCommandFailure(
   }
 }
 
-/**
- * Main execution entry point
- */
 if (import.meta.url === `file://${process.argv[1]}`) {
   executeHook<PostToolUseInput>(handlePostToolUse).catch(error => {
     console.error('Failed to execute PostToolUse hook:', error);
@@ -276,7 +238,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 }
 
-// Export for testing and composition
 export {
   handlePostToolUse,
   handleFileModification,
