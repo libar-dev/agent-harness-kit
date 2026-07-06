@@ -185,6 +185,13 @@ interface TailFileCache {
 
 interface TailStateCounts extends TailProcessingCounts {
   readonly completeLineCount: number;
+  /**
+   * Known-type lines that failed strict typed validation but were preserved
+   * as raw records. Already included in `invalidShapeLineCount`; tracked
+   * separately so `tailBlocks` does not double-count them when it derives its
+   * typed skip count from the records/lines length difference.
+   */
+  readonly degradedHistoryLineCount: number;
 }
 
 interface TailState {
@@ -257,8 +264,13 @@ export async function tailBlocks(
   // the same ordering as extractBlocks, so parity holds for completed sessions.
   blocks.sort((a, b) => compareStrings(a.timestamp, b.timestamp));
 
+  // Degraded history records sit in `records` but never in `lines`; they are
+  // already reported via invalidShapeLineCount, so exclude them here.
   const skippedTypedLineCount =
-    result.skippedLineCount + (result.records.length - result.lines.length);
+    result.skippedLineCount +
+    (result.records.length -
+      result.lines.length -
+      result.degradedHistoryLineCount);
 
   return {
     blocks,
@@ -394,6 +406,7 @@ async function tailTranscriptRecordsInternal(
   RawTranscriptTailResult & {
     toolNameById: ReadonlyMap<string, string>;
     lines: readonly RawHistoryLine[];
+    degradedHistoryLineCount: number;
   }
 > {
   const cacheKey = resolve(jsonlPath);
@@ -420,6 +433,7 @@ async function tailTranscriptRecordsInternal(
       invalidJsonLineCount: 0,
       invalidShapeLineCount: 0,
       skippedLineCount: 0,
+      degradedHistoryLineCount: 0,
     };
   }
 
@@ -456,6 +470,7 @@ async function tailTranscriptRecordsInternal(
     invalidJsonLineCount: tailState.counts.invalidJsonLineCount,
     invalidShapeLineCount: tailState.counts.invalidShapeLineCount,
     skippedLineCount: tailState.counts.skippedLineCount,
+    degradedHistoryLineCount: tailState.counts.degradedHistoryLineCount,
   };
 }
 
@@ -480,6 +495,7 @@ function recordsStartingAtOrAfter(
   const lines: RawHistoryLine[] = [];
   const counts = {
     completeLineCount: 0,
+    degradedHistoryLineCount: 0,
     invalidJsonLineCount: 0,
     invalidShapeLineCount: 0,
     skippedLineCount: 0,
@@ -519,6 +535,11 @@ function recordsStartingAtOrAfter(
             break;
           case 'raw_record':
             records.push(parsedLine.record);
+            break;
+          case 'degraded_history':
+            records.push(parsedLine.record);
+            counts.invalidShapeLineCount += 1;
+            counts.degradedHistoryLineCount += 1;
             break;
           case 'invalid_json':
             counts.invalidJsonLineCount += 1;
@@ -645,6 +666,7 @@ async function readRange(
 type ParsedTranscriptLine =
   | { kind: 'typed_history'; line: RawHistoryLine; record: RawTranscriptRecord }
   | { kind: 'raw_record'; record: RawTranscriptRecord }
+  | { kind: 'degraded_history'; record: RawTranscriptRecord }
   | { kind: 'invalid_json' }
   | { kind: 'invalid_shape' }
   | { kind: 'skipped' };
@@ -694,7 +716,11 @@ function parseTranscriptLine(args: {
   );
   const typedResult = safeValidateRawHistoryLine(typedCandidate);
   if (!typedResult.success) {
-    return { kind: 'invalid_shape' };
+    // Known-type line whose payload drifted from the strict typed schema
+    // (newer Claude Code releases add fields and content shapes faster than
+    // the schema tracks them). Typed consumers still see it counted under
+    // invalidShapeLineCount, but raw consumers keep the full record.
+    return { kind: 'degraded_history', record };
   }
 
   return { kind: 'typed_history', line: typedResult.data, record };

@@ -650,10 +650,16 @@ describe('Tail mode', () => {
       rawRedactionMode: 'unsafe-unredacted',
     });
 
-    expect(result.records).toHaveLength(1);
+    expect(result.records).toHaveLength(2);
     expect(result.records[0]).toMatchObject({
       id: 's1:main:q-1',
       type: 'queue-operation',
+    });
+    // Known-type line failing strict typed validation is still counted under
+    // invalidShapeLineCount but preserved as a raw record for raw consumers.
+    expect(result.records[1]).toMatchObject({
+      id: 's1:main:bad-1',
+      type: 'user',
     });
     expect(result.invalidJsonLineCount).toBe(1);
     expect(result.invalidShapeLineCount).toBe(1);
@@ -663,6 +669,44 @@ describe('Tail mode', () => {
         unknownFutureLine + invalidKnownLine + malformedJsonLine + nonObjectLine
       )
     );
+  });
+
+  it('preserves modern file-history-snapshot lines without top-level metadata as raw records', async () => {
+    // Claude Code moved timestamp/uuid/sessionId off the top level of
+    // file-history-snapshot lines; the strict typed schema rejects them but
+    // raw consumers must still receive the record.
+    const snapshotLine = `${JSON.stringify({
+      type: 'file-history-snapshot',
+      messageId: 'msg-1',
+      snapshot: {
+        messageId: 'msg-1',
+        trackedFileBackups: {},
+        timestamp: '2026-02-16T20:00:00.000Z',
+      },
+      isSnapshotUpdate: false,
+    })}\n`;
+    await writeFile(jsonlPath, snapshotLine);
+
+    const result = await tailRawTranscriptRecords(jsonlPath, {
+      dryRun: true,
+      fromStart: true,
+      rawRedactionMode: 'unsafe-unredacted',
+    });
+
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]).toMatchObject({
+      type: 'file-history-snapshot',
+      payload: { messageId: 'msg-1' },
+    });
+    expect(result.invalidShapeLineCount).toBe(1);
+
+    const blocksResult = await tailBlocks(jsonlPath, {
+      dryRun: true,
+      fromStart: true,
+    });
+    expect(blocksResult.blocks).toHaveLength(0);
+    expect(blocksResult.invalidShapeLineCount).toBe(1);
+    expect(blocksResult.skippedLineCount).toBe(0);
   });
 
   it('advances past invalid typed lines so they are not replayed after restart', async () => {
