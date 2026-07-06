@@ -1358,7 +1358,9 @@ const rawMessageFields = {
   model: z.string().optional(),
   stop_reason: z.string().nullable().optional(),
   stop_sequence: z.string().nullable().optional(),
-  usage: z.record(z.string(), z.number()).optional(),
+  // Modern Claude Code usage objects nest structures (cache_creation,
+  // server_tool_use, iterations, service_tier, …); values are not all numbers.
+  usage: z.record(z.string(), z.unknown()).optional(),
 };
 
 export const rawUserMessageSchema = z.looseObject({

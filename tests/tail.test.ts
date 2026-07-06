@@ -671,6 +671,40 @@ describe('Tail mode', () => {
     );
   });
 
+  it('accepts assistant lines with modern nested usage objects as typed history', async () => {
+    const assistantLine = `${JSON.stringify({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done' }],
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cache_creation: { ephemeral_5m_input_tokens: 3 },
+          server_tool_use: { web_search_requests: 0 },
+          service_tier: 'standard',
+          iterations: [{ input_tokens: 10 }],
+        },
+      },
+      sessionId: 's1',
+      timestamp: '2026-02-16T20:00:00.000Z',
+      uuid: 'a-usage-1',
+    })}\n`;
+    await writeFile(jsonlPath, assistantLine);
+
+    const result = await tailBlocks(jsonlPath, {
+      dryRun: true,
+      fromStart: true,
+    });
+
+    expect(result.blocks).toHaveLength(1);
+    expect(result.blocks[0]).toMatchObject({
+      type: 'assistant_text',
+      content: 'done',
+    });
+    expect(result.invalidShapeLineCount).toBe(0);
+  });
+
   it('preserves modern file-history-snapshot lines without top-level metadata as raw records', async () => {
     // Claude Code moved timestamp/uuid/sessionId off the top level of
     // file-history-snapshot lines; the strict typed schema rejects them but

@@ -52,7 +52,7 @@ export interface RawMessage {
   readonly model?: string | undefined;
   readonly stop_reason?: string | null | undefined;
   readonly stop_sequence?: string | null | undefined;
-  readonly usage?: Record<string, number> | undefined;
+  readonly usage?: Record<string, unknown> | undefined;
 }
 
 /** A single line from a .jsonl session file */
