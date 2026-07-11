@@ -11,6 +11,18 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ## [Unreleased]
 
+### Added
+
+- Added the per-call `allowedMarkerRoots` tail option (`TailOptions`) so
+  library consumers can validate a custom `markerDir` without mutating the
+  process-global `CLAUDE_TAIL_MARKER_ROOTS` env var. When set (even empty) it
+  takes precedence over the env var; when unset the env var remains the
+  fallback, so the `claude-session-tail` CLI behavior is unchanged.
+- Exported `getMarkerPath`, `readMarker`, and `writeMarker` from
+  `@libar-dev/agent-harness-kit/processing` so consumers that pre-seed or
+  inspect tail markers share the kit's marker file format instead of
+  re-implementing it.
+
 ### Changed
 
 - Published Claude Code API parity notes now cover `Setup` and `MessageDisplay`.

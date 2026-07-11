@@ -112,10 +112,12 @@ const expectedProcessingRuntimeExports = [
   'discoverSessions',
   'exportSession',
   'extractBlocks',
+  'getMarkerPath',
   'listProjects',
   'processSession',
   'projectDirFromCwd',
   'readExportMarker',
+  'readMarker',
   'readRawSessionFiles',
   'readSessionFiles',
   'resolveProjectPath',
@@ -127,15 +129,13 @@ const expectedProcessingRuntimeExports = [
   'toMarkdown',
   'watchRawTranscriptRecords',
   'writeExportMarker',
+  'writeMarker',
 ] as const;
 
 const removedImplementationExports = [
-  'getMarkerPath',
   'mergeTimeline',
   'parseJsonlContent',
   'parseSessionContent',
-  'readMarker',
-  'writeMarker',
 ] as const;
 
 const expectedLifecycleHandlerExports = [

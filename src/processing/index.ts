@@ -50,6 +50,9 @@ import {
   tailRawTranscriptRecords,
   watchRawTranscriptRecords,
   readRawSessionFiles,
+  getMarkerPath,
+  readMarker,
+  writeMarker,
 } from './tail.js';
 
 import {
@@ -123,6 +126,9 @@ export {
   tailRawTranscriptRecords,
   watchRawTranscriptRecords,
   readRawSessionFiles,
+  getMarkerPath,
+  readMarker,
+  writeMarker,
   toMarkdown,
   toCompactSummary,
   toExportMarkdown,

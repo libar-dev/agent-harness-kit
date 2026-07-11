@@ -189,6 +189,23 @@ This is a processing-CLI environment variable. It is **not** loaded through the
 hook `getConfig()` surface and does not appear in the
 [environment-variables reference](../reference/environment-variables.md).
 
+#### Library option: `allowedMarkerRoots`
+
+Library consumers calling `tailBlocks` / `tailRawTranscriptRecords` /
+`watchRawTranscriptRecords` (or `getMarkerPath`) directly should prefer the
+per-call `allowedMarkerRoots` tail option over the env var. When the option is
+set — even to an empty array — it takes precedence over
+`CLAUDE_TAIL_MARKER_ROOTS`; when it is unset, the env var remains the fallback
+(which is what the CLI relies on). Per-call roots avoid mutating process-global
+state, so concurrent tails across many projects need no coordination:
+
+```ts
+await tailRawTranscriptRecords(jsonlPath, {
+  markerDir,
+  allowedMarkerRoots: [markerDir],
+});
+```
+
 ### Raw-records safety
 
 > **Warning:** `--format raw-records` requires `--unsafe-raw-unredacted` and

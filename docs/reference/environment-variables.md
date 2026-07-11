@@ -8,7 +8,8 @@ This reference is intentionally limited to variables loaded through
 `getConfig()`. Processing CLI variables that live outside that config surface,
 such as `CLAUDE_TAIL_MARKER_ROOTS` for `claude-session-tail --marker-dir`, are
 documented in the [Tail Sessions internal doc](../internal/tail-session.md)
-instead of here.
+instead of here. (Library consumers should prefer the per-call
+`allowedMarkerRoots` tail option over that env var; see the same doc.)
 
 ---
 

@@ -78,11 +78,15 @@ export interface TailMarker {
  * `~/.claude/projects/...` is owned by Claude Code; a consumer would set
  * `markerDir` to its own state dir).
  */
-export function getMarkerPath(jsonlPath: string, markerDir?: string): string {
+export function getMarkerPath(
+  jsonlPath: string,
+  markerDir?: string,
+  allowedMarkerRoots?: readonly string[]
+): string {
   const dir =
     markerDir === undefined
       ? resolve(dirname(jsonlPath), '.tail-markers')
-      : resolveAllowedMarkerDir(markerDir);
+      : resolveAllowedMarkerDir(markerDir, allowedMarkerRoots);
   const base = sanitizeMarkerBase(basename(jsonlPath, '.jsonl'));
   return join(dir, `${base}.json`);
 }
@@ -135,6 +139,13 @@ export async function writeMarker(
 export interface TailOptions {
   /** Override marker storage directory (default: `<jsonlDir>/.tail-markers/`) */
   readonly markerDir?: string;
+  /**
+   * Allowed roots for a custom `markerDir`, validated per call. When set
+   * (even to an empty array), takes precedence over the
+   * `CLAUDE_TAIL_MARKER_ROOTS` env var; when unset, the env var remains the
+   * fallback. Ignored unless `markerDir` is provided.
+   */
+  readonly allowedMarkerRoots?: readonly string[];
   /** If true, do not advance the marker after emitting (read-only preview) */
   readonly dryRun?: boolean;
   /** If true, ignore any existing marker and emit all blocks from byte 0 */
@@ -413,7 +424,11 @@ async function tailTranscriptRecordsInternal(
   const stats = await stat(jsonlPath);
   const fileSize = stats.size;
 
-  const markerPath = getMarkerPath(jsonlPath, options.markerDir);
+  const markerPath = getMarkerPath(
+    jsonlPath,
+    options.markerDir,
+    options.allowedMarkerRoots
+  );
   const existing = options.fromStart ? null : await readMarker(markerPath);
 
   // File rotated/truncated since last tail — full re-scan from start
@@ -932,12 +947,18 @@ function sanitizeMarkerBase(raw: string): string {
   return sanitized;
 }
 
-function resolveAllowedMarkerDir(markerDir: string): string {
+function resolveAllowedMarkerDir(
+  markerDir: string,
+  explicitRoots?: readonly string[]
+): string {
   const resolvedDir = resolve(markerDir);
-  const roots = parseAllowedMarkerRoots();
+  const roots =
+    explicitRoots !== undefined
+      ? normalizeAllowedMarkerRoots(explicitRoots)
+      : parseAllowedMarkerRoots();
   if (roots.length === 0) {
     throw new Error(
-      'Custom markerDir requires CLAUDE_TAIL_MARKER_ROOTS to include an allowed root'
+      'Custom markerDir requires allowedMarkerRoots (or CLAUDE_TAIL_MARKER_ROOTS) to include an allowed root'
     );
   }
   if (!roots.some(root => isWithinPath(resolvedDir, root))) {
@@ -946,6 +967,15 @@ function resolveAllowedMarkerDir(markerDir: string): string {
     );
   }
   return resolvedDir;
+}
+
+function normalizeAllowedMarkerRoots(
+  roots: readonly string[]
+): readonly string[] {
+  return roots
+    .map(root => root.trim())
+    .filter(root => root.length > 0)
+    .map(root => resolve(root));
 }
 
 function parseAllowedMarkerRoots(): readonly string[] {

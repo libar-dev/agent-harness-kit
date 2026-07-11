@@ -8,6 +8,9 @@
  *   internal/test surface for functions that were removed from the public API.
  * - getMarkerPath / writeMarker are the CLI's runtime dependency (the shipped
  *   tail CLI consumes them); readMarker rounds out the marker trio for tests.
+ *   The marker trio is now ALSO exported from the public `./processing`
+ *   barrel so external consumers share the marker file format; this re-export
+ *   remains for the CLI and existing internal imports.
  */
 
 export { parseJsonlContent, parseSessionContent } from './parser.js';

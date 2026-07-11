@@ -959,6 +959,97 @@ describe('Tail mode', () => {
     expect(marker?.byteOffset).toBe(content.length);
   });
 
+  it('allows custom markerDir via allowedMarkerRoots without the env var', async () => {
+    const content = makeUserTextLine('u-1', 'hi', '2026-02-16T20:00:00.000Z');
+    await writeFile(jsonlPath, content);
+    const markerDir = join(tmp, 'consumer-state');
+
+    await tailBlocks(jsonlPath, { markerDir, allowedMarkerRoots: [tmp] });
+
+    const marker = await readMarker(getMarkerPath(jsonlPath, markerDir, [tmp]));
+    expect(marker?.byteOffset).toBe(content.length);
+
+    const defaultMarker = await readMarker(getMarkerPath(jsonlPath));
+    expect(defaultMarker).toBeNull();
+  });
+
+  it('allowedMarkerRoots takes precedence over CLAUDE_TAIL_MARKER_ROOTS', async () => {
+    const content = makeUserTextLine('u-1', 'hi', '2026-02-16T20:00:00.000Z');
+    await writeFile(jsonlPath, content);
+    const markerDir = join(tmp, 'consumer-state');
+    process.env['CLAUDE_TAIL_MARKER_ROOTS'] = tmp;
+
+    await expect(
+      tailBlocks(jsonlPath, {
+        markerDir,
+        allowedMarkerRoots: [join(tmp, 'elsewhere')],
+      })
+    ).rejects.toThrow(/outside allowed marker roots/);
+  });
+
+  it('rejects custom markerDir outside allowedMarkerRoots', async () => {
+    const content = makeUserTextLine('u-1', 'hi', '2026-02-16T20:00:00.000Z');
+    await writeFile(jsonlPath, content);
+
+    await expect(
+      tailBlocks(jsonlPath, {
+        markerDir: join(tmp, 'rejected'),
+        allowedMarkerRoots: [join(tmp, 'allowed')],
+      })
+    ).rejects.toThrow(/outside allowed marker roots/);
+  });
+
+  it('empty allowedMarkerRoots throws instead of falling back to the env var', async () => {
+    const content = makeUserTextLine('u-1', 'hi', '2026-02-16T20:00:00.000Z');
+    await writeFile(jsonlPath, content);
+    process.env['CLAUDE_TAIL_MARKER_ROOTS'] = tmp;
+
+    await expect(
+      tailBlocks(jsonlPath, {
+        markerDir: join(tmp, 'consumer-state'),
+        allowedMarkerRoots: [],
+      })
+    ).rejects.toThrow(/to include an allowed root/);
+  });
+
+  it('tailRawTranscriptRecords honors allowedMarkerRoots', async () => {
+    const content = makeUserTextLine('u-1', 'hi', '2026-02-16T20:00:00.000Z');
+    await writeFile(jsonlPath, content);
+    const markerDir = join(tmp, 'consumer-state');
+
+    const result = await tailRawTranscriptRecords(jsonlPath, {
+      markerDir,
+      allowedMarkerRoots: [tmp],
+    });
+    expect(result.records).toHaveLength(1);
+
+    const marker = await readMarker(getMarkerPath(jsonlPath, markerDir, [tmp]));
+    expect(marker?.byteOffset).toBe(content.length);
+  });
+
+  it('watchRawTranscriptRecords threads allowedMarkerRoots through', async () => {
+    const content = makeUserTextLine('u-1', 'hi', '2026-02-16T20:00:00.000Z');
+    await writeFile(jsonlPath, content);
+    const markerDir = join(tmp, 'consumer-state');
+    const controller = new AbortController();
+
+    const iterator = watchRawTranscriptRecords(jsonlPath, {
+      markerDir,
+      allowedMarkerRoots: [tmp],
+      pollMs: 10,
+      signal: controller.signal,
+    });
+    const first = await iterator.next();
+    controller.abort();
+    await iterator.return?.(undefined);
+
+    expect(first.done).toBe(false);
+    expect(first.value?.records).toHaveLength(1);
+
+    const marker = await readMarker(getMarkerPath(jsonlPath, markerDir, [tmp]));
+    expect(marker?.byteOffset).toBe(content.length);
+  });
+
   it('sanitizes marker filenames so session basenames cannot escape marker dir', () => {
     const markerDir = join(tmp, 'markers');
     process.env['CLAUDE_TAIL_MARKER_ROOTS'] = tmp;

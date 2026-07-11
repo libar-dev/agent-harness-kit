@@ -213,7 +213,8 @@ Hook behavior is configurable through environment variables. The library reads:
 Processing CLIs have a small separate env surface that is not loaded through
 `getConfig()`. Today that includes `CLAUDE_TAIL_MARKER_ROOTS` for
 `claude-session-tail --marker-dir`. Keep hook env-var docs and processing CLI
-docs separate.
+docs separate. Library consumers of the tail APIs should pass the per-call
+`allowedMarkerRoots` option instead of relying on that env var.
 
 Set `CLAUDE_HOOK_DEBUG=true` or `CLAUDE_CODE_DEBUG_LOG_LEVEL=verbose` for verbose logging. The default hook timeout is 60 seconds. `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` defaults to 1500 ms and is capped at 60000 ms.
 
