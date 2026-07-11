@@ -77,6 +77,16 @@ export interface TailMarker {
  * Override via `markerDir` option for write-restricted source dirs (e.g.,
  * `~/.claude/projects/...` is owned by Claude Code; a consumer would set
  * `markerDir` to its own state dir).
+ *
+ * @param jsonlPath - Session JSONL path whose basename identifies the marker.
+ * @param markerDir - Custom marker directory. When omitted, markers are stored
+ *   under `<dirname(jsonlPath)>/.tail-markers/` without allow-list validation.
+ * @param allowedMarkerRoots - Per-call roots allowed to contain `markerDir`.
+ *   When defined, including as an empty array, these roots take precedence over
+ *   `CLAUDE_TAIL_MARKER_ROOTS`. Ignored when `markerDir` is omitted.
+ * @returns Absolute path to the session marker file.
+ * @throws If a custom `markerDir` has no allowed root or falls outside every
+ *   allowed root.
  */
 export function getMarkerPath(
   jsonlPath: string,
@@ -91,6 +101,13 @@ export function getMarkerPath(
   return join(dir, `${base}.json`);
 }
 
+/**
+ * Read and validate a tail marker file.
+ *
+ * @param markerPath - Path to the marker JSON file.
+ * @returns The validated marker, or `null` when the file is missing,
+ *   unreadable, or invalid.
+ */
 export async function readMarker(
   markerPath: string
 ): Promise<TailMarker | null> {
@@ -115,6 +132,18 @@ function isTailMarker(value: unknown): value is TailMarker {
   );
 }
 
+/**
+ * Write a tail marker by atomically replacing its destination file.
+ *
+ * The parent directory and temporary file are created with private
+ * permissions.
+ *
+ * @param markerPath - Destination marker JSON path.
+ * @param marker - Marker state to persist.
+ * @returns A promise that resolves after the destination is replaced.
+ * @throws If the parent directory cannot be created or the marker cannot be
+ *   written or moved into place.
+ */
 export async function writeMarker(
   markerPath: string,
   marker: TailMarker
@@ -989,7 +1018,8 @@ function parseAllowedMarkerRoots(): readonly string[] {
 }
 
 function isWithinPath(child: string, parent: string): boolean {
-  return child === parent || child.startsWith(`${parent}${sep}`);
+  const parentPrefix = parent.endsWith(sep) ? parent : `${parent}${sep}`;
+  return child === parent || child.startsWith(parentPrefix);
 }
 
 function assertNever(value: never): never {

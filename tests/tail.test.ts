@@ -11,7 +11,7 @@ import {
   mkdir,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, parse } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
@@ -20,15 +20,13 @@ import {
   watchRawTranscriptRecords,
   readRawSessionFiles,
   extractBlocks,
-  type RawTranscriptRecord,
-  type RawTranscriptTailResult,
-} from '../src/processing/index.js';
-import {
   readMarker,
   getMarkerPath,
   writeMarker,
-  parseSessionContent,
-} from '../src/processing/internal.js';
+  type RawTranscriptRecord,
+  type RawTranscriptTailResult,
+} from '../src/processing/index.js';
+import { parseSessionContent } from '../src/processing/internal.js';
 import { must } from './test-utils.js';
 
 const execFileAsync = promisify(execFile);
@@ -997,6 +995,15 @@ describe('Tail mode', () => {
         allowedMarkerRoots: [join(tmp, 'allowed')],
       })
     ).rejects.toThrow(/outside allowed marker roots/);
+  });
+
+  it('allows a filesystem root in allowedMarkerRoots', () => {
+    const markerDir = join(tmp, 'consumer-state');
+    const filesystemRoot = parse(markerDir).root;
+
+    expect(getMarkerPath(jsonlPath, markerDir, [filesystemRoot])).toBe(
+      join(markerDir, 'session.json')
+    );
   });
 
   it('empty allowedMarkerRoots throws instead of falling back to the env var', async () => {

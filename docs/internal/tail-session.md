@@ -192,9 +192,9 @@ hook `getConfig()` surface and does not appear in the
 #### Library option: `allowedMarkerRoots`
 
 Library consumers calling `tailBlocks` / `tailRawTranscriptRecords` /
-`watchRawTranscriptRecords` (or `getMarkerPath`) directly should prefer the
-per-call `allowedMarkerRoots` tail option over the env var. When the option is
-set — even to an empty array — it takes precedence over
+`watchRawTranscriptRecords` directly should prefer the per-call
+`allowedMarkerRoots` tail option over the env var. When the option is set —
+even to an empty array — it takes precedence over
 `CLAUDE_TAIL_MARKER_ROOTS`; when it is unset, the env var remains the fallback
 (which is what the CLI relies on). Per-call roots avoid mutating process-global
 state, so concurrent tails across many projects need no coordination:
@@ -204,6 +204,14 @@ await tailRawTranscriptRecords(jsonlPath, {
   markerDir,
   allowedMarkerRoots: [markerDir],
 });
+```
+
+The public marker-path helper accepts the allow-list as its third argument, so
+consumers can resolve or pre-seed the same marker without changing the env var:
+
+```ts
+const markerPath = getMarkerPath(jsonlPath, markerDir, [markerDir]);
+await writeMarker(markerPath, marker);
 ```
 
 ### Raw-records safety
@@ -240,4 +248,4 @@ exponential backoff (200 ms up to 30 s) rather than exiting `1`.
 | `src/processing/blocks.ts` | `SessionBlock` extraction used by `blocks` output |
 | `src/processing/tool-result-redaction.ts` | Secret redaction + truncation for retained tool-result bodies |
 | `src/processing/types.ts` | `SessionBlock`, `RawTranscriptRecord`, and tail result type definitions |
-| `src/processing/index.ts` | Public re-exports (`tailBlocks`, `tailRawTranscriptRecords`, `watchRawTranscriptRecords`, `readRawSessionFiles`) |
+| `src/processing/index.ts` | Public processing re-exports, including the tail APIs and marker helpers |
