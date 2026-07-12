@@ -52,6 +52,14 @@ interface PackageExports {
     readonly import: string;
     readonly types: string;
   };
+  readonly './endpoint-discovery'?: {
+    readonly import: string;
+    readonly types: string;
+  };
+  readonly './forwarder'?: {
+    readonly import: string;
+    readonly types: string;
+  };
 }
 
 interface PackageJsonShape {
@@ -103,6 +111,8 @@ const expectedPackageExportKeys = [
   './post-tool-use/*',
   './lifecycle',
   './lifecycle/*',
+  './endpoint-discovery',
+  './forwarder',
 ] as const;
 
 const expectedProcessingRuntimeExports = [
@@ -195,6 +205,14 @@ describe('package export contract', () => {
       import: './dist/lifecycle/*.js',
       types: './dist/lifecycle/*.d.ts',
     });
+    expect(pkg.exports['./endpoint-discovery']).toEqual({
+      import: './dist/endpoint-discovery/index.js',
+      types: './dist/endpoint-discovery/index.d.ts',
+    });
+    expect(pkg.exports['./forwarder']).toEqual({
+      import: './dist/forwarder/index.js',
+      types: './dist/forwarder/index.d.ts',
+    });
   });
 
   it('keeps processing deep paths out of the package export map', async () => {
@@ -231,6 +249,12 @@ describe('package export contract', () => {
     ).resolves.toBeUndefined();
     await expect(
       access(join(repoRoot, 'src/lifecycle/index.ts'))
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(repoRoot, 'src/endpoint-discovery/index.ts'))
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(repoRoot, 'src/forwarder/index.ts'))
     ).resolves.toBeUndefined();
   });
 

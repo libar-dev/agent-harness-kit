@@ -95,8 +95,7 @@ const TOOL_CALL_SUMMARIZERS: Readonly<Record<string, ToolCallSummarizer>> = {
     `ToolSearch(${truncate(String(input['query'] ?? '?'), 60)})`,
 
   EnterPlanMode: () => 'EnterPlanMode()',
-  ExitPlanMode: input =>
-    `ExitPlanMode(${truncate(String(input['plan'] ?? '?'), 60)})`,
+  ExitPlanMode: input => `plan: ${summarizePlan(input['plan'])}`,
   AskUserQuestion: input => {
     const questions = input['questions'];
     if (Array.isArray(questions) && questions.length > 0) {
@@ -141,6 +140,16 @@ const TOOL_CALL_SUMMARIZERS: Readonly<Record<string, ToolCallSummarizer>> = {
   ReadMcpResourceTool: input =>
     `ReadMcpResourceTool(${String(input['uri'] ?? input['server'] ?? '?')})`,
 };
+
+function summarizePlan(value: unknown): string {
+  if (typeof value !== 'string') return '?';
+  const heading = value
+    .split(/\r?\n/u)
+    .map(line => line.trim())
+    .find(line => /^#{1,6}\s+\S/u.test(line));
+  const summary = heading?.replace(/^#{1,6}\s+/u, '') ?? value.trim();
+  return truncate(summary || '?', 60);
+}
 
 /** Summarize a tool_use block into a one-liner like "Read(file_path: src/index.ts)" */
 export function summarizeToolCall(block: ToolUseBlock): string {

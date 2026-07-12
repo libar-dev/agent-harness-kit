@@ -1,6 +1,6 @@
 {
   "name": "@libar-dev/agent-harness-kit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "packageManager": "pnpm@10.4.1",
   "type": "module",
   "description": "Agent harness toolkit — Claude Code hooks today, harness-agnostic future. Typed session export, tail tooling, and 30 hook event handlers with Zod validation.",
@@ -55,10 +55,18 @@
     "./lifecycle/*": {
       "import": "./dist/lifecycle/*.js",
       "types": "./dist/lifecycle/*.d.ts"
+    },
+    "./endpoint-discovery": {
+      "import": "./dist/endpoint-discovery/index.js",
+      "types": "./dist/endpoint-discovery/index.d.ts"
+    },
+    "./forwarder": {
+      "import": "./dist/forwarder/index.js",
+      "types": "./dist/forwarder/index.d.ts"
     }
   },
   "scripts": {
-    "build": "tsc --project tsconfig.build.json && node scripts/chmod-bins.mjs",
+    "build": "tsc --project tsconfig.build.json && esbuild src/forwarder/hook-forwarder.ts --bundle --platform=node --format=esm --target=node18 --outfile=dist/standalone/hook-forwarder.mjs && node scripts/chmod-bins.mjs",
     "build:emergency": "tsc --project tsconfig.emergency.json && node scripts/chmod-bins.mjs",
     "dev": "tsx watch src/index.ts",
     "docs:sync-upstream": "node scripts/sync-upstream-docs.mjs",
@@ -103,6 +111,7 @@
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "@vitest/coverage-v8": "^4.1.7",
+    "esbuild": "^0.25.0",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-prettier": "^5.0.0",

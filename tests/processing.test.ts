@@ -697,12 +697,12 @@ describe('Processing Pipeline', () => {
       ).toBe('ScheduleWakeup(1200s: check build)');
     });
 
-    it('summarizes ExitPlanMode with truncated plan', () => {
-      const tc = summarize('ExitPlanMode', {
-        plan: 'A'.repeat(200),
-      });
-      expect(tc.startsWith('ExitPlanMode(')).toBe(true);
-      expect(tc).toContain('...');
+    it('summarizes ExitPlanMode with the first markdown heading', () => {
+      expect(
+        summarize('ExitPlanMode', {
+          plan: 'Preamble\n\n## Silence hook errors\n\nDetails',
+        })
+      ).toBe('plan: Silence hook errors');
     });
 
     it('summarizes MultiEdit by file_path', () => {

@@ -11,7 +11,16 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-12
+
 ### Added
+
+- Added a validated endpoint-discovery file contract and helpers for process
+  liveness, project-root filtering, and hook URL construction.
+- Added a standalone, esbuild-bundled command-hook forwarder that silently
+  opts out when its endpoint is absent, stale, unrelated, or unreachable.
+- Added the managed POSIX wrapper asset for consumers that install the
+  forwarder at a stable user path.
 
 - Added the per-call `allowedMarkerRoots` tail option (`TailOptions`) so
   library consumers can validate a custom `markerDir` without mutating the
@@ -24,6 +33,9 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
   re-implementing it.
 
 ### Changed
+
+- ExitPlanMode summaries use the plan's first Markdown heading so collapsed
+  transcript rows remain meaningful.
 
 - Published Claude Code API parity notes now cover `Setup` and `MessageDisplay`.
 - Documented `SessionStart` input/output parity updates.
