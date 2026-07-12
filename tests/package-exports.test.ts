@@ -211,9 +211,9 @@ describe('package export contract', () => {
       types: './dist/endpoint-discovery/index.d.ts',
     });
     expect(pkg.exports['./forwarder']).toEqual({
+      types: './dist/forwarder/index.d.ts',
       import: './dist/forwarder/index.js',
       default: './dist/forwarder/index.js',
-      types: './dist/forwarder/index.d.ts',
     });
   });
 
