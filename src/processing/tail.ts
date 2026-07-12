@@ -34,9 +34,10 @@ import {
   writeFile,
   mkdir,
   rename,
+  rm,
   unlink,
 } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { basename, delimiter, dirname, join, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -54,6 +55,10 @@ import type {
   RawTranscriptRecord,
   RawTranscriptRedactionMode,
   RawTranscriptSession,
+  RawTranscriptSessionCheckpoint,
+  RawTranscriptSessionTailResult,
+  RawTranscriptSourceKind,
+  RawTranscriptSourceTailResult,
   RawTranscriptTailResult,
   SessionBlock,
   TailProcessingCounts,
@@ -99,6 +104,37 @@ export function getMarkerPath(
       : resolveAllowedMarkerDir(markerDir, allowedMarkerRoots);
   const base = sanitizeMarkerBase(basename(jsonlPath, '.jsonl'));
   return join(dir, `${base}.json`);
+}
+
+/**
+ * Resolve the marker path used by `tailRawTranscriptSessionRecords`.
+ *
+ * The filename includes a digest of the absolute main JSONL path so one custom
+ * marker directory can safely hold sessions from multiple projects. Marker
+ * roots use the same validation rules as `getMarkerPath`.
+ *
+ * @param mainJsonlPath - Path to the session's main JSONL file.
+ * @param markerDir - Custom marker directory, or the main file's local marker directory.
+ * @param allowedMarkerRoots - Roots permitted to contain a custom marker directory.
+ * @returns Absolute path to the session-level marker file.
+ */
+export function getRawTranscriptSessionMarkerPath(
+  mainJsonlPath: string,
+  markerDir?: string,
+  allowedMarkerRoots?: readonly string[]
+): string {
+  const resolvedMainPath = resolve(mainJsonlPath);
+  const dir =
+    markerDir === undefined
+      ? resolve(dirname(resolvedMainPath), '.tail-markers')
+      : resolveAllowedMarkerDir(markerDir, allowedMarkerRoots);
+  const sessionId = sanitizeMarkerBase(basename(resolvedMainPath, '.jsonl'));
+  const pathDigest = createRawTranscriptSessionPathDigest(resolvedMainPath);
+  return join(dir, `${sessionId}-${pathDigest.slice(0, 16)}.raw-session.json`);
+}
+
+function createRawTranscriptSessionPathDigest(mainJsonlPath: string): string {
+  return createHash('sha256').update(resolve(mainJsonlPath)).digest('hex');
 }
 
 /**
@@ -148,15 +184,22 @@ export async function writeMarker(
   markerPath: string,
   marker: TailMarker
 ): Promise<void> {
-  const markerDir = dirname(markerPath);
+  await writePrivateJson(markerPath, marker);
+}
+
+async function writePrivateJson(
+  destinationPath: string,
+  value: unknown
+): Promise<void> {
+  const markerDir = dirname(destinationPath);
   await mkdir(markerDir, { recursive: true, mode: 0o700 });
   const tempPath = join(
     markerDir,
-    `.${basename(markerPath)}.${String(process.pid)}.${String(Date.now())}.tmp`
+    `.${basename(destinationPath)}.${randomUUID()}.tmp`
   );
   try {
-    await writeFile(tempPath, JSON.stringify(marker, null, 2), { mode: 0o600 });
-    await rename(tempPath, markerPath);
+    await writeFile(tempPath, JSON.stringify(value, null, 2), { mode: 0o600 });
+    await rename(tempPath, destinationPath);
   } catch (err) {
     await unlink(tempPath).catch(() => undefined);
     throw err;
@@ -196,6 +239,24 @@ export interface RawTranscriptWatchOptions extends RawTranscriptTailOptions {
   readonly signal?: AbortSignal;
 }
 
+/** Options for tailing every JSONL source belonging to one session. */
+export interface RawTranscriptSessionTailOptions extends RawTranscriptTailOptions {
+  /** Defer checkpoint persistence until `commitRawTranscriptSessionCheckpoint`. */
+  readonly checkpointMode?: 'automatic' | 'manual';
+}
+
+/** Options for polling every JSONL source belonging to one session. */
+export interface RawTranscriptSessionWatchOptions extends RawTranscriptSessionTailOptions {
+  readonly pollMs?: number;
+  readonly signal?: AbortSignal;
+}
+
+/** Marker destination controls for committing a manual session checkpoint. */
+export interface RawTranscriptSessionCommitOptions {
+  readonly markerDir?: string;
+  readonly allowedMarkerRoots?: readonly string[];
+}
+
 export interface RawTranscriptReadOptions {
   /**
    * Exact raw transcript payloads are intentionally unsafe and require an
@@ -221,6 +282,7 @@ interface TailFileCache {
   readonly completeByteOffset: number;
   readonly completeLineCount: number;
   readonly toolNameById: ReadonlyMap<string, string>;
+  readonly lastTimestamp?: string;
 }
 
 interface TailStateCounts extends TailProcessingCounts {
@@ -238,9 +300,49 @@ interface TailState {
   readonly records: readonly RawTranscriptRecord[];
   readonly lines: readonly RawHistoryLine[];
   readonly toolNameById: ReadonlyMap<string, string>;
+  readonly precedingTimestamp?: string;
   readonly nextByteOffset: number;
   readonly counts: TailStateCounts;
 }
+
+interface EffectiveTimestampRecord {
+  readonly record: RawTranscriptRecord;
+  readonly effectiveTimestamp: string;
+}
+
+interface RawTranscriptSource {
+  readonly sourcePath: string;
+  readonly sourceKind: RawTranscriptSourceKind;
+  readonly sourceId: string;
+}
+
+interface RawTranscriptSessionMarker {
+  readonly version: 2;
+  readonly sessionId: string;
+  readonly mainPathDigest: string;
+  readonly revision: number;
+  readonly sources: Readonly<Record<string, RawTranscriptSessionSourceMarker>>;
+}
+
+interface RawTranscriptSessionSourceMarker extends TailMarker {
+  readonly generation: number;
+}
+
+interface RawTranscriptSessionLockOwner {
+  readonly token: string;
+  readonly pid: number;
+  readonly createdAt: number;
+}
+
+class StaleRawTranscriptSessionCheckpointError extends Error {}
+
+const SESSION_MARKER_LOCK_OWNER_FILE = 'owner.json';
+const SESSION_MARKER_LOCK_ACQUIRE_TIMEOUT_MS = 5000;
+const SESSION_MARKER_LOCK_STALE_MS = 30_000;
+const SESSION_MARKER_LOCK_RETRY_MS = 25;
+const SESSION_MARKER_LOCK_CLOCK_SKEW_MS = 60_000;
+const RANDOM_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const tailFileCache = new Map<string, TailFileCache>();
 
@@ -349,6 +451,225 @@ export async function tailRawTranscriptRecords(
 }
 
 /**
+ * Tail the main JSONL and all `<session-id>/subagents/*.jsonl` files as one
+ * session. Source discovery runs on every call, offsets advance independently,
+ * and untimestamped records inherit the preceding timestamp from their own
+ * source for deterministic merge ordering. Returned records are not modified.
+ *
+ * Marker state is committed atomically after every source has been read. A
+ * failed source therefore leaves the prior session checkpoint intact so the
+ * next call can replay the complete pass.
+ *
+ * @param mainJsonlPath - Path to the session's main `<session-id>.jsonl` file.
+ * @param options - Marker, replay, redaction, and dry-run controls.
+ * @returns Merged records plus aggregate and per-source diagnostics.
+ */
+export async function tailRawTranscriptSessionRecords(
+  mainJsonlPath: string,
+  options: RawTranscriptSessionTailOptions = {}
+): Promise<RawTranscriptSessionTailResult> {
+  const resolvedMainPath = resolve(mainJsonlPath);
+  const sessionId = basename(resolvedMainPath, '.jsonl');
+  const mainPathDigest = createRawTranscriptSessionPathDigest(resolvedMainPath);
+  const markerPath = getRawTranscriptSessionMarkerPath(
+    resolvedMainPath,
+    options.markerDir,
+    options.allowedMarkerRoots
+  );
+  const existingMarker = await readRawTranscriptSessionMarker(
+    markerPath,
+    sessionId,
+    mainPathDigest
+  );
+  const sources = await discoverRawTranscriptSources(resolvedMainPath);
+  const effectiveTimestampRecords: EffectiveTimestampRecord[] = [];
+  const sourceResults: RawTranscriptSourceTailResult[] = [];
+  const nextMarkers: Record<string, RawTranscriptSessionSourceMarker> = {};
+
+  for (const source of sources) {
+    const sourceKey = getRawTranscriptSourceKey(source);
+    const result = await readTranscriptRecordsFromMarker(
+      source.sourcePath,
+      options.fromStart ? null : (existingMarker?.sources[sourceKey] ?? null)
+    );
+    const publicRecords = toPublicRawTranscriptRecords(result.records, options);
+    let effectiveTimestamp = result.precedingTimestamp ?? '';
+
+    for (const record of publicRecords) {
+      if (record.timestamp !== undefined && record.timestamp.length > 0) {
+        effectiveTimestamp = record.timestamp;
+      }
+      effectiveTimestampRecords.push({ record, effectiveTimestamp });
+    }
+    sourceResults.push({
+      sourcePath: source.sourcePath,
+      sourceKind: source.sourceKind,
+      sourceId: source.sourceId,
+      recordCount: publicRecords.length,
+      previousByteOffset: result.previousByteOffset,
+      newByteOffset: result.newByteOffset,
+      fileSize: result.fileSize,
+      fileRotated: result.fileRotated,
+      degradedHistoryLineCount: result.degradedHistoryLineCount,
+      invalidJsonLineCount: result.invalidJsonLineCount,
+      invalidShapeLineCount: result.invalidShapeLineCount,
+      skippedLineCount: result.skippedLineCount,
+    });
+    const existingSourceMarker = existingMarker?.sources[sourceKey];
+    const forcedRotation =
+      options.fromStart === true &&
+      existingSourceMarker !== undefined &&
+      result.newByteOffset < existingSourceMarker.byteOffset;
+    nextMarkers[sourceKey] = {
+      byteOffset: result.newByteOffset,
+      lastTailAt: new Date().toISOString(),
+      fileSize: result.fileSize,
+      generation:
+        (existingSourceMarker?.generation ?? 0) +
+        (result.fileRotated || forcedRotation ? 1 : 0),
+    };
+  }
+
+  effectiveTimestampRecords.sort(compareEffectiveTimestampRecords);
+  const records = effectiveTimestampRecords.map(item => item.record);
+  const checkpoint = toRawTranscriptSessionCheckpoint(
+    sessionId,
+    mainPathDigest,
+    existingMarker?.revision ?? 0,
+    sourceResults,
+    nextMarkers
+  );
+
+  if (
+    !options.dryRun &&
+    options.checkpointMode !== 'manual' &&
+    shouldWriteRawTranscriptSessionMarker(existingMarker, sourceResults)
+  ) {
+    try {
+      await mutateRawTranscriptSessionMarker(
+        markerPath,
+        sessionId,
+        mainPathDigest,
+        checkpoint
+      );
+    } catch (error) {
+      if (!(error instanceof StaleRawTranscriptSessionCheckpointError)) {
+        throw error;
+      }
+    }
+  }
+
+  return {
+    sessionId,
+    records,
+    sources: sourceResults,
+    checkpoint,
+    degradedHistoryLineCount: sumSourceCount(
+      sourceResults,
+      'degradedHistoryLineCount'
+    ),
+    invalidJsonLineCount: sumSourceCount(sourceResults, 'invalidJsonLineCount'),
+    invalidShapeLineCount: sumSourceCount(
+      sourceResults,
+      'invalidShapeLineCount'
+    ),
+    skippedLineCount: sumSourceCount(sourceResults, 'skippedLineCount'),
+  };
+}
+
+/**
+ * Commit a checkpoint returned by a manual session tail after its records have
+ * been durably consumed. A crash before this call leaves the prior offsets in
+ * place, so the batch is replayed on restart.
+ *
+ * @param mainJsonlPath - Path used to create the session tail result.
+ * @param checkpoint - Checkpoint returned with that result.
+ * @param options - Marker directory and allow-list controls used for tailing.
+ * @returns A promise that resolves after the atomic marker replacement.
+ * @throws If the checkpoint has another path identity, is stale, is invalid,
+ *   or contains an unsafe offset or generation transition.
+ */
+export async function commitRawTranscriptSessionCheckpoint(
+  mainJsonlPath: string,
+  checkpoint: RawTranscriptSessionCheckpoint,
+  options: RawTranscriptSessionCommitOptions = {}
+): Promise<void> {
+  const resolvedMainPath = resolve(mainJsonlPath);
+  const sessionId = basename(resolvedMainPath, '.jsonl');
+  const mainPathDigest = createRawTranscriptSessionPathDigest(resolvedMainPath);
+  if (
+    checkpoint.sessionId !== sessionId ||
+    checkpoint.mainPathDigest !== mainPathDigest
+  ) {
+    throw new Error('Session checkpoint does not match the main JSONL path');
+  }
+  const markerPath = getRawTranscriptSessionMarkerPath(
+    resolvedMainPath,
+    options.markerDir,
+    options.allowedMarkerRoots
+  );
+  await mutateRawTranscriptSessionMarker(
+    markerPath,
+    sessionId,
+    mainPathDigest,
+    checkpoint
+  );
+}
+
+/**
+ * Poll all raw transcript sources for a session, including subagent files that
+ * appear after observation begins.
+ *
+ * The first pass is always yielded. Later passes are yielded when records,
+ * diagnostics, rotation, or the discovered source set changes. Aborting the
+ * signal ends iteration without an error. `fromStart` applies only to the first
+ * pass.
+ *
+ * @param mainJsonlPath - Path to the session's main `<session-id>.jsonl` file.
+ * @param options - Session tail options plus polling and cancellation controls.
+ * @returns An async sequence of non-quiet session tail results.
+ */
+export async function* watchRawTranscriptSessionRecords(
+  mainJsonlPath: string,
+  options: RawTranscriptSessionWatchOptions = {}
+): AsyncGenerator<RawTranscriptSessionTailResult, void, unknown> {
+  const { pollMs = 2000, signal, ...initialTailOptions } = options;
+  let tailOptions: RawTranscriptSessionTailOptions = initialTailOptions;
+  let previousSourceSignature: string | undefined;
+  let first = true;
+
+  while (signal?.aborted !== true) {
+    const result = await tailRawTranscriptSessionRecords(
+      mainJsonlPath,
+      tailOptions
+    );
+    const sourceSignature = result.sources
+      .map(source => `${source.sourceKind}:${source.sourceId}`)
+      .join('\n');
+    if (
+      first ||
+      result.records.length > 0 ||
+      result.sources.some(source => source.fileRotated) ||
+      hasTailProcessingCounts(result) ||
+      result.degradedHistoryLineCount > 0 ||
+      sourceSignature !== previousSourceSignature
+    ) {
+      yield result;
+    }
+    first = false;
+    previousSourceSignature = sourceSignature;
+    if (tailOptions.fromStart === true) {
+      const { fromStart: _fromStart, ...remainingOptions } = tailOptions;
+      tailOptions = remainingOptions;
+    }
+    await delay(pollMs, undefined, { signal }).catch(error => {
+      if (signal?.aborted === true) return;
+      throw error;
+    });
+  }
+}
+
+/**
  * Polling async iterator for raw transcript records. The CLI watch
  * mode still owns the fs.watch implementation; this library API gives Node
  * consumers a compact reusable watcher without duplicating marker handling.
@@ -439,6 +760,468 @@ export async function readRawSessionFiles(
   return { sessionId, records };
 }
 
+async function discoverRawTranscriptSources(
+  mainJsonlPath: string
+): Promise<readonly RawTranscriptSource[]> {
+  const sessionId = basename(mainJsonlPath, '.jsonl');
+  const sources: RawTranscriptSource[] = [
+    {
+      sourcePath: mainJsonlPath,
+      sourceKind: 'main',
+      sourceId: 'main',
+    },
+  ];
+  const subagentDir = join(dirname(mainJsonlPath), sessionId, 'subagents');
+
+  let entries: string[];
+  try {
+    entries = (await readdir(subagentDir))
+      .filter(entry => entry.endsWith('.jsonl'))
+      .sort(compareStrings);
+  } catch (error) {
+    if (hasErrorCode(error, 'ENOENT')) return sources;
+    throw error;
+  }
+
+  for (const entry of entries) {
+    sources.push({
+      sourcePath: join(subagentDir, entry),
+      sourceKind: 'subagent',
+      sourceId: basename(entry, '.jsonl'),
+    });
+  }
+  return sources;
+}
+
+async function readRawTranscriptSessionMarker(
+  markerPath: string,
+  sessionId: string,
+  mainPathDigest: string
+): Promise<RawTranscriptSessionMarker | null> {
+  try {
+    const raw = await readFile(markerPath, 'utf8');
+    const parsed: unknown = JSON.parse(raw);
+    const revision = isRecord(parsed) ? parsed['revision'] : undefined;
+    if (
+      !isRecord(parsed) ||
+      parsed['version'] !== 2 ||
+      parsed['sessionId'] !== sessionId ||
+      parsed['mainPathDigest'] !== mainPathDigest ||
+      typeof revision !== 'number' ||
+      !Number.isSafeInteger(revision) ||
+      revision < 0 ||
+      !isRecord(parsed['sources'])
+    ) {
+      return null;
+    }
+
+    const sources: Record<string, RawTranscriptSessionSourceMarker> = {};
+    for (const [sourceKey, marker] of Object.entries(parsed['sources'])) {
+      const generation = isRecord(marker) ? marker['generation'] : undefined;
+      if (
+        !isTailMarker(marker) ||
+        !isRecord(marker) ||
+        !Number.isSafeInteger(marker.byteOffset) ||
+        marker.byteOffset < 0 ||
+        !Number.isSafeInteger(marker.fileSize) ||
+        marker.fileSize < marker.byteOffset ||
+        typeof generation !== 'number' ||
+        !Number.isSafeInteger(generation) ||
+        generation < 0
+      ) {
+        return null;
+      }
+      sources[sourceKey] = {
+        byteOffset: marker.byteOffset,
+        fileSize: marker.fileSize,
+        lastTailAt: marker.lastTailAt,
+        generation,
+      };
+    }
+    return {
+      version: 2,
+      sessionId,
+      mainPathDigest,
+      revision,
+      sources,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeRawTranscriptSessionMarker(
+  markerPath: string,
+  sessionId: string,
+  mainPathDigest: string,
+  revision: number,
+  sources: Readonly<Record<string, RawTranscriptSessionSourceMarker>>
+): Promise<void> {
+  await writePrivateJson(markerPath, {
+    version: 2,
+    sessionId,
+    mainPathDigest,
+    revision,
+    sources,
+  } satisfies RawTranscriptSessionMarker);
+}
+
+async function mutateRawTranscriptSessionMarker(
+  markerPath: string,
+  sessionId: string,
+  mainPathDigest: string,
+  checkpoint: RawTranscriptSessionCheckpoint
+): Promise<void> {
+  await withRawTranscriptSessionMarkerLock(markerPath, async () => {
+    const existingMarker = await readRawTranscriptSessionMarker(
+      markerPath,
+      sessionId,
+      mainPathDigest
+    );
+    const nextMarkers = rawTranscriptSessionCheckpointToMarkers(checkpoint);
+    const currentRevision = existingMarker?.revision ?? 0;
+    if (checkpoint.baseRevision !== currentRevision) {
+      throw new StaleRawTranscriptSessionCheckpointError(
+        'Session checkpoint is stale for the current marker'
+      );
+    }
+    validateRawTranscriptCheckpointProgression(existingMarker, nextMarkers);
+
+    await writeRawTranscriptSessionMarker(
+      markerPath,
+      sessionId,
+      mainPathDigest,
+      currentRevision + 1,
+      nextMarkers
+    );
+  });
+}
+
+async function withRawTranscriptSessionMarkerLock<T>(
+  markerPath: string,
+  action: () => Promise<T>
+): Promise<T> {
+  const lockPath = `${markerPath}.lock`;
+  await mkdir(dirname(markerPath), { recursive: true, mode: 0o700 });
+  const owner = await acquireRawTranscriptSessionMarkerLock(lockPath);
+  try {
+    return await action();
+  } finally {
+    await releaseRawTranscriptSessionMarkerLock(lockPath, owner);
+  }
+}
+
+async function acquireRawTranscriptSessionMarkerLock(
+  lockPath: string
+): Promise<RawTranscriptSessionLockOwner> {
+  const startedAt = Date.now();
+  const owner: RawTranscriptSessionLockOwner = {
+    token: randomUUID(),
+    pid: process.pid,
+    createdAt: startedAt,
+  };
+
+  while (true) {
+    try {
+      await mkdir(lockPath, { mode: 0o700 });
+      try {
+        await writeFile(
+          join(lockPath, SESSION_MARKER_LOCK_OWNER_FILE),
+          JSON.stringify(owner),
+          { flag: 'wx', mode: 0o600 }
+        );
+      } catch (error) {
+        await rm(lockPath, { recursive: true, force: true });
+        throw error;
+      }
+      return owner;
+    } catch (error) {
+      if (!hasErrorCode(error, 'EEXIST')) throw error;
+    }
+
+    await recoverStaleRawTranscriptSessionMarkerLock(lockPath);
+    if (Date.now() - startedAt >= SESSION_MARKER_LOCK_ACQUIRE_TIMEOUT_MS) {
+      throw new Error(`Timed out acquiring session marker lock '${lockPath}'`);
+    }
+    await delay(SESSION_MARKER_LOCK_RETRY_MS);
+  }
+}
+
+async function recoverStaleRawTranscriptSessionMarkerLock(
+  lockPath: string
+): Promise<void> {
+  const owner = await readRawTranscriptSessionLockOwner(lockPath);
+  let stale = false;
+  let staleIdentityDigest: string;
+  if (owner !== null) {
+    stale =
+      Date.now() - owner.createdAt >= SESSION_MARKER_LOCK_STALE_MS &&
+      !isProcessAlive(owner.pid);
+    staleIdentityDigest = createStaleLockIdentityDigest(`owner:${owner.token}`);
+  } else {
+    try {
+      const lockStat = await stat(lockPath);
+      stale = Date.now() - lockStat.mtimeMs >= SESSION_MARKER_LOCK_STALE_MS;
+      staleIdentityDigest = createStaleLockIdentityDigest(
+        `stat:${String(lockStat.dev)}:${String(lockStat.ino)}:${String(
+          Math.floor(lockStat.mtimeMs)
+        )}`
+      );
+    } catch (error) {
+      if (hasErrorCode(error, 'ENOENT')) return;
+      throw error;
+    }
+  }
+  if (!stale) return;
+
+  const observedToken = owner?.token;
+  const currentOwner = await readRawTranscriptSessionLockOwner(lockPath);
+  if (observedToken !== undefined && currentOwner?.token !== observedToken) {
+    return;
+  }
+  if (currentOwner !== null && isProcessAlive(currentOwner.pid)) return;
+
+  const quarantinePath = `${lockPath}.stale.${staleIdentityDigest}`;
+  try {
+    await rename(lockPath, quarantinePath);
+  } catch (error) {
+    if (hasErrorCode(error, 'ENOENT') || hasErrorCode(error, 'EEXIST')) return;
+    throw error;
+  }
+}
+
+async function releaseRawTranscriptSessionMarkerLock(
+  lockPath: string,
+  owner: RawTranscriptSessionLockOwner
+): Promise<void> {
+  const currentOwner = await readRawTranscriptSessionLockOwner(lockPath);
+  if (currentOwner?.token !== owner.token) return;
+  await rm(lockPath, { recursive: true, force: true });
+}
+
+async function readRawTranscriptSessionLockOwner(
+  lockPath: string
+): Promise<RawTranscriptSessionLockOwner | null> {
+  try {
+    const raw = await readFile(
+      join(lockPath, SESSION_MARKER_LOCK_OWNER_FILE),
+      'utf8'
+    );
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      !isRecord(parsed) ||
+      typeof parsed['token'] !== 'string' ||
+      !RANDOM_UUID_PATTERN.test(parsed['token']) ||
+      typeof parsed['pid'] !== 'number' ||
+      !Number.isSafeInteger(parsed['pid']) ||
+      parsed['pid'] <= 0 ||
+      typeof parsed['createdAt'] !== 'number' ||
+      !Number.isSafeInteger(parsed['createdAt']) ||
+      parsed['createdAt'] <= 0 ||
+      parsed['createdAt'] > Date.now() + SESSION_MARKER_LOCK_CLOCK_SKEW_MS
+    ) {
+      return null;
+    }
+    return {
+      token: parsed['token'],
+      pid: parsed['pid'],
+      createdAt: parsed['createdAt'],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function createStaleLockIdentityDigest(identity: string): string {
+  return createHash('sha256').update(identity).digest('hex');
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !(hasErrorCode(error, 'ESRCH') || hasErrorCode(error, 'EINVAL'));
+  }
+}
+
+function toRawTranscriptSessionCheckpoint(
+  sessionId: string,
+  mainPathDigest: string,
+  baseRevision: number,
+  sources: readonly RawTranscriptSourceTailResult[],
+  markers: Readonly<Record<string, RawTranscriptSessionSourceMarker>>
+): RawTranscriptSessionCheckpoint {
+  return {
+    sessionId,
+    mainPathDigest,
+    baseRevision,
+    sources: sources.map(source => ({
+      sourceKind: source.sourceKind,
+      sourceId: source.sourceId,
+      generation:
+        markers[`${source.sourceKind}:${source.sourceId}`]?.generation ?? 0,
+      byteOffset: source.newByteOffset,
+      fileSize: source.fileSize,
+    })),
+  };
+}
+
+function rawTranscriptSessionCheckpointToMarkers(
+  checkpoint: RawTranscriptSessionCheckpoint
+): Record<string, RawTranscriptSessionSourceMarker> {
+  if (
+    !checkpoint.sources.some(
+      source => source.sourceKind === 'main' && source.sourceId === 'main'
+    )
+  ) {
+    throw new Error('Raw transcript session checkpoint is missing main source');
+  }
+  if (
+    checkpoint.mainPathDigest.length !== 64 ||
+    !/^[a-f0-9]{64}$/.test(checkpoint.mainPathDigest) ||
+    !Number.isSafeInteger(checkpoint.baseRevision) ||
+    checkpoint.baseRevision < 0
+  ) {
+    throw new Error('Invalid raw transcript session checkpoint identity');
+  }
+  const markers: Record<string, RawTranscriptSessionSourceMarker> = {};
+  const lastTailAt = new Date().toISOString();
+
+  for (const source of checkpoint.sources) {
+    if (
+      (source.sourceKind !== 'main' && source.sourceKind !== 'subagent') ||
+      source.sourceId.length === 0 ||
+      !Number.isSafeInteger(source.generation) ||
+      source.generation < 0 ||
+      !Number.isSafeInteger(source.byteOffset) ||
+      source.byteOffset < 0 ||
+      !Number.isSafeInteger(source.fileSize) ||
+      source.fileSize < source.byteOffset
+    ) {
+      throw new Error('Invalid raw transcript session checkpoint');
+    }
+    const sourceKey = `${source.sourceKind}:${source.sourceId}`;
+    if (markers[sourceKey] !== undefined) {
+      throw new Error(
+        'Raw transcript session checkpoint has duplicate sources'
+      );
+    }
+    markers[sourceKey] = {
+      byteOffset: source.byteOffset,
+      fileSize: source.fileSize,
+      lastTailAt,
+      generation: source.generation,
+    };
+  }
+  return markers;
+}
+
+function validateRawTranscriptCheckpointProgression(
+  existingMarker: RawTranscriptSessionMarker | null,
+  nextMarkers: Readonly<Record<string, RawTranscriptSessionSourceMarker>>
+): void {
+  for (const [sourceKey, nextMarker] of Object.entries(nextMarkers)) {
+    const existingSource = existingMarker?.sources[sourceKey];
+    if (existingSource === undefined) {
+      if (nextMarker.generation !== 0) {
+        throw new Error('New transcript source must start at generation zero');
+      }
+      continue;
+    }
+
+    if (nextMarker.generation === existingSource.generation) {
+      if (nextMarker.byteOffset < existingSource.byteOffset) {
+        throw new Error(
+          'Session checkpoint would move source offsets backwards'
+        );
+      }
+      continue;
+    }
+
+    if (nextMarker.generation !== existingSource.generation + 1) {
+      throw new Error('Session checkpoint has an invalid source generation');
+    }
+  }
+}
+
+function getRawTranscriptSourceKey(source: RawTranscriptSource): string {
+  return `${source.sourceKind}:${source.sourceId}`;
+}
+
+function compareEffectiveTimestampRecords(
+  left: EffectiveTimestampRecord,
+  right: EffectiveTimestampRecord
+): number {
+  const timestampCompare = compareStrings(
+    left.effectiveTimestamp,
+    right.effectiveTimestamp
+  );
+  if (timestampCompare !== 0) return timestampCompare;
+
+  if (left.record.sourceKind !== right.record.sourceKind) {
+    return left.record.sourceKind === 'main' ? -1 : 1;
+  }
+  const sourceCompare = compareStrings(
+    left.record.sourceId,
+    right.record.sourceId
+  );
+  if (sourceCompare !== 0) return sourceCompare;
+  if (left.record.byteStart !== right.record.byteStart) {
+    return left.record.byteStart < right.record.byteStart ? -1 : 1;
+  }
+  if (left.record.byteEnd !== right.record.byteEnd) {
+    return left.record.byteEnd < right.record.byteEnd ? -1 : 1;
+  }
+  return compareStrings(left.record.id, right.record.id);
+}
+
+type RawTranscriptSourceCountKey =
+  | 'degradedHistoryLineCount'
+  | 'invalidJsonLineCount'
+  | 'invalidShapeLineCount'
+  | 'skippedLineCount';
+
+function sumSourceCount(
+  sources: readonly RawTranscriptSourceTailResult[],
+  key: RawTranscriptSourceCountKey
+): number {
+  return sources.reduce((sum, source) => sum + source[key], 0);
+}
+
+function shouldWriteRawTranscriptSessionMarker(
+  existingMarker: RawTranscriptSessionMarker | null,
+  sources: readonly RawTranscriptSourceTailResult[]
+): boolean {
+  if (existingMarker === null) {
+    return sources.some(source => source.newByteOffset > 0);
+  }
+
+  const sourceKeys = new Set(
+    sources.map(source =>
+      getRawTranscriptSourceKey({
+        sourcePath: source.sourcePath,
+        sourceKind: source.sourceKind,
+        sourceId: source.sourceId,
+      })
+    )
+  );
+  const existingKeys = Object.keys(existingMarker.sources);
+  if (
+    sourceKeys.size !== existingKeys.length ||
+    existingKeys.some(sourceKey => !sourceKeys.has(sourceKey))
+  ) {
+    return true;
+  }
+
+  return sources.some(source => {
+    const sourceKey = `${source.sourceKind}:${source.sourceId}`;
+    return (
+      existingMarker.sources[sourceKey]?.byteOffset !== source.newByteOffset
+    );
+  });
+}
+
 async function tailTranscriptRecordsInternal(
   jsonlPath: string,
   options: TailOptions = {}
@@ -447,18 +1230,42 @@ async function tailTranscriptRecordsInternal(
     toolNameById: ReadonlyMap<string, string>;
     lines: readonly RawHistoryLine[];
     degradedHistoryLineCount: number;
+    precedingTimestamp?: string;
   }
 > {
-  const cacheKey = resolve(jsonlPath);
-  const stats = await stat(jsonlPath);
-  const fileSize = stats.size;
-
   const markerPath = getMarkerPath(
     jsonlPath,
     options.markerDir,
     options.allowedMarkerRoots
   );
   const existing = options.fromStart ? null : await readMarker(markerPath);
+  const result = await readTranscriptRecordsFromMarker(jsonlPath, existing);
+
+  if (!options.dryRun && result.previousByteOffset !== result.fileSize) {
+    await writeMarker(markerPath, {
+      byteOffset: result.newByteOffset,
+      lastTailAt: new Date().toISOString(),
+      fileSize: result.fileSize,
+    });
+  }
+
+  return result;
+}
+
+async function readTranscriptRecordsFromMarker(
+  jsonlPath: string,
+  existing: TailMarker | null
+): Promise<
+  RawTranscriptTailResult & {
+    toolNameById: ReadonlyMap<string, string>;
+    lines: readonly RawHistoryLine[];
+    degradedHistoryLineCount: number;
+    precedingTimestamp?: string;
+  }
+> {
+  const cacheKey = resolve(jsonlPath);
+  const stats = await stat(jsonlPath);
+  const fileSize = stats.size;
 
   // File rotated/truncated since last tail — full re-scan from start
   const fileRotated = existing !== null && fileSize < existing.byteOffset;
@@ -466,6 +1273,7 @@ async function tailTranscriptRecordsInternal(
 
   // No new bytes — nothing to do
   if (previousByteOffset === fileSize) {
+    const cached = tailFileCache.get(cacheKey);
     return {
       records: [],
       lines: [],
@@ -473,7 +1281,10 @@ async function tailTranscriptRecordsInternal(
       previousByteOffset,
       fileSize,
       fileRotated,
-      toolNameById: tailFileCache.get(cacheKey)?.toolNameById ?? new Map(),
+      toolNameById: cached?.toolNameById ?? new Map(),
+      ...(cached?.lastTimestamp !== undefined
+        ? { precedingTimestamp: cached.lastTimestamp }
+        : {}),
       invalidJsonLineCount: 0,
       invalidShapeLineCount: 0,
       skippedLineCount: 0,
@@ -491,17 +1302,14 @@ async function tailTranscriptRecordsInternal(
           fileSize,
           cached
         )
-      : await readFullTailState(cacheKey, jsonlPath, previousByteOffset);
+      : await readFullTailState(
+          cacheKey,
+          jsonlPath,
+          previousByteOffset,
+          fileSize
+        );
 
   const nextByteOffset = tailState.nextByteOffset;
-
-  if (!options.dryRun) {
-    await writeMarker(markerPath, {
-      byteOffset: nextByteOffset,
-      lastTailAt: new Date().toISOString(),
-      fileSize,
-    });
-  }
 
   return {
     records: tailState.records,
@@ -511,6 +1319,9 @@ async function tailTranscriptRecordsInternal(
     fileSize,
     fileRotated,
     toolNameById: tailState.toolNameById,
+    ...(tailState.precedingTimestamp !== undefined
+      ? { precedingTimestamp: tailState.precedingTimestamp }
+      : {}),
     invalidJsonLineCount: tailState.counts.invalidJsonLineCount,
     invalidShapeLineCount: tailState.counts.invalidShapeLineCount,
     skippedLineCount: tailState.counts.skippedLineCount,
@@ -611,9 +1422,10 @@ function recordsStartingAtOrAfter(
 async function readFullTailState(
   cacheKey: string,
   jsonlPath: string,
-  previousByteOffset: number
+  previousByteOffset: number,
+  snapshotFileSize: number
 ): Promise<TailState> {
-  const fullContent = await readFile(jsonlPath);
+  const fullContent = await readRange(jsonlPath, 0, snapshotFileSize);
   const allComplete = recordsStartingAtOrAfter(jsonlPath, fullContent, 0);
   const toolNameById = buildToolNameMap(allComplete.lines);
   const sliced = recordsStartingAtOrAfter(
@@ -621,17 +1433,23 @@ async function readFullTailState(
     fullContent,
     previousByteOffset
   );
+  const precedingTimestamp = findLastRecordTimestamp(
+    allComplete.records.filter(record => record.byteEnd <= previousByteOffset)
+  );
+  const lastTimestamp = findLastRecordTimestamp(allComplete.records);
 
   setTailFileCache(cacheKey, {
     completeByteOffset: sliced.lastCompleteByteOffset,
     completeLineCount: allComplete.counts.completeLineCount,
     toolNameById,
+    ...(lastTimestamp !== undefined ? { lastTimestamp } : {}),
   });
 
   return {
     records: sliced.records,
     lines: sliced.lines,
     toolNameById,
+    ...(precedingTimestamp !== undefined ? { precedingTimestamp } : {}),
     nextByteOffset: sliced.lastCompleteByteOffset,
     counts: sliced.counts,
   };
@@ -652,6 +1470,11 @@ async function readIncrementalTailState(
   const sliced = recordsStartingAtOrAfter(jsonlPath, appendedContent, 0);
   const toolNameById = new Map(cached.toolNameById);
   const appendedToolNameById = buildToolNameMap(sliced.lines);
+  const precedingTimestamp = cached.lastTimestamp;
+  const lastTimestamp = findLastRecordTimestamp(
+    sliced.records,
+    cached.lastTimestamp
+  );
 
   for (const [toolUseId, toolName] of appendedToolNameById) {
     toolNameById.set(toolUseId, toolName);
@@ -663,6 +1486,7 @@ async function readIncrementalTailState(
     completeLineCount:
       cached.completeLineCount + sliced.counts.completeLineCount,
     toolNameById,
+    ...(lastTimestamp !== undefined ? { lastTimestamp } : {}),
   });
 
   return {
@@ -684,9 +1508,23 @@ async function readIncrementalTailState(
     })),
     lines: sliced.lines,
     toolNameById,
+    ...(precedingTimestamp !== undefined ? { precedingTimestamp } : {}),
     nextByteOffset,
     counts: sliced.counts,
   };
+}
+
+function findLastRecordTimestamp(
+  records: readonly RawTranscriptRecord[],
+  initialTimestamp?: string
+): string | undefined {
+  let lastTimestamp = initialTimestamp;
+  for (const record of records) {
+    if (record.timestamp !== undefined && record.timestamp.length > 0) {
+      lastTimestamp = record.timestamp;
+    }
+  }
+  return lastTimestamp;
 }
 
 async function readRange(

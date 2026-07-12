@@ -80,6 +80,7 @@ echo '{"hook_event_name":"PreToolUse","session_id":"s1","transcript_path":"/tmp/
 | `@libar-dev/agent-harness-kit/pre-tool-use` | Reference handlers: bash validator, file protector, ESLint-disable blocker |
 | `@libar-dev/agent-harness-kit/post-tool-use` | Reference handlers: Prettier formatter, TypeScript checker |
 | `@libar-dev/agent-harness-kit/lifecycle` | Reference handlers: setup, session start/end, notifications, message display, stop, subagents, elicitation |
+| `@libar-dev/agent-harness-kit/processing` | Session parsing, full-history reads, structured exports, and multi-source raw transcript tailing |
 
 ## Documentation
 
@@ -91,6 +92,7 @@ echo '{"hook_event_name":"PreToolUse","session_id":"s1","transcript_path":"/tmp/
 - **[HookOutputBuilder Reference](docs/reference/output-builder.md)** — every method with examples
 - **[Validators Reference](docs/reference/validators.md)** — tool-input validators, type guards, config validators
 - **[Environment Variables](docs/reference/environment-variables.md)** — all `CLAUDE_HOOK_*` vars
+- **[Session tailing](docs/internal/tail-session.md)** — CLI and public library APIs for live transcript ingestion
 - **[Full docs index](docs/README.md)**
 
 ## Development

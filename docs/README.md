@@ -28,7 +28,7 @@
 |-----|----------|
 | [API Update Checklist](internal/api-update-checklist.md) | Maintainer checklist for tracking Claude Code API changes |
 | [Export Sessions Script](internal/export-sessions.md) | How the export-sessions utility works |
-| [Tail Sessions Script](internal/tail-session.md) | How the tail-session CLI works (modes, flags, marker offsets) |
+| [Session Tailing](internal/tail-session.md) | CLI and library APIs, marker offsets, multi-source session discovery, and live polling |
 
 ## Upstream Reference (Mirrored)
 

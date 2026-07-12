@@ -84,11 +84,14 @@ export interface RawHistoryLine {
 
 export type RawTranscriptRedactionMode = 'unsafe-unredacted';
 
+/** Storage role of a JSONL file within a Claude Code session. */
+export type RawTranscriptSourceKind = 'main' | 'subagent';
+
 export interface RawTranscriptRecord {
   readonly id: string;
   readonly sessionId: string;
   readonly sourcePath: string;
-  readonly sourceKind: 'main' | 'subagent';
+  readonly sourceKind: RawTranscriptSourceKind;
   readonly sourceId: string;
   readonly lineNumber: number;
   readonly byteStart: number;
@@ -115,6 +118,50 @@ export interface RawTranscriptTailResult extends TailProcessingCounts {
   readonly newByteOffset: number;
   readonly fileSize: number;
   readonly fileRotated: boolean;
+}
+
+/** Per-source outcome from a session-level raw transcript tail pass. */
+export interface RawTranscriptSourceTailResult extends TailProcessingCounts {
+  readonly sourcePath: string;
+  readonly sourceKind: RawTranscriptSourceKind;
+  readonly sourceId: string;
+  readonly recordCount: number;
+  readonly previousByteOffset: number;
+  readonly newByteOffset: number;
+  readonly fileSize: number;
+  readonly fileRotated: boolean;
+  /** Known history records retained raw after strict typed validation failed. */
+  readonly degradedHistoryLineCount: number;
+}
+
+/** Durable offset for one source in a session checkpoint. */
+export interface RawTranscriptSourceCheckpoint {
+  readonly sourceKind: RawTranscriptSourceKind;
+  readonly sourceId: string;
+  /** Increments when truncation starts a source from a lower byte offset. */
+  readonly generation: number;
+  readonly byteOffset: number;
+  readonly fileSize: number;
+}
+
+/** Serializable checkpoint committed after a batch is durably consumed. */
+export interface RawTranscriptSessionCheckpoint {
+  readonly sessionId: string;
+  /** Digest of the resolved absolute main JSONL path. */
+  readonly mainPathDigest: string;
+  /** Marker revision this checkpoint was derived from. */
+  readonly baseRevision: number;
+  readonly sources: readonly RawTranscriptSourceCheckpoint[];
+}
+
+/** Chronologically merged outcome from every JSONL source in one session. */
+export interface RawTranscriptSessionTailResult extends TailProcessingCounts {
+  readonly sessionId: string;
+  readonly records: readonly RawTranscriptRecord[];
+  readonly sources: readonly RawTranscriptSourceTailResult[];
+  readonly checkpoint: RawTranscriptSessionCheckpoint;
+  /** Sum of degraded history records reported by `sources`. */
+  readonly degradedHistoryLineCount: number;
 }
 
 export interface RawTranscriptSession {

@@ -118,12 +118,14 @@ const expectedPackageExportKeys = [
 
 const expectedProcessingRuntimeExports = [
   'DEFAULT_DENOISE_CONFIG',
+  'commitRawTranscriptSessionCheckpoint',
   'cwdFromProjectDir',
   'denoiseSession',
   'discoverSessions',
   'exportSession',
   'extractBlocks',
   'getMarkerPath',
+  'getRawTranscriptSessionMarkerPath',
   'listProjects',
   'processSession',
   'projectDirFromCwd',
@@ -134,11 +136,13 @@ const expectedProcessingRuntimeExports = [
   'resolveProjectPath',
   'tailBlocks',
   'tailRawTranscriptRecords',
+  'tailRawTranscriptSessionRecords',
   'toCompactSummary',
   'toExportMarkdown',
   'toJsonlBlocks',
   'toMarkdown',
   'watchRawTranscriptRecords',
+  'watchRawTranscriptSessionRecords',
   'writeExportMarker',
   'writeMarker',
 ] as const;
