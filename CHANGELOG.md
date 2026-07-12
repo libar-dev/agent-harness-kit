@@ -11,6 +11,13 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ## [Unreleased]
 
+### Fixed
+
+- Canonicalized existing hook-event working directories before project-root
+  filtering so symlinked paths still reach an open project's endpoint.
+- Exercised the actual esbuild-bundled forwarder in subprocess tests, including
+  its exit-zero, empty-output behavior for malformed stdin.
+
 ## [0.2.0] - 2026-07-12
 
 ### Added

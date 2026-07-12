@@ -1,6 +1,13 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import {
   createServer,
   type IncomingMessage,
@@ -9,11 +16,39 @@ import {
 } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { build } from 'esbuild';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 const sourcePath = resolve('src/forwarder/hook-forwarder.ts');
 const tempDirs: string[] = [];
 const servers: Server[] = [];
+let bundleDir = '';
+let bundledForwarderPath = '';
+
+beforeAll(async () => {
+  bundleDir = await mkdtemp(join(tmpdir(), 'agent-hook-bundle-'));
+  bundledForwarderPath = join(
+    bundleDir,
+    'dist',
+    'standalone',
+    'hook-forwarder.mjs'
+  );
+  await mkdir(join(bundleDir, 'dist', 'standalone'), { recursive: true });
+  await build({
+    entryPoints: [sourcePath],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node18',
+    outfile: bundledForwarderPath,
+    logLevel: 'silent',
+  });
+  bundledForwarderPath = await realpath(bundledForwarderPath);
+});
+
+afterAll(async () => {
+  await rm(bundleDir, { recursive: true, force: true });
+});
 
 afterEach(async () => {
   await Promise.all(
@@ -62,6 +97,32 @@ describe('standalone hook forwarder', () => {
     await expectSilent(validEvent(), endpointPath);
   });
 
+  it('accepts a cwd reached through a symlink to a published canonical root', async () => {
+    const root = await createTempDir();
+    const nested = join(root, 'nested');
+    await mkdir(nested);
+    const links = await createTempDir();
+    const linkedRoot = join(links, 'project-link');
+    await symlink(root, linkedRoot);
+    const server = await startServer((_request, response) => {
+      response.end('{"decision":"allow"}');
+    });
+    const endpointPath = await writeEndpoint(serverPort(server), {
+      projectRoots: [await realpath(root)],
+    });
+
+    const result = await runForwarder(
+      validEvent(join(linkedRoot, 'nested')),
+      endpointPath
+    );
+
+    expect(result).toEqual({
+      code: 0,
+      stdout: '{"decision":"allow"}',
+      stderr: '',
+    });
+  });
+
   it('exits silently when the endpoint refuses connections', async () => {
     const server = await startServer((_request, response) => response.end());
     const port = serverPort(server);
@@ -99,10 +160,10 @@ describe('standalone hook forwarder', () => {
   });
 });
 
-function validEvent(): string {
+function validEvent(cwd = '/repo/project/src'): string {
   return JSON.stringify({
     hook_event_name: 'PreToolUse',
-    cwd: '/repo/project/src',
+    cwd,
   });
 }
 
@@ -120,7 +181,7 @@ async function runForwarder(
   endpointPath: string,
   timeoutMs?: number
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  const child = spawn(process.execPath, ['--import', 'tsx', sourcePath], {
+  const child = spawn(process.execPath, [bundledForwarderPath], {
     env: {
       ...process.env,
       AGENT_HOOK_ENDPOINT_FILE: endpointPath,

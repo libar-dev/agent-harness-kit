@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { request } from 'node:http';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -36,7 +36,8 @@ export async function runForwarder(): Promise<void> {
   const endpoint = await readEndpoint(endpointPath);
   if (endpoint === null) return;
   if (!isProcessAlive(endpoint.pid)) return;
-  if (!isCwdUnderRoots(event.cwd, endpoint.projectRoots)) return;
+  const canonicalCwd = await realpath(event.cwd).catch(() => event.cwd);
+  if (!isCwdUnderRoots(canonicalCwd, endpoint.projectRoots)) return;
 
   const body = await postJson({
     host: '127.0.0.1',
