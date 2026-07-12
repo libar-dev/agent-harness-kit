@@ -58,6 +58,7 @@ interface PackageExports {
   };
   readonly './forwarder'?: {
     readonly import: string;
+    readonly default: string;
     readonly types: string;
   };
 }
@@ -211,6 +212,7 @@ describe('package export contract', () => {
     });
     expect(pkg.exports['./forwarder']).toEqual({
       import: './dist/forwarder/index.js',
+      default: './dist/forwarder/index.js',
       types: './dist/forwarder/index.d.ts',
     });
   });

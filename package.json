@@ -62,6 +62,7 @@
     },
     "./forwarder": {
       "import": "./dist/forwarder/index.js",
+      "default": "./dist/forwarder/index.js",
       "types": "./dist/forwarder/index.d.ts"
     }
   },
