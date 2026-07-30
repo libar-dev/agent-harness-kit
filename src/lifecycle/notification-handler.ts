@@ -321,15 +321,29 @@ async function sendDesktopNotification(
   }
 }
 
+/** Placeholder token → env var name used by custom notification commands. */
+const NOTIFICATION_PLACEHOLDER_ENV: ReadonlyArray<readonly [string, string]> = [
+  ['{title}', 'CLAUDE_NOTIFICATION_TITLE'],
+  ['{message}', 'CLAUDE_NOTIFICATION_MESSAGE'],
+  ['{priority}', 'CLAUDE_NOTIFICATION_PRIORITY'],
+  ['{icon}', 'CLAUDE_NOTIFICATION_ICON'],
+];
+
 /**
  * Expand legacy `{title}`, `{message}`, `{priority}`, and `{icon}` placeholders
  * in custom notification commands.
  *
  * Values are not interpolated into the shell source. Placeholders become
- * double-quoted references to `CLAUDE_NOTIFICATION_*` env vars, which
+ * references to `CLAUDE_NOTIFICATION_*` env vars, which
  * `sendCustomNotification` sets before `sh -c`. That keeps hostile titles or
  * messages (e.g. `"; rm -rf /; #`) from becoming shell code while preserving
  * placeholder-based configs.
+ *
+ * Expansion is quote-aware so legacy single-quoted forms still expand:
+ * - unquoted `{title}` → `"${CLAUDE_NOTIFICATION_TITLE}"`
+ * - double-quoted `"{title}"` → `"${CLAUDE_NOTIFICATION_TITLE}"`
+ * - single-quoted `'{title}'` → `''"${CLAUDE_NOTIFICATION_TITLE}"''`
+ *   (close single quote, double-quoted env ref, reopen single quote)
  *
  * The second argument is accepted for call-site compatibility; values come
  * from the process environment at shell execution time.
@@ -338,11 +352,74 @@ export function expandNotificationCommandPlaceholders(
   command: string,
   _notification?: NotificationData
 ): string {
-  return command
-    .replace(/\{title\}/g, '"${CLAUDE_NOTIFICATION_TITLE}"')
-    .replace(/\{message\}/g, '"${CLAUDE_NOTIFICATION_MESSAGE}"')
-    .replace(/\{priority\}/g, '"${CLAUDE_NOTIFICATION_PRIORITY}"')
-    .replace(/\{icon\}/g, '"${CLAUDE_NOTIFICATION_ICON}"');
+  let result = '';
+  let index = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+
+  while (index < command.length) {
+    const char = command[index];
+
+    if (escaped) {
+      result += char;
+      escaped = false;
+      index += 1;
+      continue;
+    }
+
+    // Backslash escapes the next character outside single quotes.
+    if (char === '\\' && !inSingle) {
+      result += char;
+      escaped = true;
+      index += 1;
+      continue;
+    }
+
+    if (char === "'" && !inDouble) {
+      inSingle = !inSingle;
+      result += char;
+      index += 1;
+      continue;
+    }
+
+    if (char === '"' && !inSingle) {
+      inDouble = !inDouble;
+      result += char;
+      index += 1;
+      continue;
+    }
+
+    let matchedPlaceholder = false;
+    for (const [token, envName] of NOTIFICATION_PLACEHOLDER_ENV) {
+      if (!command.startsWith(token, index)) {
+        continue;
+      }
+
+      if (inSingle) {
+        // Break out of single quotes so the env ref can expand.
+        result += `'"\${${envName}}"'`;
+      } else if (inDouble) {
+        // Already inside double quotes; inject bare parameter expansion.
+        result += `\${${envName}}`;
+      } else {
+        result += `"\${${envName}}"`;
+      }
+
+      index += token.length;
+      matchedPlaceholder = true;
+      break;
+    }
+
+    if (matchedPlaceholder) {
+      continue;
+    }
+
+    result += char;
+    index += 1;
+  }
+
+  return result;
 }
 
 async function sendCustomNotification(

@@ -61,7 +61,8 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 - Custom notification commands again expand `{title}`, `{message}`, `{priority}`,
   and `{icon}` placeholders while still exporting `CLAUDE_NOTIFICATION_*` env vars.
 - Notification placeholder expansion substitutes shell-safe env refs instead of
-  interpolating raw title/message text into `sh -c` (command-injection fix).
+  interpolating raw title/message text into `sh -c` (command-injection fix), and
+  is quote-aware so single-quoted legacy forms such as `'{title}'` still expand.
 
 ## [0.2.0] - 2026-07-12
 

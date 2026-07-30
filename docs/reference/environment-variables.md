@@ -84,7 +84,7 @@ The following variables are read directly by bundled example/reference handlers.
 | `CLAUDE_HOOK_DESKTOP_NOTIFICATIONS` | `true` | Set to `false` to disable desktop delivery. |
 | `CLAUDE_HOOK_CONSOLE_NOTIFICATIONS` | `true` | Set to `false` to disable console delivery. |
 | `CLAUDE_HOOK_NOTIFICATIONS_IN_CI` | `false` | `true` enables notifications in CI. |
-| `CLAUDE_HOOK_NOTIFICATION_COMMAND` | unset | Custom notification command. `{title}`, `{message}`, `{priority}`, and `{icon}` expand to double-quoted `"${CLAUDE_NOTIFICATION_*}"` env refs (not raw text). The process also exports `CLAUDE_NOTIFICATION_TITLE`, `CLAUDE_NOTIFICATION_MESSAGE`, `CLAUDE_NOTIFICATION_PRIORITY`, and `CLAUDE_NOTIFICATION_ICON`. Prefer env vars directly when writing new commands. |
+| `CLAUDE_HOOK_NOTIFICATION_COMMAND` | unset | Custom notification command. `{title}`, `{message}`, `{priority}`, and `{icon}` expand to `CLAUDE_NOTIFICATION_*` env refs (not raw text), including when placeholders appear inside single-quoted shell words. The process also exports `CLAUDE_NOTIFICATION_TITLE`, `CLAUDE_NOTIFICATION_MESSAGE`, `CLAUDE_NOTIFICATION_PRIORITY`, and `CLAUDE_NOTIFICATION_ICON`. Prefer env vars directly when writing new commands. |
 | `CLAUDE_HOOK_SLACK_WEBHOOK` | unset | Slack webhook destination. |
 | `CLAUDE_HOOK_EMAIL_TO` | unset | Enables email delivery. |
 | `CLAUDE_HOOK_EMAIL_FROM` | `claude-code@localhost` | Sender when email is enabled. |

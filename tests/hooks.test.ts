@@ -741,6 +741,23 @@ describe('Session C Handler Regressions', () => {
     expect(expanded).not.toContain('SAFE_MESSAGE_VALUE');
   });
 
+  test('custom notification placeholders expand inside single-quoted shell words', () => {
+    // Legacy form Greptile flagged: printf '%s' '{title}'
+    expect(expandNotificationCommandPlaceholders(`printf '%s' '{title}'`)).toBe(
+      `printf '%s' ''"\${CLAUDE_NOTIFICATION_TITLE}"''`
+    );
+
+    // Placeholder embedded in a larger single-quoted string
+    expect(
+      expandNotificationCommandPlaceholders(`echo 'prefix {message} suffix'`)
+    ).toBe(`echo 'prefix '"\${CLAUDE_NOTIFICATION_MESSAGE}"' suffix'`);
+
+    // Double-quoted placeholders keep a single surrounding double-quoted word
+    expect(
+      expandNotificationCommandPlaceholders(`notify --title "{title}"`)
+    ).toBe(`notify --title "\${CLAUDE_NOTIFICATION_TITLE}"`);
+  });
+
   test('custom notification placeholder expansion cannot inject shell metacharacters', () => {
     const hostile = '"; touch /tmp/pwned; #';
     const expanded = expandNotificationCommandPlaceholders(
@@ -758,6 +775,13 @@ describe('Session C Handler Regressions', () => {
     expect(expanded).toBe(
       'echo "${CLAUDE_NOTIFICATION_TITLE}" "${CLAUDE_NOTIFICATION_MESSAGE}"'
     );
+
+    const singleQuotedHostile = expandNotificationCommandPlaceholders(
+      `printf '%s' '{title}'`,
+      { title: hostile, message: 'm', priority: 'low', icon: 'i' }
+    );
+    expect(singleQuotedHostile).not.toContain(hostile);
+    expect(singleQuotedHostile).toContain('${CLAUDE_NOTIFICATION_TITLE}');
   });
 
   test('StopFailure logs without writing meaningful JSON stdout', async () => {

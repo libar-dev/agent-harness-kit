@@ -220,6 +220,24 @@ Processing CLIs have a separate env surface that is not loaded through `getConfi
 
 Set `CLAUDE_HOOK_DEBUG=true` or `CLAUDE_CODE_DEBUG_LOG_LEVEL=verbose` for verbose library logging. `CLAUDE_HOOK_TIMEOUT` defaults this library's runner to 60 seconds; Claude Code settings handlers instead default to 600 seconds for command/HTTP/MCP, 30 for prompt, and 60 for agent, with 30-second UserPromptSubmit and 10-second MessageDisplay overrides. `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` defaults to 1500 ms and is capped at 60000 ms.
 
+## Code review (Greptile)
+
+This is a public OSS repo. **Greptile is available here permanently** (OSS free forever) for PR bot review and local CLI review. Prefer it as the primary automated reviewer for this repository.
+
+**Local (pre-push):** Commit first, then review committed work against the base branch. Agents should use structured output.
+
+```bash
+greptile whoami                    # must be signed in (check text; exit 0 even when signed out)
+greptile review -b main --json     # or omit -b for the repo default base
+greptile review status --json      # whether HEAD already has a completed review
+```
+
+- Findings still exit `0`; non-zero means the review did not finish.
+- Triage `securityIssue: true`, then `P0` / `P1` / `P2`. Aim for confidence `5` with zero comments when polishing a branch (`greploop` skill if iterating).
+- PR bot comments are fetched with `gh` (`gh api repos/.../pulls/<n>/comments`), not with the Greptile CLI.
+
+**Do not** treat CodeRabbit (or other review bots) as the source of truth on this repo when Greptile is configured.
+
 ## Public Repository Hygiene
 
 Planning and context files created for agent workflows are ephemeral and must not be committed to the public repo. Examples include `prometheus-implementation-context.md` and `.omo/notepads/*` scratch files. Delete them before merging. Persistent guidance belongs in user-facing docs or ADRs, not in agent-context scratchpads.
