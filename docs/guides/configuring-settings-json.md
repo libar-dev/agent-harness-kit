@@ -61,6 +61,7 @@ Claude Code pipes the hook input JSON to the command's stdin and reads JSON from
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `args` | `string[]?` | none | Additional arguments passed to the shell command |
 | `async` | boolean | `false` | Run in background without blocking Claude |
 | `asyncRewake` | boolean | `false` | Background run; exit code 2 wakes Claude |
 | `shell` | `"bash"` \| `"powershell"` | system default | Shell to use |

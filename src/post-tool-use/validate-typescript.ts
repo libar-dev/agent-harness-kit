@@ -3,11 +3,7 @@
 /**
  * TypeScript Validation Hook
  *
- * This PostToolUse hook validates TypeScript files after modification:
- * - Runs TypeScript compiler checks
- * - Validates Convex schema files specifically
- * - Provides detailed error feedback to Claude
- * - Integrates with project's TypeScript configuration
+ * Validates modified TypeScript and Convex files after tool use.
  */
 
 import { execFile } from 'node:child_process';
@@ -34,7 +30,7 @@ import {
 const execFileAsync = promisify(execFile);
 
 /**
- * Configuration for TypeScript validation
+ * TypeScript validation behavior.
  */
 interface TypeScriptConfig {
   /** Whether to run full project typecheck */
@@ -50,7 +46,7 @@ interface TypeScriptConfig {
 }
 
 /**
- * Get TypeScript validation configuration
+ * Read TypeScript validation configuration.
  */
 function getTypeScriptConfig(): TypeScriptConfig {
   return {
@@ -67,12 +63,11 @@ function getTypeScriptConfig(): TypeScriptConfig {
 }
 
 /**
- * Main TypeScript validation logic
+ * Validate modified TypeScript files and report compiler errors.
  */
 async function validateTypeScript(input: PostToolUseInput): Promise<void> {
   validatePostToolUseInput(input);
 
-  // Only process file modification tools
   const fileModificationTools = ['Write', 'Edit', 'MultiEdit'];
   if (!fileModificationTools.includes(input.tool_name)) {
     return;
@@ -80,7 +75,6 @@ async function validateTypeScript(input: PostToolUseInput): Promise<void> {
 
   let filePath: string;
 
-  // Extract file path from tool input
   try {
     switch (input.tool_name) {
       case 'Write': {
@@ -102,7 +96,6 @@ async function validateTypeScript(input: PostToolUseInput): Promise<void> {
     return;
   }
 
-  // Only process TypeScript files
   if (!isTypeScriptFile(filePath)) {
     return;
   }
@@ -114,7 +107,6 @@ async function validateTypeScript(input: PostToolUseInput): Promise<void> {
   const results: string[] = [];
   const errors: string[] = [];
 
-  // Check if file exists and is accessible
   try {
     await access(filePath, constants.F_OK);
   } catch (error) {
@@ -122,7 +114,6 @@ async function validateTypeScript(input: PostToolUseInput): Promise<void> {
     return;
   }
 
-  // Run TypeScript validation
   try {
     const tsResult = await runTypeScriptCheck(filePath, projectDir, config);
 
@@ -143,7 +134,6 @@ async function validateTypeScript(input: PostToolUseInput): Promise<void> {
     logError(`TypeScript execution error for ${filePath}`, toError(error));
   }
 
-  // Run Convex-specific validation for schema files
   if (config.convexValidation && isConvexFile(filePath)) {
     try {
       const convexResult = await runConvexValidation(
@@ -168,12 +158,10 @@ async function validateTypeScript(input: PostToolUseInput): Promise<void> {
     }
   }
 
-  // Provide feedback based on results
   if (errors.length > 0) {
     const errorMessage = `TypeScript validation failed for ${filePath}:\n\n${errors.join('\n\n')}`;
 
     if (config.blockOnErrors || isStrictFile(filePath, config.strictFiles)) {
-      // Block and provide feedback to Claude
       outputJson(
         HookOutputBuilder.feedback(
           errorMessage +
@@ -182,7 +170,6 @@ async function validateTypeScript(input: PostToolUseInput): Promise<void> {
         )
       );
     } else {
-      // Non-blocking feedback
       outputJson({
         systemMessage: `TypeScript validation warnings for ${filePath}:\n\n${errors.join('\n\n')}`,
         suppressOutput: false,
@@ -190,11 +177,9 @@ async function validateTypeScript(input: PostToolUseInput): Promise<void> {
       logError('TypeScript validation failed but not blocking execution');
     }
   } else if (results.length > 0) {
-    // Success message
     const successMessage = `TypeScript validation completed for ${filePath}:\n\n${results.join('\n')}`;
     logInfo(successMessage);
 
-    // Only show success message in debug mode to avoid noise
     if (getConfig().debug) {
       outputJson({
         systemMessage: successMessage,
@@ -205,7 +190,7 @@ async function validateTypeScript(input: PostToolUseInput): Promise<void> {
 }
 
 /**
- * Run TypeScript compiler check on a file
+ * Run the TypeScript compiler for a file.
  */
 async function runTypeScriptCheck(
   filePath: string,
@@ -213,10 +198,8 @@ async function runTypeScriptCheck(
   config: TypeScriptConfig
 ): Promise<{ success: boolean; error?: string; errors?: string[] }> {
   try {
-    // Determine the appropriate TypeScript command and config
     const { command, configFile } = getTypeScriptCommand(filePath, projectDir);
 
-    // Build the TypeScript command
     const tsCommand = config.fullProjectCheck
       ? `${command} --noEmit${configFile ? ` -p ${configFile}` : ''}`
       : `${command} --noEmit${configFile ? ` -p ${configFile}` : ''} "${filePath}"`;
@@ -232,12 +215,10 @@ async function runTypeScriptCheck(
       }
     );
 
-    // TypeScript exit code 0 = success, anything else = errors
     return { success: true };
   } catch (error: unknown) {
     const errorObj = getExecError(error);
 
-    // Handle timeout
     if (errorObj.code === 'ETIMEDOUT') {
       return {
         success: false,
@@ -245,7 +226,6 @@ async function runTypeScriptCheck(
       };
     }
 
-    // Handle TypeScript not found
     if (errorObj.code === 'ENOENT' || errorObj.message?.includes('not found')) {
       return {
         success: false,
@@ -253,7 +233,6 @@ async function runTypeScriptCheck(
       };
     }
 
-    // Parse TypeScript errors from stderr
     const errorOutput = errorObj.stderr ?? errorObj.stdout ?? '';
     const errors = parseTypeScriptErrors(errorOutput);
 
@@ -289,7 +268,7 @@ function getExecError(error: unknown): {
 }
 
 /**
- * Run Convex-specific validation
+ * Run Convex-specific validation.
  */
 async function runConvexValidation(
   filePath: string,
@@ -297,7 +276,6 @@ async function runConvexValidation(
   config: TypeScriptConfig
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // For Convex files, we might want to run codegen to ensure types are up to date
     if (filePath.includes('convex/schema.ts')) {
       logDebug('Schema file modified - running Convex codegen');
 
@@ -313,7 +291,6 @@ async function runConvexValidation(
       logInfo('Convex codegen completed successfully');
     }
 
-    // Run TypeScript check on Convex directory specifically
     const convexTsCommand = `npx tsc --noEmit -p convex/tsconfig.json`;
 
     const { stdout: _stdout, stderr: _stderr } = await execFileAsync(
@@ -329,7 +306,6 @@ async function runConvexValidation(
   } catch (error: unknown) {
     const errorObj = getExecError(error);
 
-    // Handle timeout
     if (errorObj.code === 'ETIMEDOUT') {
       return {
         success: false,
@@ -337,7 +313,6 @@ async function runConvexValidation(
       };
     }
 
-    // Handle Convex not found
     if (errorObj.code === 'ENOENT' || errorObj.message?.includes('not found')) {
       return {
         success: false,
@@ -345,7 +320,6 @@ async function runConvexValidation(
       };
     }
 
-    // Parse error output
     const errorOutput = errorObj.stderr ?? errorObj.stdout ?? '';
     return {
       success: false,
@@ -355,13 +329,12 @@ async function runConvexValidation(
 }
 
 /**
- * Get appropriate TypeScript command and config for a file
+ * Get the TypeScript command and config for a file.
  */
 function getTypeScriptCommand(
   filePath: string,
   _projectDir: string
 ): { command: string; configFile?: string } {
-  // Check if file is in Convex directory
   if (filePath.includes('/convex/')) {
     return {
       command: 'npx tsc',
@@ -369,7 +342,6 @@ function getTypeScriptCommand(
     };
   }
 
-  // Default to main TypeScript config
   return {
     command: 'npx tsc',
     configFile: 'tsconfig.json',
@@ -377,35 +349,30 @@ function getTypeScriptCommand(
 }
 
 /**
- * Parse TypeScript error messages into structured format
+ * Parse TypeScript error output into grouped messages.
  */
 function parseTypeScriptErrors(errorOutput: string): string[] {
   if (!errorOutput) return [];
 
-  // Split by lines and filter out empty lines
   const lines = errorOutput.split('\n').filter(line => line.trim());
 
-  // Group lines into error blocks (errors typically span multiple lines)
   const errors: string[] = [];
   let currentError: string[] = [];
 
   for (const line of lines) {
-    // New error typically starts with a file path
+    // A fresh error block typically starts with a file path.
     if (line.match(/^.*\(\d+,\d+\):/)) {
       if (currentError.length > 0) {
         errors.push(currentError.join('\n'));
       }
       currentError = [line];
     } else if (line.trim() && currentError.length > 0) {
-      // Continuation of current error
       currentError.push(line);
     } else if (line.trim() && currentError.length === 0) {
-      // Standalone error line
       errors.push(line);
     }
   }
 
-  // Add the last error if any
   if (currentError.length > 0) {
     errors.push(currentError.join('\n'));
   }
@@ -414,7 +381,7 @@ function parseTypeScriptErrors(errorOutput: string): string[] {
 }
 
 /**
- * Check if a file is a TypeScript file
+ * Check whether a file is TypeScript.
  */
 function isTypeScriptFile(filePath: string): boolean {
   const tsExtensions = ['.ts', '.tsx', '.d.ts'];
@@ -422,7 +389,7 @@ function isTypeScriptFile(filePath: string): boolean {
 }
 
 /**
- * Check if a file is a Convex-related file
+ * Check whether a file belongs to Convex.
  */
 function isConvexFile(filePath: string): boolean {
   return (
@@ -433,15 +400,12 @@ function isConvexFile(filePath: string): boolean {
 }
 
 /**
- * Check if a file requires strict validation
+ * Check whether a file requires strict validation.
  */
 function isStrictFile(filePath: string, strictPatterns: string[]): boolean {
   return strictPatterns.some(pattern => filePath.includes(pattern));
 }
 
-/**
- * Main execution entry point
- */
 if (import.meta.url === `file://${process.argv[1]}`) {
   executeHook<PostToolUseInput>(validateTypeScript).catch(error => {
     console.error('Failed to execute TypeScript validation hook:', error);
@@ -449,7 +413,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 }
 
-// Export for use in other hooks
 export {
   validateTypeScript,
   getTypeScriptConfig,

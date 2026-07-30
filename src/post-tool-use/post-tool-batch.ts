@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * PostToolBatch Hook Handler
+ * PostToolBatch Hook
  *
  * Runs after a batch of parallel tool calls resolves. This reference handler
  * logs the batch without blocking the next model call.

@@ -1,17 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * PreCompact Hook Handler
- *
- * This hook runs before Claude Code performs a compact operation, which
- * reduces the conversation context when it becomes too large.
- *
- * Use cases:
- * - Save important context that shouldn't be lost during compaction
- * - Generate project status summaries
- * - Extract key decisions and outcomes
- * - Validate custom compact instructions
- * - Create backup references for later retrieval
+ * PreCompact Hook Handler — Preserves context before Claude Code compacts a conversation.
  */
 
 import {
@@ -160,7 +150,7 @@ async function handlePreCompact(input: PreCompactInput): Promise<void> {
     if (contextSummary.length > 0) {
       logInfo('Pre-compact context extraction completed');
 
-      // The context summary will be available during compaction.
+      // Claude Code includes additionalContext in the compaction prompt.
       outputJson({
         hookSpecificOutput: {
           hookEventName: 'PreCompact',
@@ -263,7 +253,7 @@ function extractKeyDecisions(transcript: string): string[] {
 }
 
 /**
- * Extract recent file changes from transcript
+ * Extract file changes from transcript
  */
 function extractRecentChanges(transcript: string): string[] {
   const changes: string[] = [];
@@ -387,7 +377,6 @@ async function getCurrentProjectStatus(): Promise<string> {
       statusParts.push(`Git: ${gitStatus}`);
     }
 
-    // Check if there are recent TypeScript errors
     const hasTypeErrors = await checkTypeScriptErrors();
     if (hasTypeErrors) {
       statusParts.push('TypeScript: Has compilation errors');
@@ -395,7 +384,6 @@ async function getCurrentProjectStatus(): Promise<string> {
       statusParts.push('TypeScript: Clean');
     }
 
-    // Check for recent test results
     const testStatus = await getTestStatus();
     if (testStatus) {
       statusParts.push(`Tests: ${testStatus}`);
@@ -461,8 +449,8 @@ async function checkTypeScriptErrors(): Promise<boolean> {
  * Get test status summary
  */
 async function getTestStatus(): Promise<string | null> {
-  // This is a placeholder - in a real implementation, you might:
-  // - Check for recent test results files
+  // This is a placeholder for project-specific test status sources:
+  // - Check test result files
   // - Parse test output
   // - Check test coverage reports
   return null;

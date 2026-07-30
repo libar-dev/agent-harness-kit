@@ -2,7 +2,7 @@
 
 `@libar-dev/agent-harness-kit` is a TypeScript library for writing [Claude Code hooks](https://docs.anthropic.com/en/docs/claude-code/hooks). It provides:
 
-- **Type-safe input** for all 28 hook events via Zod-validated interfaces.
+- **Type-safe input** for all 30 hook events via Zod-validated interfaces.
 - **`HookOutputBuilder`** — a fluent builder that produces the correct JSON output shape for every hook event without you needing to remember the nested structure.
 - **Reference implementations** — production-ready handlers for bash validation, file protection, auto-formatting, session management, and more.
 - **`executeHook()`** — a runner that handles stdin/stdout, Zod validation, and exit codes for you.
@@ -131,5 +131,5 @@ The package exposes several sub-paths so you only import what you need:
 - **[Writing Your First Hook](writing-your-first-hook.md)** — end-to-end walkthrough building a real Bash command validator.
 - **[Configuring settings.json](configuring-settings-json.md)** — all five handler types, matcher syntax, and timing fields.
 - **[Cookbook](cookbook.md)** — ten copy-pasteable recipes for common hook patterns.
-- **[Hook Events Reference](../reference/hook-events.md)** — all 28 events with input/output shapes.
+- **[Hook Events Reference](../reference/hook-events.md)** — all 30 events with input/output shapes.
 - **[HookOutputBuilder Reference](../reference/output-builder.md)** — every method with signatures and examples.

@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * ConfigChange Hook Handler
- *
- * Runs when Claude Code configuration changes. This reference handler logs the
- * change without blocking it.
+ * ConfigChange Hook Handler — Logs configuration changes without blocking them.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

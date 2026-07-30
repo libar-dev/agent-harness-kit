@@ -1,18 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * SessionEnd Hook Handler
- *
- * This hook runs when a Claude Code session ends and performs cleanup tasks,
- * saves session state, and generates session statistics.
- *
- * Use cases:
- * - Clean up temporary files and processes
- * - Save session statistics and metrics
- * - Generate session summaries
- * - Archive important session data
- * - Send notifications about session completion
- * - Prepare environment for next session
+ * SessionEnd Hook Handler — Cleans up and records session outcomes after completion.
  */
 
 import {
@@ -172,7 +161,7 @@ async function handleSessionEnd(input: SessionEndInput): Promise<void> {
 }
 
 /**
- * Generate comprehensive session statistics
+ * Generate session statistics
  */
 async function generateSessionStats(
   input: SessionEndInput

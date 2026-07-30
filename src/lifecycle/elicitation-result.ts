@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * ElicitationResult Hook Handler
- *
- * Runs after a user responds to an MCP elicitation. This reference handler
- * logs the result without changing the response.
+ * ElicitationResult Hook Handler — Logs user elicitation responses without changing them.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

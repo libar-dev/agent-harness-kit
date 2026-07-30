@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * UserPromptExpansion Hook Handler
+ * UserPromptExpansion Hook
  *
  * Runs before a slash command or MCP prompt expands. This reference handler
  * logs the expansion source without changing behavior.

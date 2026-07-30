@@ -1,14 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * User Prompt Validator Hook
- *
- * This hook validates and enhances user prompts by:
- * - Checking for security-sensitive content before processing
- * - Adding helpful context based on prompt content
- * - Validating prompt format and structure
- * - Preventing common prompt injection attempts
- * - Adding project-specific context when relevant
+ * UserPromptSubmit Hook Handler — Validates prompts and adds context before processing.
  */
 
 import {
@@ -131,7 +124,7 @@ async function validateUserPrompt(input: UserPromptSubmitInput): Promise<void> {
         `⚠️  Prompt contains patterns similar to injection attempts: ${injectionCheck.issues.join(', ')}`
       );
 
-      // For now, warn but don't block - could be made stricter based on needs
+      // Injection matches warn by default; CLAUDE_HOOK_BLOCK_INJECTION upgrades them to blocks.
       if (process.env['CLAUDE_HOOK_BLOCK_INJECTION'] === 'true') {
         validationResults.blocked = true;
         validationResults.blockReason = `Security: Potential prompt injection detected. Please rephrase your request.`;

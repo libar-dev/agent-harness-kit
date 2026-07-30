@@ -2,7 +2,7 @@
 
 ## Hook didn't fire
 
-**1. Check the event name.** Verify the key in `settings.json` is spelled exactly as one of the 28 event names (case-sensitive: `PreToolUse`, not `pre_tool_use`).
+**1. Check the event name.** Verify the key in `settings.json` is spelled exactly as one of the 30 event names (case-sensitive: `PreToolUse`, not `pre_tool_use`).
 
 **2. Check the matcher.** The `matcher` field is a regex applied to `tool_name` (for tool events) or equivalent primary identifier. An empty matcher or omitting it matches everything. Test your regex:
 
@@ -25,8 +25,6 @@ Hooks in a project settings file only fire when Claude Code is run from that pro
 node -e "JSON.parse(require('fs').readFileSync('.claude/settings.json', 'utf8'))" && echo "Valid"
 ```
 
----
-
 ## Hook fired but produced no effect
 
 **1. Check the exit code.** Exit code 0 means success. Exit codes 1 and 2 signal errors (see below). If your script exits non-zero, Claude Code may ignore its output.
@@ -38,8 +36,6 @@ node -e "JSON.parse(require('fs').readFileSync('.claude/settings.json', 'utf8'))
 ```bash
 echo '<input json>' | tsx .claude/hooks/my-hook.ts | jq .
 ```
-
----
 
 ## Exit code semantics
 
@@ -54,8 +50,6 @@ echo '<input json>' | tsx .claude/hooks/my-hook.ts | jq .
 `executeHook()` maps thrown errors automatically:
 - Errors with `BLOCK` or `DENY` in the message → exit code 2
 - All other errors → exit code 1
-
----
 
 ## Enabling verbose logging
 
@@ -78,8 +72,6 @@ You can also capture your hook's stderr directly:
 echo '<input json>' | tsx .claude/hooks/my-hook.ts 2>&1
 ```
 
----
-
 ## Zod validation errors
 
 When a hook input fails schema validation, `executeHook` throws with a message like:
@@ -97,8 +89,6 @@ The `path` field tells you which field is wrong. Common causes:
 - Using an outdated version of the library against a newer Claude Code that added new required fields.
 
 Use `safeValidateHookInput` if you want validation failures to return `null` instead of throwing.
-
----
 
 ## "No `any` types" TypeScript build failure
 
@@ -121,8 +111,6 @@ const command = bash.command; // string
 
 See [Validators Reference](../reference/validators.md) for all available validators.
 
----
-
 ## Hook times out
 
 Default timeout is **60 seconds** for command and HTTP hooks. If your hook does slow work (network calls, large TypeScript checks), increase it:
@@ -134,8 +122,6 @@ Default timeout is **60 seconds** for command and HTTP hooks. If your hook does 
 Or override the default globally with `CLAUDE_HOOK_TIMEOUT=120`.
 
 For `SessionEnd`, the total budget for all hooks combined defaults to **1500 ms** (hard cap: 60000 ms). Increase with `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS=30000`.
-
----
 
 ## Circular continuation (Stop hook loops)
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * PostToolUseFailure Hook Handler
+ * PostToolUseFailure Hook
  *
  * Runs after a tool call fails. This reference handler records the failure
  * context without routing it through successful PostToolUse processors.

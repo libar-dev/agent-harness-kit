@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as rootExports from '../src/index.js';
+import * as lifecycleExports from '../src/lifecycle/index.js';
 import * as processingExports from '../src/processing/index.js';
 
 const repoRoot = process.cwd();
@@ -51,12 +52,24 @@ interface PackageExports {
     readonly import: string;
     readonly types: string;
   };
+  readonly './endpoint-discovery'?: {
+    readonly import: string;
+    readonly types: string;
+  };
+  readonly './forwarder'?: {
+    readonly import: string;
+    readonly default: string;
+    readonly types: string;
+  };
 }
 
 interface PackageJsonShape {
   readonly name: string;
   readonly bin?: Record<string, string>;
   readonly scripts?: Record<string, string>;
+  readonly repository?: {
+    readonly url: string;
+  };
   readonly exports: PackageExports;
 }
 
@@ -80,6 +93,10 @@ function isPackageJsonShape(value: unknown): value is PackageJsonShape {
   if (value['bin'] !== undefined && !isRecord(value['bin'])) return false;
   if (value['scripts'] !== undefined && !isRecord(value['scripts']))
     return false;
+  if (value['repository'] !== undefined) {
+    if (!isRecord(value['repository'])) return false;
+    if (typeof value['repository']['url'] !== 'string') return false;
+  }
   return true;
 }
 
@@ -95,39 +112,50 @@ const expectedPackageExportKeys = [
   './post-tool-use/*',
   './lifecycle',
   './lifecycle/*',
+  './endpoint-discovery',
+  './forwarder',
 ] as const;
 
 const expectedProcessingRuntimeExports = [
   'DEFAULT_DENOISE_CONFIG',
+  'commitRawTranscriptSessionCheckpoint',
   'cwdFromProjectDir',
   'denoiseSession',
   'discoverSessions',
   'exportSession',
   'extractBlocks',
+  'getMarkerPath',
+  'getRawTranscriptSessionMarkerPath',
   'listProjects',
   'processSession',
   'projectDirFromCwd',
   'readExportMarker',
+  'readMarker',
   'readRawSessionFiles',
   'readSessionFiles',
   'resolveProjectPath',
   'tailBlocks',
   'tailRawTranscriptRecords',
+  'tailRawTranscriptSessionRecords',
   'toCompactSummary',
   'toExportMarkdown',
   'toJsonlBlocks',
   'toMarkdown',
   'watchRawTranscriptRecords',
+  'watchRawTranscriptSessionRecords',
   'writeExportMarker',
+  'writeMarker',
 ] as const;
 
 const removedImplementationExports = [
-  'getMarkerPath',
   'mergeTimeline',
   'parseJsonlContent',
   'parseSessionContent',
-  'readMarker',
-  'writeMarker',
+] as const;
+
+const expectedLifecycleHandlerExports = [
+  'handleSetup',
+  'handleMessageDisplay',
 ] as const;
 
 describe('package export contract', () => {
@@ -182,6 +210,15 @@ describe('package export contract', () => {
       import: './dist/lifecycle/*.js',
       types: './dist/lifecycle/*.d.ts',
     });
+    expect(pkg.exports['./endpoint-discovery']).toEqual({
+      import: './dist/endpoint-discovery/index.js',
+      types: './dist/endpoint-discovery/index.d.ts',
+    });
+    expect(pkg.exports['./forwarder']).toEqual({
+      types: './dist/forwarder/index.d.ts',
+      import: './dist/forwarder/index.js',
+      default: './dist/forwarder/index.js',
+    });
   });
 
   it('keeps processing deep paths out of the package export map', async () => {
@@ -219,6 +256,12 @@ describe('package export contract', () => {
     await expect(
       access(join(repoRoot, 'src/lifecycle/index.ts'))
     ).resolves.toBeUndefined();
+    await expect(
+      access(join(repoRoot, 'src/endpoint-discovery/index.ts'))
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(repoRoot, 'src/forwarder/index.ts'))
+    ).resolves.toBeUndefined();
   });
 
   it('defines a prepare script so git and file installs build dist entrypoints', async () => {
@@ -247,13 +290,23 @@ describe('package export contract', () => {
     }
   });
 
+  it('exposes lifecycle handlers from the lifecycle barrel', () => {
+    for (const exportName of expectedLifecycleHandlerExports) {
+      expect(lifecycleExports).toHaveProperty(exportName);
+      expect(typeof lifecycleExports[exportName]).toBe('function');
+    }
+  });
+
   it('maps package binaries to built CLI entrypoints with matching source files', async () => {
     const pkg = await readPackageJson();
 
     expect(pkg.bin).toEqual({
-      'claude-session-export': './dist/cli/export-sessions.js',
-      'claude-session-tail': './dist/cli/tail-session.js',
+      'claude-session-export': 'dist/cli/export-sessions.js',
+      'claude-session-tail': 'dist/cli/tail-session.js',
     });
+    expect(pkg.repository?.url).toBe(
+      'git+https://github.com/libar-dev/agent-harness-kit.git'
+    );
     await expect(
       access(join(repoRoot, 'src/cli/export-sessions.ts'))
     ).resolves.toBeUndefined();

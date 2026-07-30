@@ -9,17 +9,63 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- Canonicalized existing hook-event working directories before project-root
+  filtering so symlinked paths still reach an open project's endpoint.
+- Exercised the actual esbuild-bundled forwarder in subprocess tests, including
+  its exit-zero, empty-output behavior for malformed stdin.
+
+## [0.2.0] - 2026-07-12
+
+### Added
+
+- Added a validated endpoint-discovery file contract and helpers for process
+  liveness, project-root filtering, and hook URL construction.
+- Added a standalone, esbuild-bundled command-hook forwarder that silently
+  opts out when its endpoint is absent, stale, unrelated, or unreachable.
+- Added the managed POSIX wrapper asset for consumers that install the
+  forwarder at a stable user path.
+
+- Added the per-call `allowedMarkerRoots` tail option (`TailOptions`) so
+  library consumers can validate a custom `markerDir` without mutating the
+  process-global `CLAUDE_TAIL_MARKER_ROOTS` env var. When set (even empty) it
+  takes precedence over the env var; when unset the env var remains the
+  fallback, so the `claude-session-tail` CLI behavior is unchanged.
+- Exported `getMarkerPath`, `readMarker`, and `writeMarker` from
+  `@libar-dev/agent-harness-kit/processing` so consumers that pre-seed or
+  inspect tail markers share the kit's marker file format instead of
+  re-implementing it.
+
+### Changed
+
+- ExitPlanMode summaries use the plan's first Markdown heading so collapsed
+  transcript rows remain meaningful.
+
+- Published Claude Code API parity notes now cover `Setup` and `MessageDisplay`.
+- Documented `SessionStart` input/output parity updates.
+- Documented `Notification` and `StopFailure` enum expansions.
+- Documented support for `CommandHookHandler.args`, `PostToolUseOutput.updatedToolOutput`, `PostToolUseInput.duration_ms`, `PostToolUseFailureInput.duration_ms`, `BaseHookInput.effort`, and `BaseHookOutput.terminalSequence`.
+- Documented `PostToolUseOutput.updatedMCPToolOutput` widening to `unknown`.
+
 ## [0.1.0] - 2026-06-24
 
-First public release of `@libar-dev/agent-harness-kit`.
-
-This is the first release under the new `agent-harness-kit` identity.
+This is the first release candidate under the new `agent-harness-kit` identity.
 The package was renamed from `@libar-dev/claude-code-hooks` to
 `@libar-dev/agent-harness-kit`.
+
+### Added
+
+- Added support for image content blocks in transcript processing.
 
 ### Changed
 
 - Package name changed from `@libar-dev/claude-code-hooks` to `@libar-dev/agent-harness-kit`.
+- Normalized npm bin paths in package metadata.
+- Updated the repository URL to the public GitHub location.
+- Added `publishConfig.access: public` for npm publishing.
 
 ---
 
@@ -31,7 +77,7 @@ The package was renamed from `@libar-dev/claude-code-hooks` to
 > pre-publication development milestone under the old `@libar-dev/claude-code-hooks`
 > package name.
 
-Pre-publication development milestone for `@libar-dev/claude-code-hooks` before the first public npm release.
+Development milestone for `@libar-dev/claude-code-hooks` before the first public npm release.
 
 ### Added
 
@@ -89,4 +135,3 @@ Pre-publication development milestone for `@libar-dev/claude-code-hooks` before 
   `--unsafe-raw-unredacted` opt-in; without it, raw records are redacted.
 
 [0.1.0]: https://github.com/libar-dev/agent-harness-kit/releases/tag/v0.1.0
-[1.0.0]: https://github.com/libar-dev/claude-code-hooks/releases/tag/v1.0.0

@@ -1,6 +1,6 @@
 /**
- * Tests for content validators moved to src/validation/validators.ts
- * Phase 2D.6: containsSecrets, validateFileSyntax, validateSafeFilePath, validateBashCommand
+ * Tests for content validators.
+ * Covers secret detection, syntax checks, safe paths, path normalization, and Bash command validation.
  */
 
 import { describe, it, expect } from 'vitest';

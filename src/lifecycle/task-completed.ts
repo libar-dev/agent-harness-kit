@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * TaskCompleted Hook Handler
- *
- * Runs when an agent-team task completes. This reference handler logs the task
- * without blocking completion.
+ * TaskCompleted Hook Handler — Logs agent-team task completion without blocking it.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

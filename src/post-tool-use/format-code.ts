@@ -3,11 +3,7 @@
 /**
  * Code Formatting Hook
  *
- * This PostToolUse hook automatically formats code files after they are modified:
- * - Runs prettier on supported file types
- * - Applies ESLint fixes for JavaScript/TypeScript files
- * - Validates formatting and provides feedback to Claude
- * - Supports project-specific formatting configuration
+ * Formats modified files with Prettier and ESLint when configured.
  */
 
 import { execFile } from 'node:child_process';
@@ -35,7 +31,7 @@ import {
 const execFileAsync = promisify(execFile);
 
 /**
- * Configuration for code formatting
+ * Code formatting behavior.
  */
 interface FormatConfig {
   /** Whether to run prettier */
@@ -51,7 +47,7 @@ interface FormatConfig {
 }
 
 /**
- * Get formatting configuration
+ * Read code formatting configuration.
  */
 function getFormatConfig(): FormatConfig {
   const config = getConfig();
@@ -76,12 +72,11 @@ function getFormatConfig(): FormatConfig {
 }
 
 /**
- * Main code formatting logic
+ * Format modified code files and report formatting failures.
  */
 async function formatCode(input: PostToolUseInput): Promise<void> {
   validatePostToolUseInput(input);
 
-  // Only process file modification tools
   const fileModificationTools = ['Write', 'Edit', 'MultiEdit'];
   if (!fileModificationTools.includes(input.tool_name)) {
     return;
@@ -89,7 +84,6 @@ async function formatCode(input: PostToolUseInput): Promise<void> {
 
   let filePath: string;
 
-  // Extract file path from tool input
   try {
     switch (input.tool_name) {
       case 'Write': {
@@ -111,7 +105,6 @@ async function formatCode(input: PostToolUseInput): Promise<void> {
     return;
   }
 
-  // Check if file should be formatted
   if (!shouldAutoFormat(filePath)) {
     logDebug(
       `Skipping formatting for ${filePath} - not in auto-format extensions`
@@ -126,7 +119,6 @@ async function formatCode(input: PostToolUseInput): Promise<void> {
   const results: string[] = [];
   const errors: string[] = [];
 
-  // Check if file exists and is accessible
   try {
     await access(filePath, constants.F_OK);
   } catch (error) {
@@ -134,7 +126,6 @@ async function formatCode(input: PostToolUseInput): Promise<void> {
     return;
   }
 
-  // Run Prettier formatting
   if (config.prettier) {
     try {
       const prettierResult = await runPrettier(
@@ -158,7 +149,6 @@ async function formatCode(input: PostToolUseInput): Promise<void> {
     }
   }
 
-  // Run ESLint fixes for JavaScript/TypeScript files
   if (config.eslint && isLintableFile(filePath)) {
     try {
       const eslintResult = await runESLintFix(
@@ -185,13 +175,11 @@ async function formatCode(input: PostToolUseInput): Promise<void> {
     }
   }
 
-  // Provide feedback to Claude if there are results or errors
   if (results.length > 0 || errors.length > 0) {
     const allMessages = [...results, ...errors];
     const hasErrors = errors.length > 0;
 
     if (hasErrors && config.failOnError) {
-      // Block and provide feedback to Claude about formatting failures
       outputJson(
         HookOutputBuilder.feedback(
           `Automatic formatting encountered issues for ${filePath}:\n\n${allMessages.join('\n')}\n\nPlease review and fix the formatting issues.`,
@@ -199,12 +187,10 @@ async function formatCode(input: PostToolUseInput): Promise<void> {
         )
       );
     } else {
-      // Provide informational feedback
       const message = `Code formatting completed for ${filePath}:\n\n${allMessages.join('\n')}`;
       logInfo(message);
 
       if (hasErrors) {
-        // Non-blocking feedback about formatting issues
         outputJson({
           systemMessage: message,
           suppressOutput: false,
@@ -215,7 +201,7 @@ async function formatCode(input: PostToolUseInput): Promise<void> {
 }
 
 /**
- * Run Prettier formatting on a file
+ * Run Prettier formatting on a file.
  */
 async function runPrettier(
   filePath: string,
@@ -223,7 +209,6 @@ async function runPrettier(
   timeout: number
 ): Promise<{ success: boolean; error?: string; fixesApplied?: boolean }> {
   try {
-    // Try to run prettier from project first, then global
     const prettierCmd = await findCommand(
       ['npx prettier', 'prettier'],
       projectDir
@@ -238,8 +223,6 @@ async function runPrettier(
       }
     );
 
-    // Prettier doesn't always indicate if changes were made via stdout
-    // We consider it successful if it doesn't error
     return {
       success: true,
       fixesApplied: true, // Assume fixes were applied since prettier ran
@@ -247,7 +230,6 @@ async function runPrettier(
   } catch (error: unknown) {
     const errorObj = getExecError(error);
 
-    // Handle timeout
     if (errorObj.code === 'ETIMEDOUT') {
       return {
         success: false,
@@ -255,7 +237,6 @@ async function runPrettier(
       };
     }
 
-    // Handle prettier not found
     if (errorObj.code === 'ENOENT' || errorObj.message?.includes('not found')) {
       return {
         success: false,
@@ -263,7 +244,6 @@ async function runPrettier(
       };
     }
 
-    // Handle syntax errors or other prettier issues
     const errorMessage =
       errorObj.stderr ?? errorObj.message ?? 'Unknown prettier error';
     return { success: false, error: errorMessage };
@@ -271,7 +251,7 @@ async function runPrettier(
 }
 
 /**
- * Run ESLint fixes on a file
+ * Run ESLint fixes on a file.
  */
 async function runESLintFix(
   filePath: string,
@@ -279,7 +259,6 @@ async function runESLintFix(
   timeout: number
 ): Promise<{ success: boolean; error?: string; fixesApplied?: boolean }> {
   try {
-    // Try to run eslint from project first, then global
     const eslintCmd = await findCommand(['npx eslint', 'eslint'], projectDir);
 
     const { stdout: _stdout, stderr: _stderr } = await execFileAsync(
@@ -291,8 +270,6 @@ async function runESLintFix(
       }
     );
 
-    // ESLint exit code 0 = no issues, 1 = issues found (but potentially fixed)
-    // We'll consider both successful for auto-fixing
     return {
       success: true,
       fixesApplied: _stderr.includes('fixed') || _stdout.includes('fixed'),
@@ -300,7 +277,6 @@ async function runESLintFix(
   } catch (error: unknown) {
     const errorObj = getExecError(error);
 
-    // Handle timeout
     if (errorObj.code === 'ETIMEDOUT') {
       return {
         success: false,
@@ -308,7 +284,6 @@ async function runESLintFix(
       };
     }
 
-    // Handle eslint not found
     if (errorObj.code === 'ENOENT' || errorObj.message?.includes('not found')) {
       return {
         success: false,
@@ -323,7 +298,6 @@ async function runESLintFix(
       return { success: false, error: errorMessage };
     }
 
-    // For exit code 1, it means linting errors but fixes may have been applied
     return {
       success: true,
       fixesApplied: true, // Assume some fixes were applied
@@ -356,7 +330,7 @@ function getExecError(error: unknown): {
 }
 
 /**
- * Find available command from a list of alternatives
+ * Find the first available command from a list of alternatives.
  */
 async function findCommand(commands: string[], cwd: string): Promise<string> {
   for (const cmd of commands) {
@@ -372,21 +346,17 @@ async function findCommand(commands: string[], cwd: string): Promise<string> {
     }
   }
 
-  // If none found, return the first one (will error appropriately)
   return commands[0] ?? 'echo "No command available"';
 }
 
 /**
- * Check if a file should be processed by ESLint
+ * Check whether a file can be processed by ESLint.
  */
 function isLintableFile(filePath: string): boolean {
   const lintableExtensions = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'];
   return lintableExtensions.some(ext => filePath.endsWith(ext));
 }
 
-/**
- * Main execution entry point
- */
 if (import.meta.url === `file://${process.argv[1]}`) {
   executeHook<PostToolUseInput>(formatCode).catch(error => {
     console.error('Failed to execute code formatting hook:', error);
@@ -394,5 +364,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 }
 
-// Export for use in other hooks
 export { formatCode, getFormatConfig, runPrettier, runESLintFix };

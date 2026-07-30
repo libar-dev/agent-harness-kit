@@ -2,8 +2,8 @@
  * Session discovery — find and filter sessions in a Claude project directory.
  *
  * Scans the project dir for session JSONL files, extracts timestamps
- * from their first few lines, and supports filtering by date range
- * or "since last export" via a marker file.
+ * from their first few lines, and filters by date range or "since last
+ * export" via a marker file.
  */
 
 import { readFile, readdir, writeFile, stat } from 'node:fs/promises';
@@ -279,9 +279,7 @@ async function dirExists(path: string): Promise<boolean> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Export marker — tracks when sessions were last exported
-// ---------------------------------------------------------------------------
+// Export marker persistence.
 
 /**
  * Read the last export timestamp from the marker file.

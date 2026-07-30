@@ -1,11 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * CwdChanged Hook Handler
- *
- * Runs when Claude Code changes working directory. This reference handler logs
- * the transition; projects can extend it to write environment updates to
- * CLAUDE_ENV_FILE.
+ * CwdChanged Hook Handler — Logs working-directory transitions for env refresh hooks.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

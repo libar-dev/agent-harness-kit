@@ -1,10 +1,8 @@
 # Hook Events Reference
 
-All 28 Claude Code hook events. For each event: when it fires, its input fields, the output it accepts, and the `HookOutputBuilder` method to use.
+All 30 Claude Code hook events. For each event: when it fires, its input fields, the output it accepts, and the `HookOutputBuilder` method to use.
 
 **Source of truth for types:** [`src/types/index.ts`](../../src/types/index.ts)
-
----
 
 ## Table of Contents
 
@@ -15,13 +13,13 @@ All 28 Claude Code hook events. For each event: when it fires, its input fields,
 - [PermissionRequest](#permissionrequest) · [PermissionDenied](#permissiondenied)
 
 **User Interaction**
-- [UserPromptSubmit](#userpromptsubmit) · [UserPromptExpansion](#userpromptexpansion) · [Notification](#notification) · [Elicitation](#elicitation) · [ElicitationResult](#elicitationresult)
+- [UserPromptSubmit](#userpromptsubmit) · [UserPromptExpansion](#userpromptexpansion) · [Notification](#notification) · [MessageDisplay](#messagedisplay) · [Elicitation](#elicitation) · [ElicitationResult](#elicitationresult)
 
 **Subagents & Teams**
 - [SubagentStart](#subagentstart) · [SubagentStop](#subagentstart) · [TeammateIdle](#teammateidle) · [TaskCreated](#taskcreated) · [TaskCompleted](#taskcompleted)
 
 **Session Lifecycle**
-- [SessionStart](#sessionstart) · [Stop](#stop) · [StopFailure](#stopfailure) · [SessionEnd](#sessionend)
+- [Setup](#setup) · [SessionStart](#sessionstart) · [Stop](#stop) · [StopFailure](#stopfailure) · [SessionEnd](#sessionend)
 
 **Instructions & Config**
 - [InstructionsLoaded](#instructionsloaded) · [ConfigChange](#configchange)
@@ -31,8 +29,6 @@ All 28 Claude Code hook events. For each event: when it fires, its input fields,
 
 **Compaction**
 - [PreCompact](#precompact) · [PostCompact](#postcompact)
-
----
 
 ## Base Fields
 
@@ -56,8 +52,6 @@ Base output fields (from `BaseHookOutput`, applicable to all events):
 | `stopReason` | `string` | — | Message shown when `continue` is false |
 | `suppressOutput` | `boolean` | `false` | Hide stdout from transcript mode |
 | `systemMessage` | `string` | — | Optional warning shown to the user |
-
----
 
 ## Tool Lifecycle
 
@@ -109,8 +103,6 @@ outputJson(HookOutputBuilder.permission('allow', 'Redirected to safe path', {
 }));
 ```
 
----
-
 ### PostToolUse
 
 **When it fires:** After a tool call succeeds. Used to run formatters, type-checkers, or feed observations back to Claude.
@@ -135,19 +127,18 @@ outputJson(HookOutputBuilder.permission('allow', 'Redirected to safe path', {
   hookSpecificOutput?: {
     hookEventName: 'PostToolUse',
     additionalContext?: string,
-    updatedMCPToolOutput?: Record<string, unknown>,  // MCP tools only
+    updatedMCPToolOutput?: unknown,  // MCP tool output override
+    updatedToolOutput?: unknown,     // Tool output override
   }
 }
 ```
 
-**Builder method:** `HookOutputBuilder.feedback(reason, additionalContext?, updatedMCPToolOutput?)`
+**Builder method:** `HookOutputBuilder.feedback(reason, additionalContext?, updatedMCPToolOutput?, updatedToolOutput?)`
 
 ```typescript
 outputJson(HookOutputBuilder.feedback('Formatted file with Prettier'));
 outputJson(HookOutputBuilder.feedback('TypeScript errors found', tscOutput));
 ```
-
----
 
 ### PostToolUseFailure
 
@@ -168,8 +159,6 @@ outputJson(HookOutputBuilder.feedback('TypeScript errors found', tscOutput));
 **Output** (`PostToolUseFailureOutput`): Same shape as PostToolUse output.
 
 **Builder method:** `HookOutputBuilder.feedback(reason, additionalContext?)`
-
----
 
 ### PostToolBatch
 
@@ -197,8 +186,6 @@ outputJson(HookOutputBuilder.feedback('TypeScript errors found', tscOutput));
 ```
 
 **Builder method:** `HookOutputBuilder.batchBlock(reason)`
-
----
 
 ## Permissions
 
@@ -253,8 +240,6 @@ outputJson(HookOutputBuilder.denyPermission({ message: 'Not allowed in this proj
 outputJson(HookOutputBuilder.permissionRequestSetMode('auto', 'session'));
 ```
 
----
-
 ### PermissionDenied
 
 **When it fires:** When auto mode denies a tool call. The hook can tell Claude whether to retry.
@@ -282,8 +267,6 @@ outputJson(HookOutputBuilder.permissionRequestSetMode('auto', 'session'));
 ```
 
 **Builder method:** `HookOutputBuilder.permissionDeniedRetry(retry)`
-
----
 
 ## User Interaction
 
@@ -319,8 +302,6 @@ outputJson(HookOutputBuilder.addContext('Current date: 2026-04-24'));
 outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 ```
 
----
-
 ### UserPromptExpansion
 
 **When it fires:** Before a slash command or MCP prompt expands. Can add context or block expansion.
@@ -337,8 +318,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 
 **Output:** Same shape as `UserPromptSubmitOutput` but `hookEventName: 'UserPromptExpansion'`.
 
----
-
 ### Notification
 
 **When it fires:** When Claude Code sends a notification to the user (permission prompt, idle, auth, elicitation dialog).
@@ -351,11 +330,40 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 |-------|------|-------------|
 | `message` | `string` | Notification message |
 | `title` | `string?` | Notification title |
-| `notification_type` | `'permission_prompt' \| 'idle_prompt' \| 'auth_success' \| 'elicitation_dialog'` | Type filter |
+| `notification_type` | `'permission_prompt' \| 'idle_prompt' \| 'auth_success' \| 'elicitation_dialog' \| 'elicitation_complete' \| 'elicitation_response'` | Type filter |
 
 **Output:** `NotificationOutput` — can add `additionalContext`. No decision control.
 
----
+### MessageDisplay
+
+**When it fires:** While assistant text is streaming. The hook can override the currently rendered chunk content.
+
+**Input** (`MessageDisplayInput`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `turn_id` | `string` | Unique identifier for the current turn |
+| `message_id` | `string` | Unique identifier for the message being displayed |
+| `index` | `number` | Zero-based chunk index for this display delta |
+| `final` | `boolean` | Whether this is the final chunk |
+| `delta` | `string` | Delta text being displayed |
+
+**Output** (`MessageDisplayOutput`):
+
+```typescript
+{
+  hookSpecificOutput: {
+    hookEventName: 'MessageDisplay',
+    displayContent?: string,
+  }
+}
+```
+
+**Builder method:** `HookOutputBuilder.messageDisplayContent(content)`
+
+```typescript
+outputJson(HookOutputBuilder.messageDisplayContent(validatedInput.delta));
+```
 
 ### Elicitation
 
@@ -386,8 +394,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 
 **Builder method:** `HookOutputBuilder.elicitation(action, content?, hookEventName?)`
 
----
-
 ### ElicitationResult
 
 **When it fires:** After the user responds to an elicitation request. Allows the hook to observe or override the result.
@@ -403,8 +409,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 | `elicitation_id` | `string?` | Unique identifier |
 
 **Output:** Same as Elicitation. Pass `hookEventName: 'ElicitationResult'` to the builder.
-
----
 
 ## Subagents & Teams
 
@@ -425,8 +429,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 
 **Builder method:** `HookOutputBuilder.subagentContext(context)`
 
----
-
 ### SubagentStop
 
 **When it fires:** When a subagent completes (or is stopped).
@@ -436,8 +438,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 **Output** (`StopOutput`): Can block to provide additional context or prevent stopping.
 
 **Builder method:** `HookOutputBuilder.subagentStopContext(reason)`
-
----
 
 ### TeammateIdle
 
@@ -453,8 +453,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 **Output:** Exit code only — no JSON decision control. Non-zero exit stops the teammate.
 
 **Builder method:** `HookOutputBuilder.teammateStop(reason)` (sets `continue: false`)
-
----
 
 ### TaskCreated
 
@@ -474,8 +472,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 
 **Builder method:** `HookOutputBuilder.taskBlock(reason, 'TaskCreated')`
 
----
-
 ### TaskCompleted
 
 **When it fires:** When a task is being marked as completed. Exit code only (no JSON decision control).
@@ -484,9 +480,34 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 
 **Builder method:** `HookOutputBuilder.taskBlock(reason, 'TaskCompleted')`
 
----
-
 ## Session Lifecycle
+
+### Setup
+
+**When it fires:** During init-only or maintenance mode before the main session lifecycle begins.
+
+**Input** (`SetupInput`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `trigger` | `'init' \| 'maintenance'` | How setup was triggered |
+
+**Output** (`SetupOutput`):
+
+```typescript
+{
+  hookSpecificOutput: {
+    hookEventName: 'Setup',
+    additionalContext?: string,
+  }
+}
+```
+
+**Builder method:** `HookOutputBuilder.setupContext(context)`
+
+```typescript
+outputJson(HookOutputBuilder.setupContext('Repository bootstrap complete'));
+```
 
 ### SessionStart
 
@@ -506,8 +527,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 
 **Builder method:** `HookOutputBuilder.sessionStartContext(context)`
 
----
-
 ### Stop
 
 **When it fires:** When Claude finishes responding (end of turn).
@@ -523,8 +542,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 
 **Builder method:** `HookOutputBuilder.subagentStopContext(reason)` (sets `decision: 'block'`)
 
----
-
 ### StopFailure
 
 **When it fires:** When a turn ends due to an API error.
@@ -539,8 +556,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 
 **Builder method:** `HookOutputBuilder.stopFailureLog(systemMessage?)`
 
----
-
 ### SessionEnd
 
 **When it fires:** When a session ends.
@@ -554,8 +569,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 **Output:** None (observability only).
 
 **Total timeout:** `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` (default 1500 ms, max 60000 ms).
-
----
 
 ## Instructions & Config
 
@@ -576,8 +589,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 
 **Output:** None (observability only).
 
----
-
 ### ConfigChange
 
 **When it fires:** When Claude Code settings change at runtime.
@@ -590,8 +601,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 | `file_path` | `string?` | Changed file |
 
 **Output** (`ConfigChangeOutput`): `decision: 'block'` + `reason` to reject the change.
-
----
 
 ## File System
 
@@ -610,8 +619,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 
 **Builder method:** `HookOutputBuilder.watchPaths(paths)`
 
----
-
 ### FileChanged
 
 **When it fires:** When a watched file changes (add, change, or unlink).
@@ -626,8 +633,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 | `event` | `'change' \| 'add' \| 'unlink'` | Watcher event |
 
 **Output:** Same as `CwdChanged` — can update the watch path list.
-
----
 
 ### WorktreeCreate
 
@@ -645,8 +650,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 
 **Builder method:** `HookOutputBuilder.worktreePath(absolutePath)`
 
----
-
 ### WorktreeRemove
 
 **When it fires:** When a git worktree is being removed.
@@ -658,8 +661,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 | `worktree_path` | `string` | Absolute path to the worktree being removed |
 
 **Output:** None (observability only).
-
----
 
 ## Compaction
 
@@ -675,8 +676,6 @@ outputJson(HookOutputBuilder.sessionTitle('Feature: auth refactor'));
 | `custom_instructions` | `string` | User-provided instructions (manual) or empty (auto) |
 
 **Output** (`PreCompactOutput`): `decision: 'block'` to prevent compaction, or `additionalContext` to inject into the compaction.
-
----
 
 ### PostCompact
 

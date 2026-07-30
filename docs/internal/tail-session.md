@@ -189,6 +189,162 @@ This is a processing-CLI environment variable. It is **not** loaded through the
 hook `getConfig()` surface and does not appear in the
 [environment-variables reference](../reference/environment-variables.md).
 
+#### Library option: `allowedMarkerRoots`
+
+Library consumers calling `tailBlocks` / `tailRawTranscriptRecords` /
+`watchRawTranscriptRecords` directly should prefer the per-call
+`allowedMarkerRoots` tail option over the env var. When the option is set —
+even to an empty array — it takes precedence over
+`CLAUDE_TAIL_MARKER_ROOTS`; when it is unset, the env var remains the fallback
+(which is what the CLI relies on). Per-call roots avoid mutating process-global
+state, so concurrent tails across many projects need no coordination:
+
+```ts
+await tailRawTranscriptRecords(jsonlPath, {
+  markerDir,
+  allowedMarkerRoots: [markerDir],
+});
+```
+
+The public marker-path helper accepts the allow-list as its third argument, so
+consumers can resolve or pre-seed the same marker without changing the env var:
+
+```ts
+const markerPath = getMarkerPath(jsonlPath, markerDir, [markerDir]);
+await writeMarker(markerPath, marker);
+```
+
+## Multi-source session API
+
+Library consumers that need the complete live session should pass the main
+JSONL path to `tailRawTranscriptSessionRecords`. The function discovers the
+main file and `<session-id>/subagents/*.jsonl`, then returns one deterministic
+chronological batch without requiring the consumer to know the subagent storage
+layout.
+
+```ts
+import {
+  commitRawTranscriptSessionCheckpoint,
+  tailRawTranscriptSessionRecords,
+  watchRawTranscriptSessionRecords,
+} from '@libar-dev/agent-harness-kit/processing';
+
+const batch = await tailRawTranscriptSessionRecords(mainJsonlPath, {
+  markerDir,
+  allowedMarkerRoots: [markerDir],
+});
+
+for (const record of batch.records) {
+  await upsertRecord(record.id, record);
+}
+
+for await (const update of watchRawTranscriptSessionRecords(mainJsonlPath, {
+  markerDir,
+  allowedMarkerRoots: [markerDir],
+  pollMs: 500,
+  signal: abortController.signal,
+})) {
+  await ingest(update.records);
+}
+```
+
+`RawTranscriptSessionTailResult` contains:
+
+- `records`: records from every source, sorted by a source-local effective
+  timestamp. A record without its own timestamp inherits the preceding
+  timestamp from the same file for sorting only; the returned record and
+  payload are not changed. Leading untimestamped records use an empty effective
+  key, so they appear before timestamped records in deterministic main/source/
+  byte order. Equal effective timestamps use main-before-subagent, source ID,
+  byte range, then record ID as stable tie-breakers.
+- `sources`: one `RawTranscriptSourceTailResult` per observed file with source
+  identity, offsets, rotation state, record count, and parse diagnostics.
+- `checkpoint`: serializable per-source offsets for optional durable commit.
+- aggregate `invalidJsonLineCount`, `invalidShapeLineCount`, `skippedLineCount`,
+  and `degradedHistoryLineCount` values summed from `sources`.
+
+The session marker stores independent source offsets in one atomic checkpoint.
+It is written only after every observed source has been read, so a source read
+failure leaves the prior checkpoint available for replay. The marker and public
+checkpoint carry a SHA-256 digest of the resolved main JSONL path, preventing a
+checkpoint or marker from being reused for the same session filename in another
+project.
+
+Markers have a monotonic session revision, and each source offset has a
+generation. A checkpoint commits only against the exact revision it was derived
+from. Normal appends stay in the same generation and cannot move backwards;
+truncation advances that source to the next generation, where a shorter offset
+is valid. The checkpoint's source list is authoritative for that revision, so a
+subagent file that disappeared can be removed safely. Stale revisions and
+invalid generation transitions are rejected.
+
+Session-marker mutation is serialized by an atomic `<marker-path>.lock`
+directory shared by manual and automatic writers. After acquiring it, the
+writer re-reads the marker and performs revision/generation validation inside
+the lock before atomically replacing the marker. A competing automatic writer
+that discovers its checkpoint is stale leaves the marker untouched and returns
+its records; a later pass may replay them, but offsets cannot regress.
+
+Locks are released in a `finally` block after successful writes and validation
+or write failures. Acquisition retries for up to five seconds. A lock older than
+30 seconds is reclaimed only when its recorded local process is no longer
+alive. Abandoned directories are atomically renamed to an owner-identity tombstone;
+the tombstone is retained so a delayed competing reclaimer cannot rename a
+fresh owner's lock. Marker temporary files use random UUID names, avoiding
+sibling collisions.
+
+Owner metadata accepts only the UUID form emitted by `randomUUID()`, a positive
+safe-integer PID, and a positive safe-integer creation time within the allowed
+clock-skew window. Malformed metadata falls back to directory-stat recovery.
+The tombstone suffix is always a fixed SHA-256 digest of validated owner identity
+or canonical numeric stat fields; raw owner and filesystem strings are never
+interpolated into a path.
+
+Automatic checkpoint commit is the default. Consumers that require
+at-least-once delivery across process crashes can defer it until after durable
+ingestion:
+
+```ts
+const batch = await tailRawTranscriptSessionRecords(mainJsonlPath, {
+  markerDir,
+  allowedMarkerRoots: [markerDir],
+  checkpointMode: 'manual',
+});
+
+await durableUpsert(batch.records);
+await commitRawTranscriptSessionCheckpoint(mainJsonlPath, batch.checkpoint, {
+  markerDir,
+  allowedMarkerRoots: [markerDir],
+});
+```
+
+If the process exits before `commitRawTranscriptSessionCheckpoint` succeeds,
+the prior marker remains intact and the batch is replayed. Commits reject stale
+checkpoints that would move an existing source offset backwards.
+
+Cold/full scans are bounded to the file size captured before reading. Bytes
+appended after that snapshot, including a partial trailing record, remain beyond
+the committed offset and are ingested on a later pass.
+
+A version 1 session marker is treated as an untrusted prior checkpoint. The
+first version 2 pass safely replays the session, preserving stable record IDs,
+then atomically replaces the marker. Later passes resume from the version 2
+offsets without another replay.
+
+Each poll rediscovers the subagent directory. Files created after observation
+starts are included on the next pass, including when the main file did not
+change. `fromStart` applies only to the first watch pass. Abort signals stop the
+poll delay without raising an abort error.
+
+The safe raw-record default is unchanged: payload string values and `rawLine`
+are redacted. Exact payloads, including tool names and content, require
+`rawRedactionMode: 'unsafe-unredacted'`. `dryRun: true` prevents checkpoint
+writes; combine it with `fromStart: true` for a side-effect-free historical
+preview.
+
+The single-file `tailRawTranscriptRecords` and `watchRawTranscriptRecords` APIs,
+including their marker paths and return types, remain unchanged.
+
 ### Raw-records safety
 
 > **Warning:** `--format raw-records` requires `--unsafe-raw-unredacted` and
@@ -223,4 +379,4 @@ exponential backoff (200 ms up to 30 s) rather than exiting `1`.
 | `src/processing/blocks.ts` | `SessionBlock` extraction used by `blocks` output |
 | `src/processing/tool-result-redaction.ts` | Secret redaction + truncation for retained tool-result bodies |
 | `src/processing/types.ts` | `SessionBlock`, `RawTranscriptRecord`, and tail result type definitions |
-| `src/processing/index.ts` | Public re-exports (`tailBlocks`, `tailRawTranscriptRecords`, `watchRawTranscriptRecords`, `readRawSessionFiles`) |
+| `src/processing/index.ts` | Public processing re-exports, including the tail APIs and marker helpers |

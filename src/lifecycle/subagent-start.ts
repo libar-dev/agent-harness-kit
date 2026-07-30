@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * SubagentStart Hook Handler
- *
- * Runs when a subagent is created. This reference handler logs the subagent
- * metadata without injecting additional context.
+ * SubagentStart Hook Handler — Logs subagent creation without injecting context.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

@@ -17,9 +17,7 @@ import { parseJsonlContent } from '../src/processing/internal.js';
 import type { ToolUseBlock } from '../src/processing/types.js';
 import { must } from './test-utils.js';
 
-// ---------------------------------------------------------------------------
 // summarizeToolCall — prototype-chain safety
-// ---------------------------------------------------------------------------
 
 function toolUse(
   name: string,
@@ -74,9 +72,7 @@ describe('summarizeToolCall — Object.prototype name collisions', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // compareStrings — ordering basics
-// ---------------------------------------------------------------------------
 
 describe('compareStrings', () => {
   it('returns -1 / 0 / 1 for less / equal / greater', () => {
@@ -97,9 +93,7 @@ describe('compareStrings', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // withDefaultSessionId — pinned via parseJsonlContent (parser.ts path)
-// ---------------------------------------------------------------------------
 
 describe('parseJsonlContent — default sessionId backfill (parser.ts)', () => {
   const DEFAULT_SESSION_ID = 'backfilled-session';

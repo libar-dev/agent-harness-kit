@@ -1,17 +1,9 @@
 /**
- * TypeScript type definitions for Claude Code hooks
- *
- * This file contains comprehensive type definitions for all Claude Code hook events,
- * their input data, and expected output formats.
+ * Type contracts for Claude Code hook inputs, outputs, tool inputs, and settings.
+ * These declarations mirror the JSON read from stdin and written to stdout by hook handlers.
  */
 
-// =============================================================================
-// Base Hook Interfaces
-// =============================================================================
-
-/**
- * Common fields present in all hook inputs
- */
+/** Common fields present in all hook inputs. */
 export interface BaseHookInput {
   /** Unique identifier for the current Claude Code session */
   session_id: string;
@@ -27,6 +19,12 @@ export interface BaseHookInput {
   agent_id?: string | undefined;
   /** Agent name when running under --agent or inside a subagent */
   agent_type?: string | undefined;
+  /** Effort metadata for the current turn, when provided by Claude Code */
+  effort?:
+    | {
+        level: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+      }
+    | undefined;
 }
 
 /**
@@ -53,11 +51,9 @@ export interface BaseHookOutput {
   suppressOutput?: boolean;
   /** Optional warning message shown to the user */
   systemMessage?: string;
+  /** ANSI escape sequences or similar terminal control output */
+  terminalSequence?: string;
 }
-
-// =============================================================================
-// Tool-Related Hook Interfaces
-// =============================================================================
 
 /**
  * Input for PreToolUse hooks - runs before tool execution
@@ -66,7 +62,7 @@ export interface PreToolUseInput extends BaseHookInput {
   hook_event_name: 'PreToolUse';
   /** Name of the tool about to be executed */
   tool_name: string;
-  /** Parameters that will be passed to the tool */
+  /** Parameters passed to the tool. */
   tool_input: Record<string, unknown>;
   /** Unique identifier for this tool use */
   tool_use_id: string;
@@ -85,6 +81,8 @@ export interface PostToolUseInput extends BaseHookInput {
   tool_response: Record<string, unknown>;
   /** Unique identifier for this tool use */
   tool_use_id: string;
+  /** Tool execution duration in milliseconds */
+  duration_ms?: number | undefined;
 }
 
 /**
@@ -95,7 +93,7 @@ export interface PreToolUseOutput extends BaseHookOutput {
   decision?: 'approve' | 'block'; // Deprecated: use hookSpecificOutput instead
   /** Reason for the decision */
   reason?: string; // Deprecated: use hookSpecificOutput instead
-  /** Modern hook-specific output format */
+  /** Structured hook-specific output. */
   hookSpecificOutput?: {
     hookEventName: 'PreToolUse';
     /** Permission decision: allow bypasses permission system, deny blocks, ask prompts user */
@@ -123,13 +121,11 @@ export interface PostToolUseOutput extends BaseHookOutput {
     /** Additional information for Claude to consider */
     additionalContext?: string;
     /** For MCP tools only: replaces the tool's output with the provided value */
-    updatedMCPToolOutput?: Record<string, unknown>;
+    updatedMCPToolOutput?: unknown;
+    /** Replaces the tool output with the provided value */
+    updatedToolOutput?: unknown;
   };
 }
-
-// =============================================================================
-// Permission Request Hook Interfaces
-// =============================================================================
 
 /**
  * Input for PermissionRequest hooks - runs when a permission dialog appears
@@ -169,10 +165,6 @@ export interface PermissionRequestOutput extends BaseHookOutput {
   };
 }
 
-// =============================================================================
-// Post Tool Use Failure Hook Interfaces
-// =============================================================================
-
 /**
  * Input for PostToolUseFailure hooks - runs when tool execution fails
  */
@@ -188,6 +180,8 @@ export interface PostToolUseFailureInput extends BaseHookInput {
   error: string;
   /** Whether the failure was caused by user interruption */
   is_interrupt?: boolean | undefined;
+  /** Tool execution duration in milliseconds */
+  duration_ms?: number | undefined;
 }
 
 /**
@@ -275,10 +269,6 @@ export interface PostToolBatchOutput extends BaseHookOutput {
   };
 }
 
-// =============================================================================
-// Subagent Start Hook Interfaces
-// =============================================================================
-
 /**
  * Input for SubagentStart hooks - runs when a subagent is spawned
  */
@@ -300,10 +290,6 @@ export interface SubagentStartOutput extends BaseHookOutput {
     additionalContext?: string;
   };
 }
-
-// =============================================================================
-// Agent Teams Hook Interfaces
-// =============================================================================
 
 /**
  * Input for TeammateIdle hooks - runs when a teammate is about to go idle
@@ -351,10 +337,6 @@ export interface TaskCompletedInput extends BaseHookInput {
   /** Name of the team */
   team_name?: string | undefined;
 }
-
-// =============================================================================
-// Lifecycle Hook Interfaces
-// =============================================================================
 
 /**
  * Input for UserPromptSubmit hooks - runs when user submits a prompt
@@ -429,7 +411,37 @@ export interface NotificationInput extends BaseHookInput {
     | 'permission_prompt'
     | 'idle_prompt'
     | 'auth_success'
-    | 'elicitation_dialog';
+    | 'elicitation_dialog'
+    | 'elicitation_complete'
+    | 'elicitation_response';
+}
+
+/**
+ * Input for MessageDisplay hooks - runs while assistant text is streaming
+ */
+export interface MessageDisplayInput extends BaseHookInput {
+  hook_event_name: 'MessageDisplay';
+  /** Unique identifier for the current turn */
+  turn_id: string;
+  /** Unique identifier for the message being displayed */
+  message_id: string;
+  /** Zero-based chunk index for this display delta */
+  index: number;
+  /** Whether this is the final chunk */
+  final: boolean;
+  /** Delta text being displayed */
+  delta: string;
+}
+
+/**
+ * MessageDisplay-specific output for overriding rendered content
+ */
+export interface MessageDisplayOutput extends BaseHookOutput {
+  hookSpecificOutput?: {
+    hookEventName: 'MessageDisplay';
+    /** Optional replacement content for display */
+    displayContent?: string;
+  };
 }
 
 /**
@@ -515,7 +527,9 @@ export interface SessionStartInput extends BaseHookInput {
   /** How the session was started: 'startup', 'resume', 'clear', 'compact' */
   source: 'startup' | 'resume' | 'clear' | 'compact';
   /** The model identifier */
-  model: string;
+  model?: string | undefined;
+  /** Session title when one is already known */
+  session_title?: string | undefined;
   /** Agent name if started with --agent */
   agent_type?: string | undefined;
 }
@@ -527,6 +541,34 @@ export interface SessionStartOutput extends BaseHookOutput {
   hookSpecificOutput?: {
     hookEventName: 'SessionStart';
     /** String added to the context at session start */
+    additionalContext?: string;
+    /** Initial user-visible message to seed the session */
+    initialUserMessage?: string;
+    /** Sets the session title */
+    sessionTitle?: string;
+    /** Dynamic absolute paths to watch */
+    watchPaths?: string[];
+    /** Reload active skills after session setup */
+    reloadSkills?: boolean;
+  };
+}
+
+/**
+ * Input for Setup hooks - runs during init-only or maintenance mode
+ */
+export interface SetupInput extends BaseHookInput {
+  hook_event_name: 'Setup';
+  /** How setup was triggered */
+  trigger: 'init' | 'maintenance';
+}
+
+/**
+ * Setup-specific output for context injection
+ */
+export interface SetupOutput extends BaseHookOutput {
+  hookSpecificOutput?: {
+    hookEventName: 'Setup';
+    /** String added to setup context */
     additionalContext?: string;
   };
 }
@@ -554,9 +596,12 @@ export interface StopFailureInput extends BaseHookInput {
   /** API error type */
   error:
     | 'rate_limit'
+    | 'overloaded'
     | 'authentication_failed'
+    | 'oauth_org_not_allowed'
     | 'billing_error'
     | 'invalid_request'
+    | 'model_not_found'
     | 'server_error'
     | 'max_output_tokens'
     | 'unknown';
@@ -623,7 +668,7 @@ export interface CwdChangedInput extends BaseHookInput {
   hook_event_name: 'CwdChanged';
   /** Previous working directory */
   old_cwd: string;
-  /** New working directory */
+  /** Working directory after the change. */
   new_cwd: string;
 }
 
@@ -651,7 +696,7 @@ export interface WatchPathsOutput extends BaseHookOutput {
  */
 export interface WorktreeCreateInput extends BaseHookInput {
   hook_event_name: 'WorktreeCreate';
-  /** Slug identifier for the new worktree */
+  /** Slug identifier for the worktree being created. */
   name: string;
 }
 
@@ -738,14 +783,11 @@ export interface ElicitationOutput extends BaseHookOutput {
   };
 }
 
-// =============================================================================
-// Union Types for Type Guards
-// =============================================================================
-
 /**
  * Union of all possible hook input types
  */
 export type HookInput =
+  | SetupInput
   | PreToolUseInput
   | PostToolUseInput
   | PermissionRequestInput
@@ -755,6 +797,7 @@ export type HookInput =
   | UserPromptSubmitInput
   | UserPromptExpansionInput
   | NotificationInput
+  | MessageDisplayInput
   | StopInput
   | StopFailureInput
   | SubagentStartInput
@@ -779,6 +822,7 @@ export type HookInput =
  * Union of all possible hook output types
  */
 export type HookOutput =
+  | SetupOutput
   | PreToolUseOutput
   | PostToolUseOutput
   | PermissionRequestOutput
@@ -786,6 +830,7 @@ export type HookOutput =
   | PostToolUseFailureOutput
   | PostToolBatchOutput
   | SubagentStartOutput
+  | MessageDisplayOutput
   | NotificationOutput
   | UserPromptSubmitOutput
   | UserPromptExpansionOutput
@@ -797,10 +842,6 @@ export type HookOutput =
   | WorktreeCreateOutput
   | ElicitationOutput
   | BaseHookOutput; // For hooks that don't have specific output requirements (TeammateIdle, TaskCompleted, etc.)
-
-// =============================================================================
-// Common Tool Input Types
-// =============================================================================
 
 /**
  * Common tool input patterns for frequently used tools
@@ -909,15 +950,12 @@ export interface TaskToolInput {
   model?: string;
 }
 
-// =============================================================================
-// Hook Configuration Types (settings.json schema)
-// =============================================================================
-
 /**
- * All 28 hook event names
+ * All supported hook event names
  */
 export type HookEventName =
   | 'SessionStart'
+  | 'Setup'
   | 'UserPromptSubmit'
   | 'UserPromptExpansion'
   | 'PreToolUse'
@@ -927,6 +965,7 @@ export type HookEventName =
   | 'PostToolUseFailure'
   | 'PostToolBatch'
   | 'Notification'
+  | 'MessageDisplay'
   | 'SubagentStart'
   | 'SubagentStop'
   | 'TaskCreated'
@@ -967,6 +1006,7 @@ export interface CommandHookHandler extends HookHandlerBase {
   type: 'command';
   /** Shell command to execute */
   command: string;
+  args?: string[];
   /** If true, runs in the background without blocking. Only for command hooks */
   async?: boolean;
   /** If true, runs in the background and wakes Claude on exit code 2 */
@@ -1056,10 +1096,6 @@ export interface HooksConfig {
   httpHookAllowedEnvVars?: string[];
 }
 
-// =============================================================================
-// Utility Types and Helpers
-// =============================================================================
-
 /**
  * Type guard to check if input is a specific hook type
  */
@@ -1070,13 +1106,13 @@ export function isHookType<T extends HookInput>(
   return input.hook_event_name === eventName;
 }
 
-// HookOutputBuilder moved to src/utils/output-builder.ts — re-export for compatibility
+// Compatibility export for HookOutputBuilder.
 export { HookOutputBuilder } from '../utils/output-builder.js';
 
 /**
  * Environment variables provided by Claude Code to hook processes.
  *
- * These are set in the hook's execution environment automatically.
+ * Claude Code sets these variables in the hook's execution environment.
  * Not all variables are available for all event types.
  */
 export interface HookEnvironmentVars {

@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * Elicitation Hook Handler
- *
- * Runs when an MCP server asks Claude Code to collect user input. This
- * reference handler logs the request without answering for the user.
+ * Elicitation Hook Handler — Logs MCP elicitation requests without answering them.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

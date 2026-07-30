@@ -1,13 +1,6 @@
 /**
- * Zod-based validators for Claude Code hooks
- *
- * CRITICAL: Always use .safeParse() at system boundaries
- * Never bypass runtime validation - this prevents silent data corruption
- *
- * Following established patterns:
- * - Two-step type assertion: unknown → validate → assert
- * - Custom error types for better debugging
- * - Never use 'any' types
+ * Runtime validators and type guards for hook inputs, tool inputs, settings, and transcript records.
+ * Public validators accept unknown JSON boundary data and return typed values or HookValidationError.
  */
 
 import type { z } from 'zod';
@@ -30,9 +23,11 @@ import {
   type PostToolBatchInputSchema,
   type UserPromptSubmitInputSchema,
   type UserPromptExpansionInputSchema,
+  type SetupInputSchema,
   type SessionStartInputSchema,
   type SessionEndInputSchema,
   type NotificationInputSchema,
+  type MessageDisplayInputSchema,
   type StopInputSchema,
   type StopFailureInputSchema,
   type SubagentStartInputSchema,
@@ -68,14 +63,7 @@ type ToolBearingHookInput =
 
 const MCP_TOOL_NAME_PATTERN = /^mcp__[^_]+__[^_]+/;
 
-// =============================================================================
-// Custom Error Types
-// =============================================================================
-
-/**
- * Custom error class for hook validation failures
- * Provides structured error information for debugging
- */
+/** Validation error with a stable code, context object, and optional Zod error details. */
 export class HookValidationError extends Error {
   public readonly code: string;
   public readonly context: Record<string, unknown>;
@@ -101,9 +89,7 @@ export class HookValidationError extends Error {
     }
   }
 
-  /**
-   * Create a detailed error message including Zod validation details
-   */
+  /** Return a detailed message with Zod issues and validation context. */
   public getDetailedMessage(): string {
     let message = `${this.message} (Code: ${this.code})`;
 
@@ -126,10 +112,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
 
-// =============================================================================
-// Hook Input Validation
-// =============================================================================
-
 /**
  * Validate hook input using the two-step type assertion pattern
  *
@@ -138,7 +120,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * @throws HookValidationError if validation fails
  */
 export function validateHookInput(input: unknown): HookInputSchema {
-  // Step 1: Basic structure validation
   if (!isRecord(input)) {
     throw new HookValidationError(
       'Hook input must be a non-null object',
@@ -147,7 +128,6 @@ export function validateHookInput(input: unknown): HookInputSchema {
     );
   }
 
-  // Step 2: Extract hook event name
   const hookEventName = input['hook_event_name'];
   if (
     hookEventName === null ||
@@ -161,7 +141,13 @@ export function validateHookInput(input: unknown): HookInputSchema {
     );
   }
 
-  // Step 3: Get appropriate schema
+  return validateHookInputByEventName(input, hookEventName);
+}
+
+function validateHookInputByEventName(
+  input: unknown,
+  hookEventName: string
+): HookInputSchema {
   const schema = (
     hookInputSchemas as Record<
       string,
@@ -176,7 +162,6 @@ export function validateHookInput(input: unknown): HookInputSchema {
     );
   }
 
-  // Step 4: Validate using Zod schema
   const result = schema.safeParse(input);
   if (!result.success) {
     throw new HookValidationError(
@@ -202,7 +187,6 @@ export function validateToolInput(
 ): ToolInputSchema {
   const toolName = hookInput.tool_name;
 
-  // Get appropriate schema for the tool
   const schema = (
     toolInputSchemas as Record<
       string,
@@ -231,7 +215,6 @@ export function validateToolInput(
     );
   }
 
-  // Validate tool input using Zod schema
   const result = schema.safeParse(hookInput.tool_input);
   if (!result.success) {
     throw new HookValidationError(
@@ -245,13 +228,7 @@ export function validateToolInput(
   return result.data;
 }
 
-// =============================================================================
-// Specific Tool Validators (Convenience Functions)
-// =============================================================================
-
-/**
- * Validate and extract Bash tool input with proper typing
- */
+/** Validate and extract Bash tool input. */
 export function validateBashToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Bash> {
@@ -276,9 +253,7 @@ export function validateBashToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Write tool input with proper typing
- */
+/** Validate and extract Write tool input. */
 export function validateWriteToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Write> {
@@ -303,9 +278,7 @@ export function validateWriteToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Edit tool input with proper typing
- */
+/** Validate and extract Edit tool input. */
 export function validateEditToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Edit> {
@@ -330,9 +303,7 @@ export function validateEditToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Read tool input with proper typing
- */
+/** Validate and extract Read tool input. */
 export function validateReadToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Read> {
@@ -357,9 +328,7 @@ export function validateReadToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract WebFetch tool input with proper typing
- */
+/** Validate and extract WebFetch tool input. */
 export function validateWebFetchToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.WebFetch> {
@@ -384,9 +353,7 @@ export function validateWebFetchToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract WebSearch tool input with proper typing
- */
+/** Validate and extract WebSearch tool input. */
 export function validateWebSearchToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.WebSearch> {
@@ -411,9 +378,7 @@ export function validateWebSearchToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Glob tool input with proper typing
- */
+/** Validate and extract Glob tool input. */
 export function validateGlobToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Glob> {
@@ -438,9 +403,7 @@ export function validateGlobToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Grep tool input with proper typing
- */
+/** Validate and extract Grep tool input. */
 export function validateGrepToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Grep> {
@@ -465,9 +428,7 @@ export function validateGrepToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract MultiEdit tool input with proper typing
- */
+/** Validate and extract MultiEdit tool input. */
 export function validateMultiEditToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.MultiEdit> {
@@ -492,9 +453,7 @@ export function validateMultiEditToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Task tool input with proper typing
- */
+/** Validate and extract Task tool input. */
 export function validateTaskToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Task> {
@@ -519,9 +478,7 @@ export function validateTaskToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract Agent tool input with proper typing
- */
+/** Validate and extract Agent tool input. */
 export function validateAgentToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.Agent> {
@@ -546,9 +503,7 @@ export function validateAgentToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract AskUserQuestion tool input with proper typing
- */
+/** Validate and extract AskUserQuestion tool input. */
 export function validateAskUserQuestionToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.AskUserQuestion> {
@@ -575,9 +530,7 @@ export function validateAskUserQuestionToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract ExitPlanMode tool input with proper typing
- */
+/** Validate and extract ExitPlanMode tool input. */
 export function validateExitPlanModeToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.ExitPlanMode> {
@@ -602,9 +555,7 @@ export function validateExitPlanModeToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract TodoWrite tool input with proper typing
- */
+/** Validate and extract TodoWrite tool input. */
 export function validateTodoWriteToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof toolInputSchemas.TodoWrite> {
@@ -629,9 +580,7 @@ export function validateTodoWriteToolInput(
   return result.data;
 }
 
-/**
- * Validate and extract generic MCP tool input with proper typing
- */
+/** Validate and extract generic MCP tool input. */
 export function validateMCPToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof mcpToolInputSchema> {
@@ -655,10 +604,6 @@ export function validateMCPToolInput(
 
   return result.data;
 }
-
-// =============================================================================
-// Transcript Validators
-// =============================================================================
 
 export type SafeTranscriptValidationResult<T> =
   | { success: true; data: T }
@@ -698,7 +643,7 @@ function flattenTranscriptIssues(
     ) {
       if (issue.errors.length === 0) {
         // No nested branch errors to recurse into (e.g. a discriminated-union
-        // drop where the discriminator value matched no member). Fold any
+        // drop where the discriminator value matched no member). Fold the
         // `discriminator`/`note` the issue carries into the message so the
         // diagnostic explains *why* an unknown line type was dropped instead
         // of emitting a bare 'Invalid input'.
@@ -737,16 +682,14 @@ function readIssueString(
   issue: z.ZodIssue,
   key: 'discriminator' | 'note'
 ): string | undefined {
-  if (!(key in issue)) return undefined;
-  const view = issue as unknown;
-  if (!isRecord(view)) return undefined;
-  const value = view[key];
+  if (!isRecord(issue)) return undefined;
+  const value = issue[key];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 /**
  * Build a self-explanatory message for an `invalid_union` issue that carries no
- * nested branch errors, folding in any `discriminator` and/or `note` so the
+ * nested branch errors, folding in optional `discriminator` and/or `note` so the
  * diagnostic names the offending value instead of a bare 'Invalid input'.
  */
 function augmentUnionMessage(issue: z.ZodIssue): string {
@@ -826,10 +769,6 @@ export function validateRawHistoryLine(input: unknown): RawHistoryLineSchema {
 
   return result.data;
 }
-
-// =============================================================================
-// Utility Functions
-// =============================================================================
 
 /**
  * Safe validation that returns success/error result instead of throwing
@@ -915,6 +854,12 @@ export function isUserPromptExpansionInput(
   return input.hook_event_name === 'UserPromptExpansion';
 }
 
+export function isSetupInput(
+  input: HookInputSchema
+): input is SetupInputSchema {
+  return input.hook_event_name === 'Setup';
+}
+
 /**
  * Type guard for SessionStart hook input
  */
@@ -940,6 +885,12 @@ export function isNotificationInput(
   input: HookInputSchema
 ): input is NotificationInputSchema {
   return input.hook_event_name === 'Notification';
+}
+
+export function isMessageDisplayInput(
+  input: HookInputSchema
+): input is MessageDisplayInputSchema {
+  return input.hook_event_name === 'MessageDisplay';
 }
 
 /**
@@ -1111,10 +1062,6 @@ export function isElicitationResultInput(
   return input.hook_event_name === 'ElicitationResult';
 }
 
-// =============================================================================
-// Hook-Type-Specific Validators
-// =============================================================================
-
 /**
  * Validate that the input is a valid PreToolUse hook
  * Uses Zod validation internally with better error messages
@@ -1153,6 +1100,10 @@ export function validatePostToolUseInput(
   return validated;
 }
 
+function validateHookInputType(
+  input: unknown,
+  eventName: 'Setup'
+): SetupInputSchema;
 function validateHookInputType(
   input: unknown,
   eventName: 'UserPromptExpansion'
@@ -1207,13 +1158,17 @@ function validateHookInputType(
 ): ElicitationInputSchema;
 function validateHookInputType(
   input: unknown,
+  eventName: 'MessageDisplay'
+): MessageDisplayInputSchema;
+function validateHookInputType(
+  input: unknown,
   eventName: 'ElicitationResult'
 ): ElicitationResultInputSchema;
 function validateHookInputType(
   input: unknown,
   eventName: string
 ): HookInputSchema {
-  const validated = validateHookInput(input);
+  const validated = validateHookInputByEventName(input, eventName);
 
   if (validated.hook_event_name !== eventName) {
     throw new HookValidationError(
@@ -1224,6 +1179,10 @@ function validateHookInputType(
   }
 
   return validated;
+}
+
+export function validateSetupInput(input: unknown): SetupInputSchema {
+  return validateHookInputType(input, 'Setup');
 }
 
 export function validateUserPromptExpansionInput(
@@ -1296,6 +1255,12 @@ export function validatePostCompactInput(
   return validateHookInputType(input, 'PostCompact');
 }
 
+export function validateMessageDisplayInput(
+  input: unknown
+): MessageDisplayInputSchema {
+  return validateHookInputType(input, 'MessageDisplay');
+}
+
 export function validateElicitationInput(
   input: unknown
 ): ElicitationInputSchema {
@@ -1307,10 +1272,6 @@ export function validateElicitationResultInput(
 ): ElicitationResultInputSchema {
   return validateHookInputType(input, 'ElicitationResult');
 }
-
-// =============================================================================
-// Hook Configuration Validators
-// =============================================================================
 
 /**
  * Validate a full hooks configuration block (e.g., parsed from settings.json)
@@ -1370,10 +1331,6 @@ export function validateMatcherGroup(data: unknown): MatcherGroupSchema {
 
   return result.data;
 }
-
-// =============================================================================
-// Content Validators
-// =============================================================================
 
 /**
  * Validation rules for bash commands
@@ -1460,10 +1417,6 @@ export function validateBashCommand(
   };
 }
 
-// =============================================================================
-// File Content Validators
-// =============================================================================
-
 /**
  * Check if file content contains potential secrets
  */
@@ -1542,10 +1495,6 @@ export function validateFileSyntax(
   };
 }
 
-// =============================================================================
-// Path Validators
-// =============================================================================
-
 /**
  * Normalize file paths for consistent processing
  * Handles redundant slashes, trailing slashes, and relative path components
@@ -1574,7 +1523,7 @@ export function normalizeFilePath(filePath: string): string {
     }
   }
 
-  return resolved.join('/') ?? '/';
+  return resolved.join('/');
 }
 
 /**

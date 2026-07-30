@@ -10,11 +10,13 @@ import {
   toJsonlBlocks,
   exportSession,
   type SessionBlock,
+  type UserTextBlock,
 } from '../src/processing/index.js';
 import {
   parseJsonlContent,
   parseSessionContent,
 } from '../src/processing/internal.js';
+import { imagePlaceholder } from '../src/processing/image-placeholder.js';
 import { redactRetainedToolResultText } from '../src/processing/tool-result-redaction.js';
 import { must } from './test-utils.js';
 
@@ -29,10 +31,6 @@ function parseJsonObject(raw: string): Record<string, unknown> {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
-
-// ---------------------------------------------------------------------------
-// Fixtures — realistic JSONL lines from Claude Code sessions
-// ---------------------------------------------------------------------------
 
 const USER_TEXT_LINE = JSON.stringify({
   type: 'user',
@@ -191,7 +189,43 @@ const THINKING_LINE = JSON.stringify({
   uuid: 'a-004',
 });
 
-// Build full JSONL content
+const ASSISTANT_IMAGE_LINE = JSON.stringify({
+  type: 'assistant',
+  message: {
+    role: 'assistant',
+    content: [
+      {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: 'image/png',
+          data: 'raw-base64-image-data',
+        },
+      },
+    ],
+  },
+  sessionId: 'test-session-001',
+  timestamp: '2026-02-16T20:00:11.000Z',
+  uuid: 'a-image',
+});
+
+function makeImageLine(
+  role: 'user' | 'assistant',
+  source: unknown,
+  uuid: string
+): string {
+  return JSON.stringify({
+    type: role,
+    message: {
+      role,
+      content: [{ type: 'image', source }],
+    },
+    sessionId: 'test-session-001',
+    timestamp: '2026-02-16T20:00:15.000Z',
+    uuid,
+  });
+}
+
 const FULL_SESSION_JSONL = [
   USER_TEXT_LINE,
   ASSISTANT_TOOL_USE_LINE,
@@ -203,10 +237,6 @@ const FULL_SESSION_JSONL = [
   THINKING_LINE,
   RESULT_LINE,
 ].join('\n');
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('Processing Pipeline', () => {
   describe('parseJsonlContent', () => {
@@ -230,6 +260,16 @@ describe('Processing Pipeline', () => {
       const lines = parseJsonlContent('', diagnostics);
       expect(lines).toHaveLength(0);
       expect(diagnostics).toHaveLength(0);
+    });
+
+    it('parses JSONL with image blocks without invalid-shape diagnostics', () => {
+      const diagnostics: Parameters<typeof parseJsonlContent>[1] = [];
+      const lines = parseJsonlContent(ASSISTANT_IMAGE_LINE, diagnostics);
+
+      expect(lines).toHaveLength(1);
+      expect(
+        diagnostics.filter(diagnostic => diagnostic.kind === 'invalid_shape')
+      ).toHaveLength(0);
     });
 
     it('should parse BOM-prefixed JSONL content', () => {
@@ -341,6 +381,16 @@ describe('Processing Pipeline', () => {
   });
 
   describe('denoiseSession', () => {
+    it('imagePlaceholder only includes safe media_type metadata', () => {
+      expect(
+        imagePlaceholder({ media_type: 'image/png', data: 'secret' })
+      ).toBe('[Image: image/png]');
+      expect(imagePlaceholder({ media_type: 'image/png;data=secret' })).toBe(
+        '[Image]'
+      );
+      expect(imagePlaceholder([{ media_type: 'image/png' }])).toBe('[Image]');
+    });
+
     it('should extract user text messages', () => {
       const raw = parseSessionContent('test', FULL_SESSION_JSONL);
       const clean = denoiseSession(raw);
@@ -359,6 +409,93 @@ describe('Processing Pipeline', () => {
       expect(textMsg).toBeDefined();
     });
 
+    it('extracts image placeholders from assistant image blocks', () => {
+      const clean = denoiseSession(
+        parseSessionContent('test', ASSISTANT_IMAGE_LINE)
+      );
+
+      expect(clean.messages[0]?.text).toBe('[Image: image/png]');
+      expect(clean.messages[0]?.text).not.toContain('raw-base64-image-data');
+    });
+
+    it('preserves mixed text and image order in denoised text', () => {
+      const session = JSON.stringify({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Before' },
+            {
+              type: 'image',
+              source: { media_type: 'image/jpeg', data: 'secret-image-data' },
+            },
+            { type: 'text', text: 'After' },
+          ],
+        },
+        sessionId: 'test-session-001',
+        timestamp: '2026-02-16T20:00:12.000Z',
+        uuid: 'a-image-mixed',
+      });
+
+      const clean = denoiseSession(parseSessionContent('test', session));
+
+      expect(clean.messages[0]?.text).toBe(
+        'Before\n\n[Image: image/jpeg]\n\nAfter'
+      );
+      expect(clean.messages[0]?.text).not.toContain('secret-image-data');
+    });
+
+    it('extracts generic image placeholders when source is missing', () => {
+      const session = JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: [{ type: 'image' }] },
+        sessionId: 'test-session-001',
+        timestamp: '2026-02-16T20:00:13.000Z',
+        uuid: 'u-image-missing-source',
+      });
+
+      const clean = denoiseSession(parseSessionContent('test', session));
+
+      expect(clean.messages[0]?.text).toBe('[Image]');
+    });
+
+    it('denoiseSession image source as array', () => {
+      const clean = denoiseSession(
+        parseSessionContent(
+          'test',
+          makeImageLine(
+            'assistant',
+            [{ media_type: 'image/png' }],
+            'a-image-array'
+          )
+        )
+      );
+
+      expect(clean.messages[0]?.text).toBe('[Image]');
+    });
+
+    it('denoiseSession image source as null', () => {
+      const clean = denoiseSession(
+        parseSessionContent(
+          'test',
+          makeImageLine('assistant', null, 'a-image-null')
+        )
+      );
+
+      expect(clean.messages[0]?.text).toBe('[Image]');
+    });
+
+    it('denoiseSession image source as primitive', () => {
+      const clean = denoiseSession(
+        parseSessionContent(
+          'test',
+          makeImageLine('assistant', 'image/png', 'a-image-primitive')
+        )
+      );
+
+      expect(clean.messages[0]?.text).toBe('[Image]');
+    });
+
     it('should summarize tool calls', () => {
       const raw = parseSessionContent('test', FULL_SESSION_JSONL);
       const clean = denoiseSession(raw);
@@ -369,7 +506,6 @@ describe('Processing Pipeline', () => {
       );
       expect(withTools.length).toBeGreaterThanOrEqual(1);
 
-      // Check Read tool summary format
       const readCall = withTools.find(m =>
         m.toolCalls?.some(tc => tc.includes('Read('))
       );
@@ -382,7 +518,6 @@ describe('Processing Pipeline', () => {
       const raw = parseSessionContent('test', FULL_SESSION_JSONL);
       const clean = denoiseSession(raw);
 
-      // The user message with tool_result (file content) should be filtered
       const allText = clean.messages.map(m => m.text).join(' ');
       expect(allText).not.toContain('Router()');
       expect(allText).not.toContain('getUsers');
@@ -430,7 +565,7 @@ describe('Processing Pipeline', () => {
 
       const allText = clean.messages.map(m => m.text).join(' ');
       expect(allText).not.toContain('[thinking]');
-      expect(allText).toContain('recommendation'); // text block preserved
+      expect(allText).toContain('recommendation');
     });
 
     it('should include thinking blocks when configured', () => {
@@ -481,10 +616,6 @@ describe('Processing Pipeline', () => {
       expect(toolCalls[0]).toContain('Bash(');
       expect(toolCalls[0]).toContain('pnpm run test');
     });
-
-    // -----------------------------------------------------------------------
-    // Coverage for tools added after the original webui-derived implementation
-    // -----------------------------------------------------------------------
 
     function makeToolUseLine(
       name: string,
@@ -566,12 +697,12 @@ describe('Processing Pipeline', () => {
       ).toBe('ScheduleWakeup(1200s: check build)');
     });
 
-    it('summarizes ExitPlanMode with truncated plan', () => {
-      const tc = summarize('ExitPlanMode', {
-        plan: 'A'.repeat(200),
-      });
-      expect(tc.startsWith('ExitPlanMode(')).toBe(true);
-      expect(tc).toContain('...');
+    it('summarizes ExitPlanMode with the first markdown heading', () => {
+      expect(
+        summarize('ExitPlanMode', {
+          plan: 'Preamble\n\n## Silence hook errors\n\nDetails',
+        })
+      ).toBe('plan: Silence hook errors');
     });
 
     it('summarizes MultiEdit by file_path', () => {
@@ -600,10 +731,6 @@ describe('Processing Pipeline', () => {
         'SomeFutureTool(thing: value)'
       );
     });
-
-    // -----------------------------------------------------------------------
-    // Tool result body preservation (ported from claude-code-webui)
-    // -----------------------------------------------------------------------
 
     it('captures tool_result content with resolved tool name', () => {
       const session = [
@@ -875,10 +1002,6 @@ describe('Processing Pipeline', () => {
       expect(result.content).toContain('50 more lines truncated');
     });
 
-    // -----------------------------------------------------------------------
-    // Structured block extraction (live-ingest / DB ingestion path)
-    // -----------------------------------------------------------------------
-
     it('extractBlocks emits typed blocks with stable IDs', () => {
       const session = [
         JSON.stringify({
@@ -927,7 +1050,6 @@ describe('Processing Pipeline', () => {
       const raw = parseSessionContent('s1', session);
       const blocks = extractBlocks(raw);
 
-      // Expect: user_text, assistant_text, tool_use, tool_result (4 blocks)
       expect(blocks.map(b => b.type)).toEqual([
         'user_text',
         'assistant_text',
@@ -935,13 +1057,11 @@ describe('Processing Pipeline', () => {
         'tool_result',
       ]);
 
-      // Stable IDs: messageUuid:blockIndex
       expect(must(blocks[0]).id).toBe('msg-1:0');
-      expect(must(blocks[1]).id).toBe('msg-2:0'); // text is index 0
-      expect(must(blocks[2]).id).toBe('msg-2:1'); // tool_use is index 1
+      expect(must(blocks[1]).id).toBe('msg-2:0');
+      expect(must(blocks[2]).id).toBe('msg-2:1');
       expect(must(blocks[3]).id).toBe('msg-3:0');
 
-      // Re-running produces identical IDs (idempotent for upsert)
       const blocks2 = extractBlocks(raw);
       expect(blocks2.map(b => b.id)).toEqual(blocks.map(b => b.id));
     });
@@ -1118,7 +1238,6 @@ describe('Processing Pipeline', () => {
         expect(tu.summary).toBe(
           'mcp:claude-in-chrome.navigate(url: https://x.test)'
         );
-        // Original raw name preserved on toolName for filtering
         expect(tu.toolName).toBe('mcp__claude-in-chrome__navigate');
       }
     });
@@ -1223,6 +1342,101 @@ describe('Processing Pipeline', () => {
       });
       const blocks = extractBlocks(parseSessionContent('s', session));
       expect(blocks).toHaveLength(0);
+    });
+
+    it('extractBlocks emits image placeholders as text blocks', () => {
+      const blocks = extractBlocks(
+        parseSessionContent('test-session-001', ASSISTANT_IMAGE_LINE)
+      );
+
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]).toMatchObject({
+        id: 'a-image:0',
+        type: 'assistant_text',
+        content: '[Image: image/png]',
+      });
+      expect(JSON.stringify(blocks)).not.toContain('raw-base64-image-data');
+    });
+
+    it('extractBlocks emits one placeholder per image block', () => {
+      const session = JSON.stringify({
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'image', source: { media_type: 'image/png', data: 'one' } },
+            {
+              type: 'image',
+              source: { media_type: 'image/webp', data: 'two' },
+            },
+          ],
+        },
+        sessionId: 'test-session-001',
+        timestamp: '2026-02-16T20:00:14.000Z',
+        uuid: 'u-image-multiple',
+      });
+
+      const blocks = extractBlocks(parseSessionContent('test', session));
+
+      const imageBlocks = blocks.filter(
+        (block): block is UserTextBlock => block.type === 'user_text'
+      );
+
+      expect(blocks.map(block => block.type)).toEqual([
+        'user_text',
+        'user_text',
+      ]);
+      expect(imageBlocks.map(block => block.content)).toEqual([
+        '[Image: image/png]',
+        '[Image: image/webp]',
+      ]);
+      expect(JSON.stringify(blocks)).not.toContain('one');
+      expect(JSON.stringify(blocks)).not.toContain('two');
+    });
+
+    it('extractBlocks image source as array', () => {
+      const blocks = extractBlocks(
+        parseSessionContent(
+          'test',
+          makeImageLine('user', [{ media_type: 'image/png' }], 'u-image-array')
+        )
+      );
+
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]).toMatchObject({
+        id: 'u-image-array:0',
+        type: 'user_text',
+        content: '[Image]',
+      });
+    });
+
+    it('extractBlocks image source as null', () => {
+      const blocks = extractBlocks(
+        parseSessionContent('test', makeImageLine('user', null, 'u-image-null'))
+      );
+
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]).toMatchObject({
+        id: 'u-image-null:0',
+        type: 'user_text',
+        content: '[Image]',
+      });
+    });
+
+    it('extractBlocks image source as primitive', () => {
+      const blocks = extractBlocks(
+        parseSessionContent(
+          'test',
+          makeImageLine('user', 42, 'u-image-primitive')
+        )
+      );
+
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]).toMatchObject({
+        id: 'u-image-primitive:0',
+        type: 'user_text',
+        content: '[Image]',
+      });
     });
 
     it('extractBlocks emits agent_boundary blocks bracketing subagents', () => {
@@ -1405,7 +1619,6 @@ describe('Processing Pipeline', () => {
       ];
       const jsonl = toJsonlBlocks(blocks);
       const lines = jsonl.split('\n');
-      // Two records + trailing empty (from final \n)
       expect(lines).toHaveLength(3);
       expect(lines[2]).toBe('');
       const parsed = parseJsonObject(must(lines[0]));
@@ -1452,7 +1665,6 @@ describe('Processing Pipeline', () => {
       const raw = parseSessionContent('t', session);
       const clean = denoiseSession(raw, { includeToolResults: false });
       const userMsg = clean.messages.find(m => m.role === 'user');
-      // With no text and no results, the user message gets filtered entirely
       expect(userMsg).toBeUndefined();
     });
   });
@@ -1494,6 +1706,23 @@ describe('Processing Pipeline', () => {
       const md = toMarkdown(clean, { includeToolAnnotations: false });
 
       expect(md).not.toContain('*Tools:*');
+    });
+
+    it('includes image placeholders without raw image data', () => {
+      const raw = parseSessionContent('test', ASSISTANT_IMAGE_LINE);
+      const clean = denoiseSession(raw);
+      const md = toMarkdown(clean);
+
+      expect(md).toContain('[Image: image/png]');
+      expect(md).not.toContain('raw-base64-image-data');
+      expect(md).not.toContain('data:image');
+    });
+
+    it('renders image-only messages with an image placeholder', () => {
+      const raw = parseSessionContent('test', ASSISTANT_IMAGE_LINE);
+      const md = toMarkdown(denoiseSession(raw));
+
+      expect(md).toContain('[Image: image/png]');
     });
   });
 

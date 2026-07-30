@@ -3,7 +3,7 @@
  *
  * Handles both the main session file and subagent logs:
  *   <session-id>.jsonl              — main session
- *   <session-id>/subagents/agent-*.jsonl — subagent logs (new format)
+ *   <session-id>/subagents/agent-*.jsonl — subagent logs
  */
 
 import { readFile, readdir } from 'node:fs/promises';

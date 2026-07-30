@@ -1,16 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * Combined Lifecycle Hook Handler
- *
- * This module provides handlers for all Claude Code lifecycle events:
- * - UserPromptSubmit: Validate and enhance user prompts
- * - Notification: Handle notifications with custom backends
- * - SessionStart: Load project context at session start
- * - SessionEnd: Cleanup and logging at session end
- * - Stop: Handle session stop events
- * - PreCompact: Handle context compaction events
- * - Other lifecycle events: Reference handlers for current Claude Code hooks
+ * Lifecycle Hook Handler — Dispatches lifecycle inputs to event-specific handlers.
  */
 
 import {
@@ -44,10 +35,9 @@ import { handleWorktreeRemove } from './worktree-remove.js';
 import { handlePostCompact } from './post-compact.js';
 import { handleElicitation } from './elicitation.js';
 import { handleElicitationResult } from './elicitation-result.js';
+import { handleSetup } from './setup.js';
+import { handleMessageDisplay } from './message-display.js';
 
-/**
- * Main lifecycle event router
- */
 async function handleLifecycleEvent(input: HookInput): Promise<void> {
   const { hook_event_name, session_id } = input;
 
@@ -64,8 +54,13 @@ async function handleLifecycleEvent(input: HookInput): Promise<void> {
     });
   }
 
-  // Route to specific handlers based on event type
   switch (hook_event_name) {
+    case 'Setup':
+      if (isHookType(input, 'Setup')) {
+        await handleSetup(input);
+      }
+      break;
+
     case 'UserPromptSubmit':
       if (isHookType(input, 'UserPromptSubmit')) {
         await validateUserPrompt(input);
@@ -75,6 +70,12 @@ async function handleLifecycleEvent(input: HookInput): Promise<void> {
     case 'Notification':
       if (isHookType(input, 'Notification')) {
         await handleNotification(input);
+      }
+      break;
+
+    case 'MessageDisplay':
+      if (isHookType(input, 'MessageDisplay')) {
+        await handleMessageDisplay(input);
       }
       break;
 
@@ -212,9 +213,6 @@ async function handleLifecycleEvent(input: HookInput): Promise<void> {
   logDebug(`Lifecycle hook completed: ${hook_event_name}`);
 }
 
-/**
- * Log session statistics
- */
 async function logSessionStatistics(
   sessionId: string,
   endReason: string
@@ -225,34 +223,24 @@ async function logSessionStatistics(
       session_id: sessionId,
       end_reason: endReason,
       end_timestamp: timestamp,
-      duration: 'unknown', // Could calculate if we stored start time
+      duration: 'unknown',
     };
 
     logInfo(`Session statistics: ${JSON.stringify(sessionInfo)}`);
-
-    // Could write to a log file or analytics service here
   } catch (error) {
     logDebug('Failed to log session statistics:', toError(error));
   }
 }
 
-// Removed unused _performSessionCleanup function
-
-/**
- * Main execution entry point for specific event types
- */
 if (import.meta.url === `file://${process.argv[1]}`) {
-  // This is a generic handler - specific event handlers should be called directly
   executeHook<HookInput>(handleLifecycleEvent).catch(error => {
     console.error('Failed to execute lifecycle hook:', error);
     process.exit(1);
   });
 }
 
-// Export individual handlers for direct use
 export { handleLifecycleEvent, logSessionStatistics };
 
-// Re-export specific handlers for convenience
 export { handleNotification } from './notification-handler.js';
 export { handleSessionStart } from './session-start.js';
 export { validateUserPrompt } from './user-prompt-validator.js';
@@ -276,3 +264,5 @@ export { handleWorktreeRemove } from './worktree-remove.js';
 export { handlePostCompact } from './post-compact.js';
 export { handleElicitation } from './elicitation.js';
 export { handleElicitationResult } from './elicitation-result.js';
+export { handleSetup } from './setup.js';
+export { handleMessageDisplay } from './message-display.js';

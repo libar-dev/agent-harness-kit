@@ -2,8 +2,6 @@
 
 `@libar-dev/agent-harness-kit` developer documentation.
 
----
-
 ## Guides — Start Here
 
 | Guide | What it covers |
@@ -14,19 +12,15 @@
 | [Cookbook](guides/cookbook.md) | 10 copy-pasteable recipes for common hook patterns |
 | [Troubleshooting](guides/troubleshooting.md) | Hook not firing, exit codes, debug logging, Zod errors |
 
----
-
 ## API Reference
 
 | Reference | What it covers |
 |-----------|----------------|
-| [Hook Events](reference/hook-events.md) | All 28 events — input fields, output shape, builder method |
+| [Hook Events](reference/hook-events.md) | All 30 events — input fields, output shape, builder method |
 | [HookOutputBuilder](reference/output-builder.md) | Every method with signature and examples |
 | [Validators](reference/validators.md) | Tool-input validators, type guards, content validators, config validators |
 | [Types](reference/types.md) | Full type catalogue — inputs, outputs, tools, config |
 | [Environment Variables](reference/environment-variables.md) | Every `CLAUDE_HOOK_*` variable with type, default, and description |
-
----
 
 ## Architecture & Internal
 
@@ -34,13 +28,11 @@
 |-----|----------|
 | [API Update Checklist](internal/api-update-checklist.md) | Maintainer checklist for tracking Claude Code API changes |
 | [Export Sessions Script](internal/export-sessions.md) | How the export-sessions utility works |
-| [Tail Sessions Script](internal/tail-session.md) | How the tail-session CLI works (modes, flags, marker offsets) |
-
----
+| [Session Tailing](internal/tail-session.md) | CLI and library APIs, marker offsets, multi-source session discovery, and live polling |
 
 ## Upstream Reference (Mirrored)
 
-Official Anthropic documentation mirrored for offline development use. Always check the [official docs](https://docs.anthropic.com/en/docs/claude-code/hooks) for the canonical, up-to-date version.
+Official Claude Code documentation mirrored for offline development use. Always check the [official docs](https://code.claude.com/docs/en/overview) for the canonical, up-to-date version.
 
 | Doc | Source |
 |-----|--------|

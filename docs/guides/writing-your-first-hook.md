@@ -223,4 +223,4 @@ throw createBlockingError('This must not proceed');
 
 - **[Cookbook](cookbook.md)** — recipes for PostToolUse, SessionStart, UserPromptSubmit, and other events.
 - **[HookOutputBuilder Reference](../reference/output-builder.md)** — every method, every event.
-- **[Hook Events Reference](../reference/hook-events.md)** — all 28 events with their input shapes.
+- **[Hook Events Reference](../reference/hook-events.md)** — all 30 events with their input shapes.

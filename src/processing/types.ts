@@ -6,10 +6,6 @@
  *   ~/.claude/projects/<project>/<session-id>/subagents/agent-*.jsonl
  */
 
-// ---------------------------------------------------------------------------
-// Raw JSONL types (matches Claude Code session storage format)
-// ---------------------------------------------------------------------------
-
 /** Content block inside an assistant message */
 export interface TextBlock {
   readonly type: 'text';
@@ -37,11 +33,17 @@ export interface ThinkingBlock {
   readonly thinking: string;
 }
 
+export interface ImageContentBlock {
+  readonly type: 'image';
+  readonly source?: unknown;
+}
+
 export type ContentBlock =
   | TextBlock
   | ToolUseBlock
   | ToolResultBlock
-  | ThinkingBlock;
+  | ThinkingBlock
+  | ImageContentBlock;
 
 export interface RawMessage {
   readonly role: 'user' | 'assistant';
@@ -50,7 +52,7 @@ export interface RawMessage {
   readonly model?: string | undefined;
   readonly stop_reason?: string | null | undefined;
   readonly stop_sequence?: string | null | undefined;
-  readonly usage?: Record<string, number> | undefined;
+  readonly usage?: Record<string, unknown> | undefined;
 }
 
 /** A single line from a .jsonl session file */
@@ -80,17 +82,16 @@ export interface RawHistoryLine {
   readonly subagentId?: string | undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Raw transcript records — unsafe exact access requires explicit opt-in
-// ---------------------------------------------------------------------------
-
 export type RawTranscriptRedactionMode = 'unsafe-unredacted';
+
+/** Storage role of a JSONL file within a Claude Code session. */
+export type RawTranscriptSourceKind = 'main' | 'subagent';
 
 export interface RawTranscriptRecord {
   readonly id: string;
   readonly sessionId: string;
   readonly sourcePath: string;
-  readonly sourceKind: 'main' | 'subagent';
+  readonly sourceKind: RawTranscriptSourceKind;
   readonly sourceId: string;
   readonly lineNumber: number;
   readonly byteStart: number;
@@ -119,14 +120,54 @@ export interface RawTranscriptTailResult extends TailProcessingCounts {
   readonly fileRotated: boolean;
 }
 
+/** Per-source outcome from a session-level raw transcript tail pass. */
+export interface RawTranscriptSourceTailResult extends TailProcessingCounts {
+  readonly sourcePath: string;
+  readonly sourceKind: RawTranscriptSourceKind;
+  readonly sourceId: string;
+  readonly recordCount: number;
+  readonly previousByteOffset: number;
+  readonly newByteOffset: number;
+  readonly fileSize: number;
+  readonly fileRotated: boolean;
+  /** Known history records retained raw after strict typed validation failed. */
+  readonly degradedHistoryLineCount: number;
+}
+
+/** Durable offset for one source in a session checkpoint. */
+export interface RawTranscriptSourceCheckpoint {
+  readonly sourceKind: RawTranscriptSourceKind;
+  readonly sourceId: string;
+  /** Increments when truncation starts a source from a lower byte offset. */
+  readonly generation: number;
+  readonly byteOffset: number;
+  readonly fileSize: number;
+}
+
+/** Serializable checkpoint committed after a batch is durably consumed. */
+export interface RawTranscriptSessionCheckpoint {
+  readonly sessionId: string;
+  /** Digest of the resolved absolute main JSONL path. */
+  readonly mainPathDigest: string;
+  /** Marker revision this checkpoint was derived from. */
+  readonly baseRevision: number;
+  readonly sources: readonly RawTranscriptSourceCheckpoint[];
+}
+
+/** Chronologically merged outcome from every JSONL source in one session. */
+export interface RawTranscriptSessionTailResult extends TailProcessingCounts {
+  readonly sessionId: string;
+  readonly records: readonly RawTranscriptRecord[];
+  readonly sources: readonly RawTranscriptSourceTailResult[];
+  readonly checkpoint: RawTranscriptSessionCheckpoint;
+  /** Sum of degraded history records reported by `sources`. */
+  readonly degradedHistoryLineCount: number;
+}
+
 export interface RawTranscriptSession {
   readonly sessionId: string;
   readonly records: readonly RawTranscriptRecord[];
 }
-
-// ---------------------------------------------------------------------------
-// Denoised output types
-// ---------------------------------------------------------------------------
 
 /** A cleaned message with only the valuable signal */
 export interface CleanMessage {
@@ -175,19 +216,15 @@ export interface ParsedSubagentSession {
   readonly messages: readonly CleanMessage[];
 }
 
-// ---------------------------------------------------------------------------
-// SessionBlock — discriminated union for structured (JSONL) export
-// ---------------------------------------------------------------------------
-//
-// One record per atomic conversation event. Designed for downstream consumers
-// (live-ingest consumers, vector DB ingestion, AI processing) that need typed blocks
-// rather than rendered markdown.
+// One record per atomic conversation event. Downstream consumers such as
+// live-ingest services, vector DB ingestion, and AI processing can use typed
+// blocks rather than rendered markdown.
 //
 // IDs are stable (`${messageUuid}:${blockIndex}` for message blocks,
 // `${sessionId}:agent-${direction}:${agentFile}` for synthetic boundaries) so
 // re-running the parser on the same JSONL produces identical IDs — making DB
-// upserts idempotent and enabling tail-mode incremental ingestion of growing
-// session files.
+// upserts idempotent and enabling tail-mode ingestion of growing session
+// files.
 
 export interface SessionBlockBase {
   /** Stable upsert key: `${messageUuid}:${blockIndex}`, sessionId, or namespaced synthetic boundary ID */
@@ -284,10 +321,6 @@ export interface SessionStats {
   readonly durationMs: number;
   readonly costUSD: number;
 }
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
 
 export interface DenoiseConfig {
   /** Include tool call summaries (default: true) */

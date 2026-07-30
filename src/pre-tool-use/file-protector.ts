@@ -3,11 +3,7 @@
 /**
  * File Protection Hook
  *
- * This PreToolUse hook protects sensitive files from being modified by:
- * - Blocking writes to configuration files (.env, package.json, etc.)
- * - Preventing edits to version control files (.git/*)
- * - Protecting system files and directories
- * - Allowing read-only operations on protected files
+ * Guards sensitive files before read and write tool calls run.
  */
 
 import {
@@ -27,7 +23,7 @@ import {
 } from '../validation/index.js';
 
 /**
- * Configuration for file protection behavior
+ * File protection behavior.
  */
 interface FileProtectionConfig {
   /** Whether to block all operations on protected files */
@@ -41,7 +37,7 @@ interface FileProtectionConfig {
 }
 
 /**
- * Get file protection configuration from environment
+ * Read file protection configuration from environment variables.
  */
 function getProtectionConfig(): FileProtectionConfig {
   return {
@@ -59,7 +55,7 @@ function getProtectionConfig(): FileProtectionConfig {
 }
 
 /**
- * Main file protection logic
+ * Enforce file protection rules for file operation tools.
  */
 async function protectFiles(input: PreToolUseInput): Promise<void> {
   validatePreToolUseInput(input);
@@ -67,7 +63,6 @@ async function protectFiles(input: PreToolUseInput): Promise<void> {
   const config = getProtectionConfig();
   const { tool_name } = input;
 
-  // Only process file operation tools
   const fileOperationTools = ['Write', 'Edit', 'MultiEdit', 'Read'];
   if (!fileOperationTools.includes(tool_name)) {
     return; // Allow non-file operations
@@ -76,7 +71,6 @@ async function protectFiles(input: PreToolUseInput): Promise<void> {
   let filePath: string;
   let operation: 'read' | 'write' | 'edit';
 
-  // Extract file path and operation type from different tools
   try {
     switch (tool_name) {
       case 'Write': {
@@ -99,11 +93,9 @@ async function protectFiles(input: PreToolUseInput): Promise<void> {
         break;
       }
       default:
-        // Unknown tool, let it proceed
         return;
     }
   } catch (error) {
-    // If we can't extract file path, let the tool handle validation
     logWarning(`Could not extract file path from ${tool_name} tool: ${error}`);
     return;
   }
@@ -117,7 +109,6 @@ async function protectFiles(input: PreToolUseInput): Promise<void> {
     `Checking file protection for ${operation} operation on: ${filePath}`
   );
 
-  // Validate file path safety
   const pathValidation = validateSafeFilePath(filePath);
   if (!pathValidation.isSafe) {
     outputJson(
@@ -129,12 +120,10 @@ async function protectFiles(input: PreToolUseInput): Promise<void> {
     return;
   }
 
-  // Check if file is protected
   const isProtected =
     isProtectedFile(filePath) ||
     config.extraProtectedPatterns.some(pattern => filePath.includes(pattern));
 
-  // Handle read operations
   if (operation === 'read') {
     if (config.autoApproveReads && !isProtected) {
       outputJson(
@@ -156,11 +145,9 @@ async function protectFiles(input: PreToolUseInput): Promise<void> {
       return;
     }
 
-    // Allow read operations by default
     return;
   }
 
-  // Handle write/edit operations on protected files
   if (isProtected) {
     const protectionMessage = getProtectionMessage(filePath, operation);
 
@@ -183,7 +170,6 @@ async function protectFiles(input: PreToolUseInput): Promise<void> {
     }
   }
 
-  // Check read-only files
   const isReadOnly = config.readOnlyFiles.some(
     pattern => filePath.includes(pattern) || filePath.endsWith(pattern)
   );
@@ -198,12 +184,11 @@ async function protectFiles(input: PreToolUseInput): Promise<void> {
     return;
   }
 
-  // File is not protected, allow operation
   logInfo(`File operation allowed: ${operation} on ${filePath}`);
 }
 
 /**
- * Get appropriate protection message based on file type
+ * Build a protection message for the file type and operation.
  */
 function getProtectionMessage(filePath: string, operation: string): string {
   if (filePath.includes('.env')) {
@@ -249,7 +234,7 @@ function getProtectionMessage(filePath: string, operation: string): string {
 }
 
 /**
- * Check if a file extension indicates a configuration file
+ * Check whether a path points to a configuration file.
  */
 function isConfigurationFile(filePath: string): boolean {
   const configExtensions = [
@@ -285,9 +270,6 @@ function isConfigurationFile(filePath: string): boolean {
   );
 }
 
-/**
- * Main execution entry point
- */
 if (import.meta.url === `file://${process.argv[1]}`) {
   executeHook<PreToolUseInput>(protectFiles).catch(error => {
     console.error('Failed to execute file protection hook:', error);
@@ -295,5 +277,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 }
 
-// Export for use in other hooks
 export { protectFiles, getProtectionConfig, isConfigurationFile };

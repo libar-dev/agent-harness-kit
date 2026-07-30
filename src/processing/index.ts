@@ -1,19 +1,6 @@
 /**
- * Session processing module — parse, denoise, and format Claude Code sessions.
- *
- * Pipeline: Raw JSONL → Parse → Denoise → Format (markdown)
- *
- * Usage:
- *   import { readSessionFiles, denoiseSession, toMarkdown } from './processing';
- *
- *   const raw = await readSessionFiles(projectDir, sessionId);
- *   const clean = denoiseSession(raw);
- *   const markdown = toMarkdown(clean);
+ * Public processing barrel and high-level session pipelines.
  */
-
-// ---------------------------------------------------------------------------
-// Imports (single import per module to satisfy no-duplicate-imports)
-// ---------------------------------------------------------------------------
 
 import {
   type RawHistoryLine,
@@ -23,6 +10,7 @@ import {
   type ToolUseBlock,
   type ToolResultBlock,
   type ThinkingBlock,
+  type ImageContentBlock,
   type CleanMessage,
   type ToolResultEntry,
   type ParsedSession,
@@ -40,7 +28,12 @@ import {
   type AgentBoundaryBlock,
   type RawTranscriptRecord,
   type RawTranscriptRedactionMode,
+  type RawTranscriptSourceKind,
   type RawTranscriptSession,
+  type RawTranscriptSourceCheckpoint,
+  type RawTranscriptSessionCheckpoint,
+  type RawTranscriptSourceTailResult,
+  type RawTranscriptSessionTailResult,
   type RawTranscriptTailResult,
   DEFAULT_DENOISE_CONFIG,
 } from './types.js';
@@ -56,12 +49,22 @@ import {
   type TailOptions,
   type RawTranscriptTailOptions,
   type RawTranscriptWatchOptions,
+  type RawTranscriptSessionTailOptions,
+  type RawTranscriptSessionWatchOptions,
+  type RawTranscriptSessionCommitOptions,
   type RawTranscriptReadOptions,
   type TailResult,
   tailBlocks,
   tailRawTranscriptRecords,
+  tailRawTranscriptSessionRecords,
+  commitRawTranscriptSessionCheckpoint,
   watchRawTranscriptRecords,
+  watchRawTranscriptSessionRecords,
   readRawSessionFiles,
+  getMarkerPath,
+  getRawTranscriptSessionMarkerPath,
+  readMarker,
+  writeMarker,
 } from './tail.js';
 
 import {
@@ -84,12 +87,7 @@ import {
   writeExportMarker,
 } from './discovery.js';
 
-// ---------------------------------------------------------------------------
-// Re-exports
-// ---------------------------------------------------------------------------
-
 export type {
-  // types.ts — raw + denoised
   RawHistoryLine,
   RawMessage,
   ContentBlock,
@@ -97,13 +95,13 @@ export type {
   ToolUseBlock,
   ToolResultBlock,
   ThinkingBlock,
+  ImageContentBlock,
   CleanMessage,
   ToolResultEntry,
   ParsedSession,
   ParsedSubagentSession,
   SessionStats,
   DenoiseConfig,
-  // types.ts — structured blocks (live-ingest / DB / AI consumers)
   SessionBlock,
   SessionBlockBase,
   SessionHeaderBlock,
@@ -115,45 +113,49 @@ export type {
   AgentBoundaryBlock,
   RawTranscriptRecord,
   RawTranscriptRedactionMode,
+  RawTranscriptSourceKind,
   RawTranscriptSession,
+  RawTranscriptSourceCheckpoint,
+  RawTranscriptSessionCheckpoint,
+  RawTranscriptSourceTailResult,
+  RawTranscriptSessionTailResult,
   RawTranscriptTailResult,
-  // parser.ts
   RawSession,
-  // formatter.ts
   FormatConfig,
   ExportConfig,
-  // discovery.ts
   SessionInfo,
   DiscoverOptions,
-  // tail.ts — incremental block emission for live consumers
   TailMarker,
   TailOptions,
   RawTranscriptTailOptions,
   RawTranscriptWatchOptions,
+  RawTranscriptSessionTailOptions,
+  RawTranscriptSessionWatchOptions,
+  RawTranscriptSessionCommitOptions,
   RawTranscriptReadOptions,
   TailResult,
 };
 
 export {
-  // types.ts
   DEFAULT_DENOISE_CONFIG,
-  // parser.ts
   readSessionFiles,
-  // denoiser.ts
   denoiseSession,
-  // blocks.ts — structured (JSONL) export
   extractBlocks,
   toJsonlBlocks,
-  // tail.ts — incremental block emission
   tailBlocks,
   tailRawTranscriptRecords,
+  tailRawTranscriptSessionRecords,
+  commitRawTranscriptSessionCheckpoint,
   watchRawTranscriptRecords,
+  watchRawTranscriptSessionRecords,
   readRawSessionFiles,
-  // formatter.ts
+  getMarkerPath,
+  getRawTranscriptSessionMarkerPath,
+  readMarker,
+  writeMarker,
   toMarkdown,
   toCompactSummary,
   toExportMarkdown,
-  // discovery.ts
   discoverSessions,
   projectDirFromCwd,
   listProjects,
@@ -162,10 +164,6 @@ export {
   readExportMarker,
   writeExportMarker,
 };
-
-// ---------------------------------------------------------------------------
-// Convenience: full pipeline in one call
-// ---------------------------------------------------------------------------
 
 /**
  * Full pipeline: read JSONL from disk → denoise → format as markdown.

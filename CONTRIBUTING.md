@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for your interest in contributing to `@libar-dev/agent-harness-kit`.
+Thanks for contributing to `@libar-dev/agent-harness-kit`.
 
 ## Getting Started
 
@@ -21,7 +21,7 @@ pnpm run build          # Compile src/ → dist/ (only needed before publishing)
 
 ## Code Rules
 
-**No `any` types — ever.** This is an absolute rule enforced by `noImplicitAny: true`. Use `unknown` with a validator instead:
+**No `any` types.** This is enforced by `noImplicitAny: true`. Use `unknown` with a validator instead:
 
 ```typescript
 // Wrong
@@ -52,7 +52,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
 ## Commit Style
 
-Follow the existing convention:
+Use the existing convention:
 
 ```
 fix: short description of the bug fixed
@@ -66,7 +66,7 @@ Keep the subject line under 72 characters. Reference issues in the body if appli
 
 ## Pull Request Checklist
 
-Before opening a PR, confirm:
+Before opening a PR:
 
 - [ ] `pnpm run check` passes with no errors or warnings
 - [ ] `pnpm run test:run` passes
@@ -76,4 +76,4 @@ Before opening a PR, confirm:
 
 ## Architecture Notes
 
-The high-level structure and the reasoning behind it lives in [docs/architecture/overview.md](docs/architecture/overview.md). The maintainer API-update checklist for tracking Claude Code API changes is in [docs/internal/api-update-checklist.md](docs/internal/api-update-checklist.md).
+The high-level structure and the reasoning behind it lives in [docs/README.md](docs/README.md). The maintainer API-update checklist for tracking Claude Code API changes is in [docs/internal/api-update-checklist.md](docs/internal/api-update-checklist.md).

@@ -11,7 +11,7 @@ import {
   mkdir,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, parse } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
@@ -20,15 +20,13 @@ import {
   watchRawTranscriptRecords,
   readRawSessionFiles,
   extractBlocks,
-  type RawTranscriptRecord,
-  type RawTranscriptTailResult,
-} from '../src/processing/index.js';
-import {
   readMarker,
   getMarkerPath,
   writeMarker,
-  parseSessionContent,
-} from '../src/processing/internal.js';
+  type RawTranscriptRecord,
+  type RawTranscriptTailResult,
+} from '../src/processing/index.js';
+import { parseSessionContent } from '../src/processing/internal.js';
 import { must } from './test-utils.js';
 
 const execFileAsync = promisify(execFile);
@@ -142,6 +140,29 @@ function makeUserTextLine(uuid: string, text: string, ts: string): string {
   return `${JSON.stringify({
     type: 'user',
     message: { role: 'user', content: text },
+    sessionId: 's1',
+    timestamp: ts,
+    uuid,
+  })}\n`;
+}
+
+function makeAssistantImageLine(
+  uuid: string,
+  mediaType: string,
+  data: string,
+  ts: string
+): string {
+  return `${JSON.stringify({
+    type: 'assistant',
+    message: {
+      role: 'assistant',
+      content: [
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: mediaType, data },
+        },
+      ],
+    },
     sessionId: 's1',
     timestamp: ts,
     uuid,
@@ -286,6 +307,54 @@ describe('Tail mode', () => {
     expect(result.newByteOffset).toBe(Buffer.byteLength(content));
   });
 
+  it('emits image transcript lines as structured tail blocks', async () => {
+    const content = makeAssistantImageLine(
+      'a-image',
+      'image/png',
+      'raw-base64-image-data',
+      '2026-02-16T20:00:00.000Z'
+    );
+    await writeFile(jsonlPath, content);
+
+    const result = await tailBlocks(jsonlPath, {
+      dryRun: true,
+      fromStart: true,
+    });
+
+    expect(result.blocks.length).toBeGreaterThan(0);
+    expect(result.blocks[0]).toMatchObject({
+      id: 'a-image:0',
+      type: 'assistant_text',
+      content: '[Image: image/png]',
+    });
+    expect(JSON.stringify(result.blocks)).not.toContain(
+      'raw-base64-image-data'
+    );
+    expect(result.invalidShapeLineCount).toBe(0);
+  });
+
+  it('emits image transcript lines in raw record tail mode', async () => {
+    const content = makeAssistantImageLine(
+      'a-image-raw',
+      'image/png',
+      'raw-base64-image-data',
+      '2026-02-16T20:00:00.000Z'
+    );
+    await writeFile(jsonlPath, content);
+
+    const result = await tailRawTranscriptRecords(jsonlPath, {
+      dryRun: true,
+      fromStart: true,
+    });
+
+    expect(result.records.length).toBeGreaterThan(0);
+    expect(result.records[0]).toMatchObject({
+      id: 's1:main:a-image-raw',
+      type: 'assistant',
+    });
+    expect(result.invalidShapeLineCount).toBe(0);
+  });
+
   it('redacts structured tail tool_result content and keeps replay output byte-identical', async () => {
     const content =
       makeAssistantToolUseLine('a-1', 'tu-1', '2026-02-16T20:00:00.000Z') +
@@ -399,7 +468,6 @@ describe('Tail mode', () => {
     const first = await tailBlocks(jsonlPath);
     expect(first.blocks).toHaveLength(1);
 
-    // Append a second message
     const appended = makeUserTextLine(
       'u-2',
       'second',
@@ -425,7 +493,6 @@ describe('Tail mode', () => {
   });
 
   it('resolves toolName on tool_result added in a later tail call', async () => {
-    // Initial: just the tool_use
     const initial = makeAssistantToolUseLine(
       'a-1',
       'tu-X',
@@ -435,7 +502,6 @@ describe('Tail mode', () => {
     const first = await tailBlocks(jsonlPath);
     expect(first.blocks).toHaveLength(1);
 
-    // Append the matching tool_result later
     const appended = makeUserToolResultLine(
       'u-1',
       'tu-X',
@@ -448,7 +514,6 @@ describe('Tail mode', () => {
     expect(second.blocks).toHaveLength(1);
     const block = must(second.blocks[0]);
     if (block.type === 'tool_result') {
-      // toolName resolved from PREVIOUS scan's tool_use
       expect(block.toolName).toBe('Bash');
       expect(block.content).toBe('output line');
     } else {
@@ -462,12 +527,10 @@ describe('Tail mode', () => {
       'done',
       '2026-02-16T20:00:00.000Z'
     );
-    // Append a partial second line (no terminating newline)
     const partial = `{"type":"user","message":{"role":"user","content":"part`;
     await writeFile(jsonlPath, complete + partial);
 
     const result = await tailBlocks(jsonlPath);
-    // Only the complete first line is parsed
     expect(result.blocks).toHaveLength(1);
     expect(must(result.blocks[0]).id).toBe('u-1:0');
     expect(result.invalidJsonLineCount).toBe(0);
@@ -585,10 +648,16 @@ describe('Tail mode', () => {
       rawRedactionMode: 'unsafe-unredacted',
     });
 
-    expect(result.records).toHaveLength(1);
+    expect(result.records).toHaveLength(2);
     expect(result.records[0]).toMatchObject({
       id: 's1:main:q-1',
       type: 'queue-operation',
+    });
+    // Known-type line failing strict typed validation is still counted under
+    // invalidShapeLineCount but preserved as a raw record for raw consumers.
+    expect(result.records[1]).toMatchObject({
+      id: 's1:main:bad-1',
+      type: 'user',
     });
     expect(result.invalidJsonLineCount).toBe(1);
     expect(result.invalidShapeLineCount).toBe(1);
@@ -598,6 +667,78 @@ describe('Tail mode', () => {
         unknownFutureLine + invalidKnownLine + malformedJsonLine + nonObjectLine
       )
     );
+  });
+
+  it('accepts assistant lines with modern nested usage objects as typed history', async () => {
+    const assistantLine = `${JSON.stringify({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done' }],
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cache_creation: { ephemeral_5m_input_tokens: 3 },
+          server_tool_use: { web_search_requests: 0 },
+          service_tier: 'standard',
+          iterations: [{ input_tokens: 10 }],
+        },
+      },
+      sessionId: 's1',
+      timestamp: '2026-02-16T20:00:00.000Z',
+      uuid: 'a-usage-1',
+    })}\n`;
+    await writeFile(jsonlPath, assistantLine);
+
+    const result = await tailBlocks(jsonlPath, {
+      dryRun: true,
+      fromStart: true,
+    });
+
+    expect(result.blocks).toHaveLength(1);
+    expect(result.blocks[0]).toMatchObject({
+      type: 'assistant_text',
+      content: 'done',
+    });
+    expect(result.invalidShapeLineCount).toBe(0);
+  });
+
+  it('preserves modern file-history-snapshot lines without top-level metadata as raw records', async () => {
+    // Claude Code moved timestamp/uuid/sessionId off the top level of
+    // file-history-snapshot lines; the strict typed schema rejects them but
+    // raw consumers must still receive the record.
+    const snapshotLine = `${JSON.stringify({
+      type: 'file-history-snapshot',
+      messageId: 'msg-1',
+      snapshot: {
+        messageId: 'msg-1',
+        trackedFileBackups: {},
+        timestamp: '2026-02-16T20:00:00.000Z',
+      },
+      isSnapshotUpdate: false,
+    })}\n`;
+    await writeFile(jsonlPath, snapshotLine);
+
+    const result = await tailRawTranscriptRecords(jsonlPath, {
+      dryRun: true,
+      fromStart: true,
+      rawRedactionMode: 'unsafe-unredacted',
+    });
+
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]).toMatchObject({
+      type: 'file-history-snapshot',
+      payload: { messageId: 'msg-1' },
+    });
+    expect(result.invalidShapeLineCount).toBe(1);
+
+    const blocksResult = await tailBlocks(jsonlPath, {
+      dryRun: true,
+      fromStart: true,
+    });
+    expect(blocksResult.blocks).toHaveLength(0);
+    expect(blocksResult.invalidShapeLineCount).toBe(1);
+    expect(blocksResult.skippedLineCount).toBe(0);
   });
 
   it('advances past invalid typed lines so they are not replayed after restart', async () => {
@@ -740,7 +881,6 @@ describe('Tail mode', () => {
     await writeFile(jsonlPath, big);
     await tailBlocks(jsonlPath);
 
-    // Truncate / rewrite the file shorter
     const shorter = makeUserTextLine(
       'u-new',
       'fresh',
@@ -788,7 +928,6 @@ describe('Tail mode', () => {
     const stats = await stat(expected);
     expect(stats.isFile()).toBe(true);
 
-    // Default location should NOT have a marker
     const defaultMarker = await readMarker(getMarkerPath(jsonlPath));
     expect(defaultMarker).toBeNull();
   });
@@ -815,6 +954,106 @@ describe('Tail mode', () => {
     await tailBlocks(jsonlPath, { markerDir });
 
     const marker = await readMarker(getMarkerPath(jsonlPath, markerDir));
+    expect(marker?.byteOffset).toBe(content.length);
+  });
+
+  it('allows custom markerDir via allowedMarkerRoots without the env var', async () => {
+    const content = makeUserTextLine('u-1', 'hi', '2026-02-16T20:00:00.000Z');
+    await writeFile(jsonlPath, content);
+    const markerDir = join(tmp, 'consumer-state');
+
+    await tailBlocks(jsonlPath, { markerDir, allowedMarkerRoots: [tmp] });
+
+    const marker = await readMarker(getMarkerPath(jsonlPath, markerDir, [tmp]));
+    expect(marker?.byteOffset).toBe(content.length);
+
+    const defaultMarker = await readMarker(getMarkerPath(jsonlPath));
+    expect(defaultMarker).toBeNull();
+  });
+
+  it('allowedMarkerRoots takes precedence over CLAUDE_TAIL_MARKER_ROOTS', async () => {
+    const content = makeUserTextLine('u-1', 'hi', '2026-02-16T20:00:00.000Z');
+    await writeFile(jsonlPath, content);
+    const markerDir = join(tmp, 'consumer-state');
+    process.env['CLAUDE_TAIL_MARKER_ROOTS'] = tmp;
+
+    await expect(
+      tailBlocks(jsonlPath, {
+        markerDir,
+        allowedMarkerRoots: [join(tmp, 'elsewhere')],
+      })
+    ).rejects.toThrow(/outside allowed marker roots/);
+  });
+
+  it('rejects custom markerDir outside allowedMarkerRoots', async () => {
+    const content = makeUserTextLine('u-1', 'hi', '2026-02-16T20:00:00.000Z');
+    await writeFile(jsonlPath, content);
+
+    await expect(
+      tailBlocks(jsonlPath, {
+        markerDir: join(tmp, 'rejected'),
+        allowedMarkerRoots: [join(tmp, 'allowed')],
+      })
+    ).rejects.toThrow(/outside allowed marker roots/);
+  });
+
+  it('allows a filesystem root in allowedMarkerRoots', () => {
+    const markerDir = join(tmp, 'consumer-state');
+    const filesystemRoot = parse(markerDir).root;
+
+    expect(getMarkerPath(jsonlPath, markerDir, [filesystemRoot])).toBe(
+      join(markerDir, 'session.json')
+    );
+  });
+
+  it('empty allowedMarkerRoots throws instead of falling back to the env var', async () => {
+    const content = makeUserTextLine('u-1', 'hi', '2026-02-16T20:00:00.000Z');
+    await writeFile(jsonlPath, content);
+    process.env['CLAUDE_TAIL_MARKER_ROOTS'] = tmp;
+
+    await expect(
+      tailBlocks(jsonlPath, {
+        markerDir: join(tmp, 'consumer-state'),
+        allowedMarkerRoots: [],
+      })
+    ).rejects.toThrow(/to include an allowed root/);
+  });
+
+  it('tailRawTranscriptRecords honors allowedMarkerRoots', async () => {
+    const content = makeUserTextLine('u-1', 'hi', '2026-02-16T20:00:00.000Z');
+    await writeFile(jsonlPath, content);
+    const markerDir = join(tmp, 'consumer-state');
+
+    const result = await tailRawTranscriptRecords(jsonlPath, {
+      markerDir,
+      allowedMarkerRoots: [tmp],
+    });
+    expect(result.records).toHaveLength(1);
+
+    const marker = await readMarker(getMarkerPath(jsonlPath, markerDir, [tmp]));
+    expect(marker?.byteOffset).toBe(content.length);
+  });
+
+  it('watchRawTranscriptRecords threads allowedMarkerRoots through', async () => {
+    const content = makeUserTextLine('u-1', 'hi', '2026-02-16T20:00:00.000Z');
+    await writeFile(jsonlPath, content);
+    const markerDir = join(tmp, 'consumer-state');
+    const controller = new AbortController();
+
+    const iterator = watchRawTranscriptRecords(jsonlPath, {
+      markerDir,
+      allowedMarkerRoots: [tmp],
+      pollMs: 10,
+      signal: controller.signal,
+    });
+    const first = await iterator.next();
+    controller.abort();
+    await iterator.return?.(undefined);
+
+    expect(first.done).toBe(false);
+    expect(first.value?.records).toHaveLength(1);
+
+    const marker = await readMarker(getMarkerPath(jsonlPath, markerDir, [tmp]));
     expect(marker?.byteOffset).toBe(content.length);
   });
 
@@ -1316,7 +1555,6 @@ describe('Tail mode', () => {
       '2026-02-16T20:00:00.000Z'
     );
     const later = makeUserTextLine('u-2', 'second', '2026-02-16T20:00:05.000Z');
-    // Write them in reverse
     await writeFile(jsonlPath, later + earlier);
 
     const result = await tailBlocks(jsonlPath);
@@ -1326,7 +1564,6 @@ describe('Tail mode', () => {
   });
 
   it('end-to-end: simulates a live-ingest consumer incremental ingest pattern', async () => {
-    // Round 1: Claude Code creates session, consumer tails first time
     await writeFile(
       jsonlPath,
       makeUserTextLine('u-1', 'analyze repo', '2026-02-16T20:00:00.000Z')
@@ -1334,7 +1571,6 @@ describe('Tail mode', () => {
     const round1 = await tailBlocks(jsonlPath);
     expect(round1.blocks).toHaveLength(1);
 
-    // Round 2: Claude responds with tool call, consumer tails
     await appendFile(
       jsonlPath,
       makeAssistantToolUseLine('a-1', 'tu-1', '2026-02-16T20:00:01.000Z')
@@ -1343,7 +1579,6 @@ describe('Tail mode', () => {
     expect(round2.blocks).toHaveLength(1);
     expect(must(round2.blocks[0]).type).toBe('tool_use');
 
-    // Round 3: Tool result lands, consumer tails — toolName must be resolved
     await appendFile(
       jsonlPath,
       makeUserToolResultLine(
@@ -1360,13 +1595,11 @@ describe('Tail mode', () => {
       expect(tr.toolName).toBe('Bash');
     }
 
-    // Total blocks across all rounds = unique IDs (no duplicates from re-emission)
     const allIds = [...round1.blocks, ...round2.blocks, ...round3.blocks].map(
       b => b.id
     );
     expect(new Set(allIds).size).toBe(allIds.length);
 
-    // The final marker should point to file size
     const finalSize = (await readFile(jsonlPath)).length;
     const marker = must(await readMarker(getMarkerPath(jsonlPath)));
     expect(marker.byteOffset).toBe(finalSize);

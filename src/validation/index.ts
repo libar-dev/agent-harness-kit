@@ -1,11 +1,6 @@
 /**
- * Zod-based validation schemas for Claude Code hooks
- *
- * Following a schema-first approach:
- * 1. Define Zod schema
- * 2. Infer TypeScript types with z.infer
- * 3. Use .safeParse() at all system boundaries
- * 4. Never bypass runtime validation
+ * Public validation barrel for hook schemas, validators, type guards, and inferred schema types.
+ * Consumers import from this module to validate hook JSON and tool inputs at runtime boundaries.
  */
 
 export {
@@ -85,6 +80,7 @@ export {
   toolUseContentBlockSchema,
   toolResultContentBlockSchema,
   thinkingContentBlockSchema,
+  imageContentBlockSchema,
   contentBlockSchema,
   rawUserMessageSchema,
   rawAssistantMessageSchema,
@@ -145,9 +141,11 @@ export {
   isPostToolBatchInput,
   isUserPromptSubmitInput,
   isUserPromptExpansionInput,
+  isSetupInput,
   isSessionStartInput,
   isSessionEndInput,
   isNotificationInput,
+  isMessageDisplayInput,
   isStopInput,
   isStopFailureInput,
   isSubagentStartInput,
@@ -169,6 +167,7 @@ export {
   // Hook-type-specific validators
   validatePreToolUseInput,
   validatePostToolUseInput,
+  validateSetupInput,
   validateUserPromptExpansionInput,
   validatePermissionDeniedInput,
   validatePostToolBatchInput,
@@ -181,6 +180,7 @@ export {
   validateWorktreeCreateInput,
   validateWorktreeRemoveInput,
   validatePostCompactInput,
+  validateMessageDisplayInput,
   validateElicitationInput,
   validateElicitationResultInput,
   // Content validators
@@ -206,9 +206,11 @@ export type {
   PostToolBatchInputSchema,
   UserPromptSubmitInputSchema,
   UserPromptExpansionInputSchema,
+  SetupInputSchema,
   SessionStartInputSchema,
   SessionEndInputSchema,
   NotificationInputSchema,
+  MessageDisplayInputSchema,
   StopInputSchema,
   StopFailureInputSchema,
   SubagentStartInputSchema,
@@ -230,6 +232,7 @@ export type {
   BaseHookOutputSchema,
   PreToolUseOutputSchema,
   PostToolUseOutputSchema,
+  SetupOutputSchema,
   PermissionRequestOutputSchema,
   PermissionDeniedOutputSchema,
   PostToolUseFailureOutputSchema,
@@ -240,6 +243,7 @@ export type {
   SubagentStartOutputSchema,
   SessionStartOutputSchema,
   NotificationOutputSchema,
+  MessageDisplayOutputSchema,
   PreCompactOutputSchema,
   ConfigChangeOutputSchema,
   WatchPathsOutputSchema,
@@ -269,6 +273,7 @@ export type {
   ToolUseContentBlockSchema,
   ToolResultContentBlockSchema,
   ThinkingContentBlockSchema,
+  ImageContentBlockSchema,
   ContentBlockSchema,
   RawUserMessageSchema,
   RawAssistantMessageSchema,

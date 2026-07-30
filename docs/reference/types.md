@@ -4,22 +4,18 @@ Public TypeScript types exported by `@libar-dev/agent-harness-kit/types`.
 
 **Source:** [`src/types/index.ts`](../../src/types/index.ts)
 
----
-
 ## Base Types
 
 | Type | Description |
 |------|-------------|
-| `BaseHookInput` | Common fields in every hook input (`session_id`, `transcript_path`, `cwd`, `hook_event_name`, `permission_mode`, `agent_id`, `agent_type`) |
-| `BaseHookOutput` | Common output fields (`continue`, `stopReason`, `suppressOutput`, `systemMessage`) |
-| `HookInput` | Union of all 28 per-event input types |
+| `BaseHookInput` | Common fields in every hook input (`session_id`, `transcript_path`, `cwd`, `hook_event_name`, `permission_mode`, `agent_id`, `agent_type`, `effort`) |
+| `BaseHookOutput` | Common output fields (`continue`, `stopReason`, `suppressOutput`, `systemMessage`, `terminalSequence`) |
+| `HookInput` | Union of all 30 per-event input types |
 | `HookOutput` | Union of all per-event output types |
 | `PermissionMode` | `'default' \| 'plan' \| 'acceptEdits' \| 'auto' \| 'dontAsk' \| 'bypassPermissions'` |
 | `PermissionUpdateEntry` | `{ type: string; [key: string]: unknown }` — used in permission update arrays |
 | `ElicitationAction` | `'accept' \| 'decline' \| 'cancel'` |
 | `ElicitationMode` | `'form' \| 'url'` |
-
----
 
 ## Per-Event Input Types
 
@@ -30,8 +26,8 @@ All extend `BaseHookInput`.
 | Type | Key additional fields |
 |------|----------------------|
 | `PreToolUseInput` | `tool_name`, `tool_input`, `tool_use_id` |
-| `PostToolUseInput` | `tool_name`, `tool_input`, `tool_response`, `tool_use_id` |
-| `PostToolUseFailureInput` | `tool_name`, `tool_input`, `tool_use_id`, `error`, `is_interrupt?` |
+| `PostToolUseInput` | `tool_name`, `tool_input`, `tool_response`, `tool_use_id`, `duration_ms?` |
+| `PostToolUseFailureInput` | `tool_name`, `tool_input`, `tool_use_id`, `error`, `is_interrupt?`, `duration_ms?` |
 | `PostToolBatchInput` | `tool_calls: PostToolBatchCall[]` |
 
 `PostToolBatchCall`: `{ tool_name, tool_input, tool_use_id, tool_response }`.
@@ -50,6 +46,7 @@ All extend `BaseHookInput`.
 | `UserPromptSubmitInput` | `prompt` |
 | `UserPromptExpansionInput` | `expansion_type`, `command_name`, `command_args`, `command_source`, `prompt` |
 | `NotificationInput` | `message`, `title?`, `notification_type` |
+| `MessageDisplayInput` | `turn_id`, `message_id`, `index`, `final`, `delta` |
 | `ElicitationInput` | `mcp_server_name`, `message`, `mode?`, `requested_schema?`, `url?`, `elicitation_id?` |
 | `ElicitationResultInput` | `mcp_server_name`, `action`, `content?`, `mode?`, `elicitation_id?` |
 
@@ -67,6 +64,7 @@ All extend `BaseHookInput`.
 
 | Type | Key additional fields |
 |------|----------------------|
+| `SetupInput` | `trigger` |
 | `SessionStartInput` | `source`, `model`, `agent_type?` |
 | `SessionEndInput` | `reason` |
 | `StopInput` | `stop_hook_active`, `last_assistant_message?` |
@@ -95,8 +93,6 @@ All extend `BaseHookInput`.
 | `PreCompactInput` | `trigger`, `custom_instructions` |
 | `PostCompactInput` | `trigger`, `compact_summary` |
 
----
-
 ## Per-Event Output Types
 
 All extend `BaseHookOutput`.
@@ -112,7 +108,9 @@ All extend `BaseHookOutput`.
 | `UserPromptSubmitOutput` | Block prompt or add context/title |
 | `UserPromptExpansionOutput` | Block expansion or add context |
 | `NotificationOutput` | Add `additionalContext` |
+| `MessageDisplayOutput` | Override the currently rendered message chunk |
 | `SubagentStartOutput` | Add `additionalContext` to subagent's system prompt |
+| `SetupOutput` | Add `additionalContext` during setup |
 | `SessionStartOutput` | Add `additionalContext` to session |
 | `StopOutput` | Block stopping via `decision: 'block'` + `reason` |
 | `PreCompactOutput` | Block compaction or inject `additionalContext` |
@@ -120,8 +118,6 @@ All extend `BaseHookOutput`.
 | `WatchPathsOutput` | Update watched paths via `watchPaths: string[]` |
 | `WorktreeCreateOutput` | Return custom `worktreePath` via `hookSpecificOutput` |
 | `ElicitationOutput` | Programmatic response via `hookSpecificOutput.action` |
-
----
 
 ## Tool Input Types
 
@@ -143,13 +139,11 @@ All extend `BaseHookOutput`.
 | `MCPToolInput` | `Record<string, unknown>` |
 | `TaskToolInput` | `prompt: string`, `description?`, `subagent_type?`, `model?` |
 
----
-
 ## Hook Handler Types (settings.json)
 
 | Type | Key fields |
 |------|-----------|
-| `CommandHookHandler` | `type: 'command'`, `command: string`, `async?`, `asyncRewake?`, `shell?` |
+| `CommandHookHandler` | `type: 'command'`, `command: string`, `args?: string[]`, `async?`, `asyncRewake?`, `shell?` |
 | `HttpHookHandler` | `type: 'http'`, `url: string`, `headers?`, `allowedEnvVars?` |
 | `McpToolHookHandler` | `type: 'mcp_tool'`, `server: string`, `tool: string`, `input?` |
 | `PromptHookHandler` | `type: 'prompt'`, `prompt: string`, `model?` |
@@ -157,11 +151,9 @@ All extend `BaseHookOutput`.
 | `HookHandler` | Union of the five handler types (discriminated on `type`) |
 | `MatcherGroup` | `{ matcher?: string; hooks: HookHandler[] }` |
 | `HooksConfig` | `{ hooks?: Partial<Record<HookEventName, MatcherGroup[]>>; allowManagedHooksOnly?; allowedHttpHookUrls?; httpHookAllowedEnvVars? }` |
-| `HookEventName` | Union of all 28 event name strings |
+| `HookEventName` | Union of all 30 event name strings |
 
 All handler types share base fields: `timeout?`, `statusMessage?`, `once?`, `if?`.
-
----
 
 ## Environment and Config Types
 
@@ -171,8 +163,6 @@ All handler types share base fields: `timeout?`, `statusMessage?`, `once?`, `if?
 | `HookConfig` | Parsed configuration from `getConfig()` |
 
 `HookEnvironmentVars` key fields: `CLAUDE_PROJECT_DIR`, `CLAUDE_CODE_REMOTE?`, `CLAUDE_ENV_FILE?` (SessionStart only), `CLAUDE_PLUGIN_ROOT?`, `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS?`, `CLAUDE_CODE_DEBUG_LOG_LEVEL?`.
-
----
 
 ## Utility
 

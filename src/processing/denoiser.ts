@@ -26,6 +26,7 @@ import {
   type TextBlock,
   type ToolUseBlock,
   type ThinkingBlock,
+  type ImageContentBlock,
   type CleanMessage,
   type ToolResultEntry,
   type ParsedSession,
@@ -41,16 +42,12 @@ import {
   redactRetainedToolResultText,
 } from './tool-result-redaction.js';
 import { compareStrings } from './ordering.js';
+import { imagePlaceholder } from './image-placeholder.js';
 import { isRecord } from '../utils/index.js';
-
-// ---------------------------------------------------------------------------
-// Tool call summarizer
-// ---------------------------------------------------------------------------
 
 type ToolCallSummarizer = (input: Readonly<Record<string, unknown>>) => string;
 
 const TOOL_CALL_SUMMARIZERS: Readonly<Record<string, ToolCallSummarizer>> = {
-  // --- File operations ---
   Read: input => `Read(${String(input['file_path'] ?? '?')})`,
   Write: input => `Write(${String(input['file_path'] ?? '?')})`,
   Edit: input => `Edit(${String(input['file_path'] ?? '?')})`,
@@ -58,17 +55,14 @@ const TOOL_CALL_SUMMARIZERS: Readonly<Record<string, ToolCallSummarizer>> = {
   NotebookEdit: input =>
     `NotebookEdit(${String(input['notebook_path'] ?? input['file_path'] ?? '?')})`,
 
-  // --- Shell / search ---
   Bash: input => `Bash(${truncate(String(input['command'] ?? '?'), 80)})`,
   Glob: input => `Glob(${String(input['pattern'] ?? '?')})`,
   Grep: input => `Grep(${String(input['pattern'] ?? '?')})`,
 
-  // --- Web ---
   WebFetch: input => `WebFetch(${String(input['url'] ?? '?')})`,
   WebSearch: input =>
     `WebSearch(${truncate(String(input['query'] ?? '?'), 60)})`,
 
-  // --- Agent / Task ---
   Agent: input => {
     const desc = input['description'] ?? input['subagent_type'] ?? '?';
     return `Agent(${truncate(String(desc), 60)})`;
@@ -81,7 +75,6 @@ const TOOL_CALL_SUMMARIZERS: Readonly<Record<string, ToolCallSummarizer>> = {
       : `Skill(${skill})`;
   },
 
-  // --- TaskCreate/TaskUpdate family (replaces deprecated TodoWrite/Task) ---
   TaskCreate: input =>
     `TaskCreate(${truncate(String(input['subject'] ?? input['description'] ?? '?'), 60)})`,
   TaskUpdate: input => {
@@ -98,14 +91,11 @@ const TOOL_CALL_SUMMARIZERS: Readonly<Record<string, ToolCallSummarizer>> = {
   TaskOutput: input => `TaskOutput(${String(input['taskId'] ?? '?')})`,
   TaskList: () => 'TaskList()',
 
-  // --- Tool/skill discovery ---
   ToolSearch: input =>
     `ToolSearch(${truncate(String(input['query'] ?? '?'), 60)})`,
 
-  // --- Plan / interaction ---
   EnterPlanMode: () => 'EnterPlanMode()',
-  ExitPlanMode: input =>
-    `ExitPlanMode(${truncate(String(input['plan'] ?? '?'), 60)})`,
+  ExitPlanMode: input => `plan: ${summarizePlan(input['plan'])}`,
   AskUserQuestion: input => {
     const questions = input['questions'];
     if (Array.isArray(questions) && questions.length > 0) {
@@ -118,7 +108,6 @@ const TOOL_CALL_SUMMARIZERS: Readonly<Record<string, ToolCallSummarizer>> = {
     return 'AskUserQuestion(?)';
   },
 
-  // --- Background / scheduling ---
   ScheduleWakeup: input => {
     const delay = input['delaySeconds'];
     const reason = input['reason'];
@@ -134,19 +123,16 @@ const TOOL_CALL_SUMMARIZERS: Readonly<Record<string, ToolCallSummarizer>> = {
   PushNotification: input =>
     `PushNotification(${truncate(String(input['message'] ?? input['title'] ?? '?'), 60)})`,
 
-  // --- Worktree ---
   EnterWorktree: input =>
     `EnterWorktree(${String(input['name'] ?? input['path'] ?? '?')})`,
   ExitWorktree: () => 'ExitWorktree()',
 
-  // --- Cron ---
   CronCreate: input =>
     `CronCreate(${truncate(String(input['name'] ?? input['schedule'] ?? '?'), 60)})`,
   CronList: () => 'CronList()',
   CronDelete: input =>
     `CronDelete(${String(input['id'] ?? input['name'] ?? '?')})`,
 
-  // --- IDE / LSP ---
   LSP: input =>
     `LSP(${truncate(String(input['method'] ?? input['command'] ?? '?'), 60)})`,
   ListMcpResourcesTool: input =>
@@ -154,6 +140,16 @@ const TOOL_CALL_SUMMARIZERS: Readonly<Record<string, ToolCallSummarizer>> = {
   ReadMcpResourceTool: input =>
     `ReadMcpResourceTool(${String(input['uri'] ?? input['server'] ?? '?')})`,
 };
+
+function summarizePlan(value: unknown): string {
+  if (typeof value !== 'string') return '?';
+  const heading = value
+    .split(/\r?\n/u)
+    .map(line => line.trim())
+    .find(line => /^#{1,6}\s+\S/u.test(line));
+  const summary = heading?.replace(/^#{1,6}\s+/u, '') ?? value.trim();
+  return truncate(summary || '?', 60);
+}
 
 /** Summarize a tool_use block into a one-liner like "Read(file_path: src/index.ts)" */
 export function summarizeToolCall(block: ToolUseBlock): string {
@@ -200,10 +196,6 @@ function summarizeGenericArgs(
   return '';
 }
 
-// ---------------------------------------------------------------------------
-// Text extraction helpers
-// ---------------------------------------------------------------------------
-
 function isTextBlock(block: ContentBlock): block is TextBlock {
   return block.type === 'text';
 }
@@ -214,6 +206,10 @@ function isToolUseBlock(block: ContentBlock): block is ToolUseBlock {
 
 function isThinkingBlock(block: ContentBlock): block is ThinkingBlock {
   return block.type === 'thinking';
+}
+
+function isImageBlock(block: ContentBlock): block is ImageContentBlock {
+  return block.type === 'image';
 }
 
 /** Extract user-facing text from a message's content field */
@@ -229,6 +225,8 @@ function extractText(
   for (const block of content) {
     if (isTextBlock(block) && block.text.trim()) {
       textParts.push(block.text);
+    } else if (isImageBlock(block)) {
+      textParts.push(imagePlaceholder(block.source));
     }
   }
 
@@ -288,27 +286,11 @@ interface ToolResultTextBlock {
   readonly text?: string | undefined;
 }
 
-function hasTypeProperty(
-  item: Record<string, unknown>
-): item is Record<string, unknown> & { type: unknown } {
-  return 'type' in item;
-}
-
-function hasTextProperty(
-  item: Record<string, unknown>
-): item is Record<string, unknown> & { text: unknown } {
-  return 'text' in item;
-}
-
-function isTextResultBlock(item: unknown): item is ToolResultTextBlock {
+function isTextResultBlock(
+  item: unknown
+): item is ToolResultTextBlock & { readonly text: string } {
   if (!isRecord(item)) return false;
-
-  return (
-    hasTypeProperty(item) &&
-    item.type === 'text' &&
-    hasTextProperty(item) &&
-    typeof item.text === 'string'
-  );
+  return item['type'] === 'text' && typeof item['text'] === 'string';
 }
 
 export function extractToolResultText(
@@ -318,7 +300,7 @@ export function extractToolResultText(
   if (!Array.isArray(content)) return '';
   const parts: string[] = [];
   for (const item of content) {
-    if (isTextResultBlock(item) && item.text !== undefined) {
+    if (isTextResultBlock(item)) {
       parts.push(item.text);
     }
   }
@@ -372,10 +354,6 @@ function truncate(text: string, maxLength: number): string {
 
 const MAX_THINKING_PREVIEW_LENGTH = 1000;
 
-// ---------------------------------------------------------------------------
-// Denoiser — converts raw lines to clean messages
-// ---------------------------------------------------------------------------
-
 function denoiseLines(
   lines: readonly RawHistoryLine[],
   config: DenoiseConfig,
@@ -385,7 +363,6 @@ function denoiseLines(
   const toolNameById = buildToolNameMap(lines);
 
   for (const line of lines) {
-    // Skip non-message lines (session summaries, system, progress indicators)
     if (
       line.type === 'result' ||
       line.type === 'system' ||
@@ -410,7 +387,6 @@ function denoiseLines(
         ? extractToolResults(msg.content, toolNameById)
         : [];
 
-      // Skip user messages with no text, errors, or tool results
       if (!text && errors.length === 0 && toolResults.length === 0) continue;
 
       messages.push({
@@ -425,7 +401,6 @@ function denoiseLines(
     } else if (msg.role === 'assistant') {
       const text = extractText(msg.content, config.maxAssistantBlockLength);
 
-      // Skip assistant messages that have no text (pure tool-call turns)
       if (!text && !config.includeToolSummaries) continue;
 
       const toolCalls = config.includeToolSummaries
@@ -440,7 +415,6 @@ function denoiseLines(
         ? `[thinking]\n${truncate(thinking, MAX_THINKING_PREVIEW_LENGTH)}\n[/thinking]\n\n${text}`
         : text;
 
-      // Skip if there's truly nothing
       if (!fullText && toolCalls.length === 0) continue;
 
       messages.push({
@@ -480,6 +454,8 @@ function extractUserText(msg: RawMessage, config: DenoiseConfig): string {
       if (!isSystemNoise(block.text)) {
         textParts.push(block.text);
       }
+    } else if (isImageBlock(block)) {
+      textParts.push(imagePlaceholder(block.source));
     }
     // tool_result blocks in user messages are Claude Code feeding back
     // tool output — this is noise (file contents, command output, etc.)
@@ -488,10 +464,6 @@ function extractUserText(msg: RawMessage, config: DenoiseConfig): string {
   const joined = textParts.join('\n\n');
   return truncate(joined, config.maxUserMessageLength);
 }
-
-// ---------------------------------------------------------------------------
-// Stats calculation
-// ---------------------------------------------------------------------------
 
 function calculateStats(raw: RawSession): SessionStats {
   const allLines = [
@@ -523,7 +495,6 @@ function calculateStats(raw: RawSession): SessionStats {
 
     if (msg.role === 'user') {
       userMessages++;
-      // Count tool_result errors in user messages
       if (typeof msg.content !== 'string') {
         for (const block of msg.content) {
           if (
@@ -564,10 +535,6 @@ function calculateStats(raw: RawSession): SessionStats {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
 /**
  * Denoise a raw session into clean, structured messages.
  *
@@ -581,10 +548,8 @@ export function denoiseSession(
 ): ParsedSession {
   const cfg: DenoiseConfig = { ...DEFAULT_DENOISE_CONFIG, ...config };
 
-  // Denoise main session
   const mainMessages = denoiseLines(raw.mainLines, cfg);
 
-  // Denoise subagent sessions
   const subagentSessions: ParsedSubagentSession[] = cfg.includeSubagents
     ? raw.subagentFiles.map(f => ({
         agentFile: f.filename,
@@ -592,7 +557,6 @@ export function denoiseSession(
       }))
     : [];
 
-  // Calculate timestamps from clean messages
   const allTimestamps = [
     ...mainMessages.map(m => m.timestamp),
     ...subagentSessions.flatMap(s => s.messages.map(m => m.timestamp)),

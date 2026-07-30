@@ -2,8 +2,8 @@
 
 ## Supported Versions
 
-This library is pre-1.0-stable in practice and published from the `main` branch. Security
-fixes are applied to the latest released version. Older versions are not maintained.
+This library is a pre-1.0 release candidate published from the `main` branch. Security
+fixes apply to the latest released version. Older versions are not maintained.
 
 | Version | Supported          |
 | ------- | ------------------ |
@@ -27,14 +27,14 @@ public disclosure.
 ## Scope
 
 This is a TypeScript library that processes Claude Code hook I/O and session transcripts.
-Particularly relevant areas:
+Relevant areas:
 
 - **Untrusted transcript content** parsed by the `processing/` and tail subsystems
   (JSONL validation, secret redaction, regex safety).
 - **Hook input validation** in `validation/` (Zod schemas at trust boundaries).
 
 **Known limitation — secret redaction scope.** Redaction covers tool-**result**
-bodies and error strings (Bash stdout, file contents, diffs, and the like). It
+bodies and error strings (Bash stdout, file contents, diffs, etc.). It
 does **not** redact tool-**call inputs** — for example a Bash command such as
 `export API_KEY=...`, or a URL with embedded credentials passed as a tool
 argument — nor the one-line tool-call summaries derived from those inputs.
@@ -42,4 +42,4 @@ Consumers should treat tool-call inputs as potentially containing secrets and
 handle them accordingly. The `--format raw-records` path is unredacted by
 design and is gated behind an explicit `--unsafe-raw-unredacted` opt-in.
 
-When reporting, noting which subsystem is involved helps us triage quickly.
+When reporting, include the subsystem involved if known.

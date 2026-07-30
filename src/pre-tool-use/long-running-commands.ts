@@ -3,21 +3,7 @@
 /**
  * Long-Running Commands Hook
  *
- * This PreToolUse hook intercepts critical validation commands that require
- * extended timeouts beyond Claude Code's default 30-second limit.
- *
- * Intercepted Commands:
- * - npm run check:fast (~75s)
- * - npm run check (~90s)
- * - npm run fix:file -- <path> (~30-60s)
- * - npm run typecheck:all (~60s)
- * - npm run lint:focus (~30s)
- *
- * Strategy:
- * - Auto-approve matching commands (no permission blocking)
- * - Execute with extended timeouts (120-180s)
- * - Stream progress feedback to Claude
- * - Handle validation errors gracefully
+ * Extends timeouts for known validation commands before Bash execution.
  */
 
 import { execFile } from 'node:child_process';
@@ -38,7 +24,7 @@ import { validateBashToolInput } from '../validation/index.js';
 const execFileAsync = promisify(execFile);
 
 /**
- * Configuration for command timeouts (in seconds)
+ * Command timeouts in seconds.
  */
 const COMMAND_TIMEOUTS = {
   'check:fast': 180, // TypeScript-only validation
@@ -55,7 +41,7 @@ const COMMAND_TIMEOUTS = {
 } as const;
 
 /**
- * Long-running validation command patterns
+ * Validation commands that need longer than Claude Code's default timeout.
  */
 const LONG_RUNNING_PATTERNS = [
   /^npm run check:fast$/,
@@ -74,30 +60,27 @@ const LONG_RUNNING_PATTERNS = [
 ];
 
 /**
- * Check if a command is a long-running validation command
+ * Check whether a command uses long-running validation behavior.
  */
 function isLongRunningCommand(command: string): boolean {
   return LONG_RUNNING_PATTERNS.some(pattern => pattern.test(command.trim()));
 }
 
 /**
- * Get timeout for a specific command
+ * Get the timeout for a validation command.
  */
 function getCommandTimeout(command: string): number {
-  // Extract command name from npm run scripts
   const match = command.match(/npm run ([\w:]+)/);
   if (!match?.[1]) return 120; // Default 2 minutes
 
   const scriptName = match[1];
 
-  // Check exact matches first
   for (const [key, timeout] of Object.entries(COMMAND_TIMEOUTS)) {
     if (scriptName === key || scriptName.startsWith(`${key}:`)) {
       return timeout;
     }
   }
 
-  // Default for validation-related commands
   if (scriptName.includes('validate') || scriptName.includes('check')) {
     return 180;
   }
@@ -106,10 +89,9 @@ function getCommandTimeout(command: string): number {
 }
 
 /**
- * Get friendly name for progress messages
+ * Get a readable command name for progress messages.
  */
 function getCommandDisplayName(command: string): string {
-  // Handle npx commands
   if (command.startsWith('npx convex codegen')) {
     return 'Convex type generation';
   }
@@ -129,7 +111,6 @@ function getCommandDisplayName(command: string): string {
     sync: 'schema sync and validation',
   };
 
-  // Handle lint:session:* dynamically
   if (scriptName.startsWith('lint:session:')) {
     const group = scriptName.replace('lint:session:', '');
     return `lint session analysis (${group})`;
@@ -139,7 +120,7 @@ function getCommandDisplayName(command: string): string {
 }
 
 /**
- * Execute a long-running command with extended timeout
+ * Execute a long-running command with an extended timeout.
  */
 async function executeLongRunningCommand(
   command: string,
@@ -166,7 +147,6 @@ async function executeLongRunningCommand(
   } catch (error: unknown) {
     const execError = getExecError(error);
 
-    // Handle timeout
     if (execError.code === 'ETIMEDOUT' || execError.killed) {
       logError(
         `Command timed out after ${timeout}s: ${command}`,
@@ -179,7 +159,6 @@ async function executeLongRunningCommand(
       };
     }
 
-    // Handle validation failures (exit code != 0)
     logDebug(`Command failed with error: ${execError.message ?? 'Unknown'}`);
     return {
       success: false,
@@ -219,19 +198,16 @@ function getExecError(error: unknown): {
 }
 
 /**
- * Main hook logic
+ * Handle long-running validation Bash commands.
  */
 async function handleLongRunningCommand(input: PreToolUseInput): Promise<void> {
-  // Only process Bash tool calls
   if (input.tool_name !== 'Bash') {
     return;
   }
 
-  // Validate and extract command
   const bashInput = validateBashToolInput(input);
   const command = bashInput.command.trim();
 
-  // Check if this is a long-running validation command
   if (!isLongRunningCommand(command)) {
     logDebug(`Command not matched for long-running handling: ${command}`);
     return;
@@ -245,7 +221,6 @@ async function handleLongRunningCommand(input: PreToolUseInput): Promise<void> {
     `Intercepting long-running command: ${command} (timeout: ${timeout}s)`
   );
 
-  // Auto-approve and provide progress feedback
   outputJson(
     HookOutputBuilder.permission(
       'allow',
@@ -253,11 +228,9 @@ async function handleLongRunningCommand(input: PreToolUseInput): Promise<void> {
     )
   );
 
-  // Execute the command with extended timeout
   const result = await executeLongRunningCommand(command, projectDir, timeout);
 
   if (result.success) {
-    // Success - provide feedback if there's meaningful output
     if (result.stdout.trim()) {
       const successMsg = `✅ ${displayName} completed successfully\n\n${result.stdout.substring(0, 500)}${result.stdout.length > 500 ? '\n... (output truncated)' : ''}`;
       logInfo(successMsg);
@@ -265,11 +238,9 @@ async function handleLongRunningCommand(input: PreToolUseInput): Promise<void> {
       logInfo(`✅ ${displayName} completed successfully (no output)`);
     }
   } else {
-    // Failure - provide error details to Claude
     const errorMsg = `❌ ${displayName} failed:\n\n${result.stderr}`;
     logError(`Command failed: ${command}`, new Error(result.stderr));
 
-    // Don't block execution, but provide feedback
     outputJson({
       systemMessage: errorMsg,
       suppressOutput: false,
@@ -277,9 +248,6 @@ async function handleLongRunningCommand(input: PreToolUseInput): Promise<void> {
   }
 }
 
-/**
- * Main execution entry point
- */
 if (import.meta.url === `file://${process.argv[1]}`) {
   executeHook<PreToolUseInput>(handleLongRunningCommand).catch(error => {
     console.error('Failed to execute long-running command hook:', error);
@@ -287,7 +255,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 }
 
-// Export for testing
 export {
   handleLongRunningCommand,
   isLongRunningCommand,

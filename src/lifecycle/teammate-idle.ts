@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * TeammateIdle Hook Handler
- *
- * Runs when an agent-team teammate is about to become idle. This reference
- * handler logs the event without stopping the teammate.
+ * TeammateIdle Hook Handler — Logs idle teammate events without stopping the teammate.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

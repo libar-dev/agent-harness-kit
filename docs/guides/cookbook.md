@@ -2,8 +2,6 @@
 
 Ten copy-pasteable recipes. Each shows the hook script, the `settings.json` registration, and relevant `HookOutputBuilder` methods. All examples assume `tsx` for running TypeScript hooks directly.
 
----
-
 ## 1. Deny dangerous Bash commands
 
 **Event:** `PreToolUse` | **Handler type:** `command`
@@ -40,8 +38,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 ```
 
 **Builder method:** [`permission('deny', reason)`](../reference/output-builder.md#permission)
-
----
 
 ## 2. Protect sensitive files from Write/Edit
 
@@ -82,8 +78,6 @@ Default protected patterns: `.env`, `.env.local`, `.env.production`, `.git/**`, 
 
 **Builder method:** [`permission('deny', reason)`](../reference/output-builder.md#permission)
 
----
-
 ## 3. Inject project context at SessionStart
 
 **Event:** `SessionStart` | **Handler type:** `command`
@@ -118,8 +112,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 ```
 
 **Builder method:** [`sessionStartContext(context)`](../reference/output-builder.md#sessionstartcontext)
-
----
 
 ## 4. Auto-format edited files on PostToolUse
 
@@ -164,8 +156,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 ```
 
 **Builder method:** [`feedback(reason, additionalContext?)`](../reference/output-builder.md#feedback)
-
----
 
 ## 5. TypeScript-check edited files on PostToolUse
 
@@ -215,8 +205,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
 **Builder method:** [`feedback(reason, additionalContext?)`](../reference/output-builder.md#feedback)
 
----
-
 ## 6. Block prompts containing secrets
 
 **Event:** `UserPromptSubmit` | **Handler type:** `command`
@@ -254,8 +242,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
 **Builder method:** [`blockPrompt(reason)`](../reference/output-builder.md#blockprompt)
 
----
-
 ## 7. Add context to every user prompt
 
 **Event:** `UserPromptSubmit` | **Handler type:** `command`
@@ -289,8 +275,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
 **Builder method:** [`addContext(context)`](../reference/output-builder.md#addcontext)
 
----
-
 ## 8. Custom worktree path for WorktreeCreate
 
 **Event:** `WorktreeCreate` | **Handler type:** `command`
@@ -307,7 +291,6 @@ import * as path from 'path';
 import * as os from 'os';
 
 async function hook(input: WorktreeCreateInput): Promise<void> {
-  // Place worktrees in ~/worktrees/<name>
   const worktreePath = path.join(os.homedir(), 'worktrees', input.name);
   outputJson(HookOutputBuilder.worktreePath(worktreePath));
 }
@@ -329,8 +312,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
 **Builder method:** [`worktreePath(absolutePath)`](../reference/output-builder.md#worktreepath)
 
----
-
 ## 9. Respond to MCP Elicitation programmatically
 
 **Event:** `Elicitation` | **Handler type:** `command`
@@ -340,7 +321,6 @@ Auto-accepts form-mode elicitation requests from a known MCP server instead of p
 ```typescript
 // .claude/hooks/elicitation-auto.ts
 #!/usr/bin/env tsx
-// Based on examples/elicitation-responder.ts
 
 import { executeHook, outputJson } from '@libar-dev/agent-harness-kit/utils';
 import { HookOutputBuilder, type ElicitationInput } from '@libar-dev/agent-harness-kit/types';
@@ -349,7 +329,6 @@ import { validateElicitationInput } from '@libar-dev/agent-harness-kit/validatio
 async function hook(input: ElicitationInput): Promise<void> {
   const elicitation = validateElicitationInput(input);
 
-  // Only auto-respond to a specific MCP server's form-mode requests
   if (elicitation.mcp_server_name !== 'my_trusted_server') return;
   if (elicitation.mode !== 'form') return;
 
@@ -370,8 +349,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 ```
 
 **Builder method:** [`elicitation(action, content?, hookEventName?)`](../reference/output-builder.md#elicitation)
-
----
 
 ## 10. Send a desktop notification when Claude stops
 
@@ -414,11 +391,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
 Using `"async": true` so Claude doesn't wait for the notification before continuing.
 
----
-
 ## See Also
 
 - [HookOutputBuilder Reference](../reference/output-builder.md) — full method signatures
-- [Hook Events Reference](../reference/hook-events.md) — all 28 events with input shapes
+- [Hook Events Reference](../reference/hook-events.md) — all 30 events with input shapes
 - [Validators Reference](../reference/validators.md) — all tool-input validators
 - [Environment Variables](../reference/environment-variables.md) — configure defaults without code changes

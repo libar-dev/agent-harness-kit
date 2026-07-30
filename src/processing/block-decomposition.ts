@@ -1,4 +1,9 @@
+/**
+ * Raw history-line decomposition into structured session blocks.
+ */
+
 import { summarizeToolCall, extractToolResultText } from './denoiser.js';
+import { imagePlaceholder } from './image-placeholder.js';
 import type { ContentBlock, RawHistoryLine, SessionBlock } from './types.js';
 import {
   MAX_TOOL_RESULT_LINES,
@@ -100,6 +105,9 @@ function blockForContentBlock(
     case 'thinking':
       if (!block.thinking.trim()) return undefined;
       return { ...meta, id, type: 'thinking', content: block.thinking };
+
+    case 'image':
+      return makeTextBlock(id, meta, role, imagePlaceholder(block.source));
 
     case 'tool_use':
       return {

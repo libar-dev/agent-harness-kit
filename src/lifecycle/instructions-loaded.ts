@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * InstructionsLoaded Hook Handler
- *
- * Runs after Claude Code loads a memory/instructions file. This reference
- * handler logs the load event without changing behavior.
+ * InstructionsLoaded Hook Handler — Logs loaded memory files without changing behavior.
  */
 
 import { executeHook, logInfo, logDebug } from '../utils/index.js';

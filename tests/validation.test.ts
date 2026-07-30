@@ -1,16 +1,3 @@
-/**
- * Test file demonstrating Zod-based validation testing patterns
- *
- * CRITICAL: Following parent project's incremental testing rule:
- * Write only ONE test at a time during development!
- *
- * This file demonstrates:
- * - Schema-first validation testing
- * - Two-step type assertion patterns
- * - Comprehensive error testing
- * - Test helper usage
- */
-
 import { describe, it, expect } from 'vitest';
 
 function assertHookValidationError(
@@ -44,9 +31,11 @@ import {
   isPostToolBatchInput,
   isUserPromptSubmitInput,
   isUserPromptExpansionInput,
+  isSetupInput,
   isSessionStartInput,
   isSessionEndInput,
   isNotificationInput,
+  isMessageDisplayInput,
   isStopInput,
   isStopFailureInput,
   isSubagentStartInput,
@@ -79,6 +68,8 @@ import {
   validateWorktreeCreateInput,
   validateWorktreeRemoveInput,
   validatePostCompactInput,
+  validateSetupInput,
+  validateMessageDisplayInput,
   validateElicitationInput,
   validateElicitationResultInput,
   permissionRequestOutputSchema,
@@ -126,6 +117,7 @@ import {
   hookInputSchemas,
   hookOutputSchemas,
   toolInputSchemas,
+  imageContentBlockSchema,
   rawHistoryLineSchema,
   rawTranscriptPayloadMetadataSchema,
   safeValidateRawHistoryLine,
@@ -141,6 +133,8 @@ import {
   createBashPreToolUseInput,
   createWritePreToolUseInput,
   createTestHookBase,
+  createSetupInput,
+  createMessageDisplayInput,
   createPermissionRequestInput,
   createPermissionDeniedInput,
   createPostToolUseFailureInput,
@@ -172,9 +166,7 @@ import {
 } from './test-utils.js';
 
 describe('Zod-based Hook Validation', () => {
-  // FIRST TEST: Basic hook input validation
   it('should validate basic hook input structure', () => {
-    // Valid input should pass
     const validInput = createPreToolUseInput('Bash', { command: 'echo test' });
     const result = validateHookInput(validInput);
 
@@ -185,7 +177,6 @@ describe('Zod-based Hook Validation', () => {
     }
   });
 
-  // SECOND TEST: Invalid hook input handling
   it('should reject invalid hook input with detailed errors', () => {
     const invalidInput = { invalid: 'structure' };
 
@@ -195,7 +186,6 @@ describe('Zod-based Hook Validation', () => {
     );
   });
 
-  // THIRD TEST: Tool-specific validation
   it('should validate Bash tool input correctly', () => {
     const hookInput = createBashPreToolUseInput('ls -la');
     const toolInput = validateBashToolInput(hookInput);
@@ -203,7 +193,6 @@ describe('Zod-based Hook Validation', () => {
     expect(toolInput.command).toBe('ls -la');
   });
 
-  // FOURTH TEST: Comprehensive validation test cases
   it('should handle various Bash validation scenarios', () => {
     const validBashInput = createBashToolInput('echo hello');
 
@@ -222,23 +211,19 @@ describe('Zod-based Hook Validation', () => {
 
     for (const testCase of testCases) {
       if (testCase.shouldPass) {
-        // Create hook input and validate
         const hookInput = createPreToolUseInput('Bash', testCase.input);
         const result = validateBashToolInput(hookInput);
         expect(result).toBeDefined();
       } else {
-        // Expect validation to fail
         const hookInput = createPreToolUseInput('Bash', testCase.input);
         expect(() => validateBashToolInput(hookInput)).toThrow();
       }
     }
   });
 
-  // FIFTH TEST: Error context validation
   it('should provide detailed error context for debugging', () => {
     const invalidInput = {
       session_id: 'test',
-      // Missing required fields
     };
 
     try {
@@ -285,7 +270,7 @@ describe('Validation Error Handling', () => {
   });
 });
 
-describe('Updated Schema Validation (Phase 1)', () => {
+describe('Hook Input Schema Validation', () => {
   it('should allow permission_mode to be omitted', () => {
     const inputWithoutPermissionMode = {
       session_id: 'test',
@@ -295,7 +280,6 @@ describe('Updated Schema Validation (Phase 1)', () => {
       tool_name: 'Bash',
       tool_input: { command: 'echo hi' },
       tool_use_id: 'tuid-1',
-      // permission_mode is missing
     };
     const result = validateHookInput(inputWithoutPermissionMode);
     expect(result.hook_event_name).toBe('PreToolUse');
@@ -317,7 +301,6 @@ describe('Updated Schema Validation (Phase 1)', () => {
       hook_event_name: 'PreToolUse' as const,
       tool_name: 'Bash',
       tool_input: { command: 'echo hi' },
-      // tool_use_id is missing
     };
     expectValidationError(
       () => validateHookInput(input),
@@ -331,6 +314,153 @@ describe('Updated Schema Validation (Phase 1)', () => {
     expect(result.hook_event_name).toBe('SessionStart');
     if ('model' in result) {
       expect(result.model).toBe('claude-sonnet-4-5-20250929');
+    }
+  });
+
+  it('should validate Setup with init and maintenance triggers', () => {
+    const setupInputs = ['init', 'maintenance'].map(trigger => ({
+      ...createTestHookBase({ hook_event_name: 'Setup' }),
+      hook_event_name: 'Setup' as const,
+      trigger,
+    }));
+
+    for (const input of setupInputs) {
+      const result = validateSetupInput(input);
+      expect(result.hook_event_name).toBe('Setup');
+      expect(result.trigger).toBe(input.trigger);
+    }
+  });
+
+  it('should reject Setup with an invalid trigger', () => {
+    expectValidationError(
+      () =>
+        validateSetupInput({
+          ...createTestHookBase({ hook_event_name: 'Setup' }),
+          hook_event_name: 'Setup',
+          trigger: 'boot',
+        }),
+      'HOOK_VALIDATION_FAILED'
+    );
+  });
+
+  it('should validate MessageDisplay with UUID turn and message ids', () => {
+    const result = validateMessageDisplayInput({
+      ...createTestHookBase({ hook_event_name: 'MessageDisplay' }),
+      hook_event_name: 'MessageDisplay',
+      turn_id: '11111111-1111-4111-8111-111111111111',
+      message_id: '22222222-2222-4222-8222-222222222222',
+      index: 0,
+      final: false,
+      delta: 'Hello',
+    });
+
+    expect(result.hook_event_name).toBe('MessageDisplay');
+    expect(result.turn_id).toBe('11111111-1111-4111-8111-111111111111');
+    expect(result.message_id).toBe('22222222-2222-4222-8222-222222222222');
+  });
+
+  it('should reject MessageDisplay with an invalid UUID', () => {
+    expectValidationError(
+      () =>
+        validateMessageDisplayInput({
+          ...createTestHookBase({ hook_event_name: 'MessageDisplay' }),
+          hook_event_name: 'MessageDisplay',
+          turn_id: 'not-a-uuid',
+          message_id: '22222222-2222-4222-8222-222222222222',
+          index: 0,
+          final: true,
+          delta: 'Done',
+        }),
+      'HOOK_VALIDATION_FAILED'
+    );
+  });
+
+  it('should route Setup through the common hook validator', () => {
+    const result = validateHookInput(
+      createSetupInput({ trigger: 'maintenance' })
+    );
+
+    expect(result.hook_event_name).toBe('Setup');
+    if (isSetupInput(result)) {
+      expect(result.trigger).toBe('maintenance');
+    }
+  });
+
+  it('should route MessageDisplay through the common hook validator with empty deltas', () => {
+    const result = validateHookInput(
+      createMessageDisplayInput({ index: 2, final: true, delta: '' })
+    );
+
+    expect(result.hook_event_name).toBe('MessageDisplay');
+    if (isMessageDisplayInput(result)) {
+      expect(result.index).toBe(2);
+      expect(result.final).toBe(true);
+      expect(result.delta).toBe('');
+    }
+  });
+
+  it('should validate SessionStart when model is omitted and session_title is provided', () => {
+    const result = validateHookInput(
+      createSessionStartInput({
+        model: undefined,
+        session_title: 'Recovered session',
+      })
+    );
+
+    expect(result.hook_event_name).toBe('SessionStart');
+    if ('model' in result) {
+      expect(result.model).toBeUndefined();
+    }
+    if ('session_title' in result) {
+      expect(result.session_title).toBe('Recovered session');
+    }
+  });
+
+  it('should validate the common effort field for valid levels', () => {
+    const result = validateHookInput(
+      createSessionStartInput({ effort: { level: 'xhigh' } })
+    );
+
+    expect(result.effort).toEqual({ level: 'xhigh' });
+  });
+
+  it('should reject invalid common effort levels', () => {
+    expectValidationError(
+      () =>
+        validateHookInput({
+          ...createSessionStartInput(),
+          effort: { level: 'turbo' },
+        }),
+      'HOOK_VALIDATION_FAILED'
+    );
+  });
+
+  it('should validate duration_ms on PostToolUse inputs', () => {
+    const result = validatePostToolUseInput({
+      ...createPostToolUseInput(
+        'Bash',
+        { command: 'pnpm run test:run' },
+        { stdout: 'ok' }
+      ),
+      duration_ms: 125,
+    });
+
+    expect(result.duration_ms).toBe(125);
+  });
+
+  it('should validate duration_ms on PostToolUseFailure inputs', () => {
+    const result = validateHookInput({
+      ...createPostToolUseFailureInput(
+        'Bash',
+        { command: 'pnpm run test:run' },
+        'Command failed'
+      ),
+      duration_ms: 250,
+    });
+
+    expect(result.hook_event_name).toBe('PostToolUseFailure');
+    if ('duration_ms' in result) {
+      expect(result.duration_ms).toBe(250);
     }
   });
 
@@ -515,14 +645,37 @@ describe('Transcript Validation Primitives', () => {
     }
   });
 
-  it('keeps concrete diagnostics for unsupported content block discriminators', () => {
+  it('accepts image content blocks with source metadata', () => {
     const result = safeValidateRawHistoryLine({
       type: 'assistant',
       ...baseHistoryFields,
       uuid: 'hist-009',
       message: {
         role: 'assistant',
-        content: [{ type: 'image', source: 'future-block' }],
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: 'abc123',
+            },
+          },
+        ],
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('keeps concrete diagnostics for unsupported content block discriminators', () => {
+    const result = safeValidateRawHistoryLine({
+      type: 'assistant',
+      ...baseHistoryFields,
+      uuid: 'hist-009-unsupported',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'document', source: 'future-block' }],
       },
     });
 
@@ -535,6 +688,70 @@ describe('Transcript Validation Primitives', () => {
           'Invalid input (discriminator: type; No matching discriminator)',
       });
     }
+  });
+
+  it('validates user image content blocks', () => {
+    const result = safeValidateRawHistoryLine({
+      type: 'user',
+      ...baseHistoryFields,
+      uuid: 'hist-image-user',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { media_type: 'image/jpeg', data: 'abc' } },
+        ],
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('validates assistant image content blocks', () => {
+    const result = safeValidateRawHistoryLine({
+      type: 'assistant',
+      ...baseHistoryFields,
+      uuid: 'hist-image-assistant',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'image', source: { media_type: 'image/webp', data: 'abc' } },
+        ],
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('validates mixed text and image content blocks', () => {
+    const result = safeValidateRawHistoryLine({
+      type: 'assistant',
+      ...baseHistoryFields,
+      uuid: 'hist-image-mixed',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'See this screenshot.' },
+          { type: 'image', source: { media_type: 'image/png', data: 'abc' } },
+        ],
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('validates image-only content blocks', () => {
+    const result = imageContentBlockSchema.safeParse({
+      type: 'image',
+      source: { media_type: 'image/png', data: 'abc' },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('validates image content blocks with missing source', () => {
+    const result = imageContentBlockSchema.safeParse({ type: 'image' });
+
+    expect(result.success).toBe(true);
   });
 
   it('returns structured diagnostics for malformed history line shapes', () => {
@@ -599,10 +816,6 @@ describe('Transcript Validation Primitives', () => {
     }
   });
 });
-
-// =============================================================================
-// Phase 2D Tests
-// =============================================================================
 
 describe('HookOutputBuilder', () => {
   it('success() without message returns suppressOutput: true', () => {
@@ -743,6 +956,20 @@ describe('Type Guards', () => {
     expect(isNotificationInput(validated)).toBe(true);
   });
 
+  it('isSetupInput identifies correctly', () => {
+    const input = createSetupInput();
+    const validated = validateHookInput(input);
+    expect(isSetupInput(validated)).toBe(true);
+    expect(isMessageDisplayInput(validated)).toBe(false);
+  });
+
+  it('isMessageDisplayInput identifies correctly', () => {
+    const input = createMessageDisplayInput();
+    const validated = validateHookInput(input);
+    expect(isMessageDisplayInput(validated)).toBe(true);
+    expect(isSetupInput(validated)).toBe(false);
+  });
+
   it('isStopInput identifies correctly', () => {
     const input = createStopInput();
     const validated = validateHookInput(input);
@@ -780,11 +1007,7 @@ describe('safeValidateHookInput', () => {
     expect(result.error?.code).toBe('MISSING_HOOK_EVENT_NAME');
   });
 
-  it('wraps unexpected errors with UNEXPECTED_ERROR code', () => {
-    // null input triggers INVALID_INPUT_TYPE which is still a HookValidationError
-    // To test UNEXPECTED_ERROR, we'd need an internal error, but the function
-    // handles all known paths. We verify the catch-all path exists by testing
-    // that non-HookValidationError inputs still return structured results.
+  it('returns structured errors for invalid input types', () => {
     const result = safeValidateHookInput(null);
     expect(result.success).toBe(false);
     expect(result.error).toBeInstanceOf(HookValidationError);
@@ -915,11 +1138,7 @@ describe('Hook-Type-Specific Validators', () => {
   });
 });
 
-// =============================================================================
-// Phase 2 Tests: New Event Types
-// =============================================================================
-
-describe('Phase 2: New Event Input Schemas', () => {
+describe('Additional Event Input Schemas', () => {
   it('should validate PermissionRequest input', () => {
     const input = createPermissionRequestInput('Bash', {
       command: 'rm -rf node_modules',
@@ -948,7 +1167,6 @@ describe('Phase 2: New Event Input Schemas', () => {
       ...createTestHookBase({ hook_event_name: 'PermissionRequest' }),
       hook_event_name: 'PermissionRequest' as const,
       tool_input: { command: 'ls' },
-      // tool_name missing
     };
     expectValidationError(
       () => validateHookInput(input),
@@ -990,7 +1208,6 @@ describe('Phase 2: New Event Input Schemas', () => {
       tool_name: 'Bash',
       tool_input: { command: 'ls' },
       tool_use_id: 'tuid-1',
-      // error missing
     };
     expectValidationError(
       () => validateHookInput(input),
@@ -1048,7 +1265,6 @@ describe('Phase 2: New Event Input Schemas', () => {
       ...createTestHookBase({ hook_event_name: 'TaskCompleted' }),
       hook_event_name: 'TaskCompleted' as const,
       task_subject: 'Test',
-      // task_id missing
     };
     expectValidationError(
       () => validateHookInput(input),
@@ -1107,7 +1323,7 @@ describe('Phase 2: New Event Input Schemas', () => {
   });
 });
 
-describe('Phase 2: PermissionRequest Output Schema', () => {
+describe('PermissionRequest Output Schema', () => {
   it('should validate allow decision', () => {
     const output = {
       hookSpecificOutput: {
@@ -1171,7 +1387,7 @@ describe('Phase 2: PermissionRequest Output Schema', () => {
   });
 });
 
-describe('Session A: New Event Output Schemas', () => {
+describe('Additional Event Output Schemas', () => {
   it('accepts UserPromptExpansion context and block output', () => {
     const result = userPromptExpansionOutputSchema.safeParse({
       decision: 'block',
@@ -1259,9 +1475,31 @@ describe('Session A: New Event Output Schemas', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('accepts SessionStart output with initialUserMessage, sessionTitle, watchPaths, and reloadSkills', () => {
+    const result = sessionStartOutputSchema.safeParse({
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        initialUserMessage: 'hi',
+        sessionTitle: 't',
+        watchPaths: ['/a'],
+        reloadSkills: true,
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts terminalSequence as a common output field', () => {
+    const result = baseHookOutputSchema.safeParse({
+      terminalSequence: '\u001b[2J\u001b[H',
+    });
+
+    expect(result.success).toBe(true);
+  });
 });
 
-describe('Phase 2: New Type Guards', () => {
+describe('Event Type Guards', () => {
   it('isPermissionRequestInput identifies correctly', () => {
     const input = createPermissionRequestInput('Bash', { command: 'ls' });
     const validated = validateHookInput(input);
@@ -1375,7 +1613,7 @@ describe('Phase 2: New Type Guards', () => {
   });
 });
 
-describe('Phase 2: New Tool Input Validators', () => {
+describe('Additional Tool Input Validators', () => {
   it('validateWebFetchToolInput validates valid input', () => {
     const hookInput = createPreToolUseInput('WebFetch', {
       url: 'https://example.com',
@@ -1641,11 +1879,7 @@ describe('Phase 2: New Tool Input Validators', () => {
   });
 });
 
-// =============================================================================
-// Phase 3: Output Types and HookOutputBuilder Tests
-// =============================================================================
-
-describe('Phase 3: Output Schema Updates', () => {
+describe('Output Schema Validation Details', () => {
   describe('PreToolUse output schema', () => {
     it('accepts updatedInput in hookSpecificOutput', () => {
       const output = {
@@ -1723,6 +1957,24 @@ describe('Phase 3: Output Schema Updates', () => {
   });
 
   describe('PostToolUse output schema', () => {
+    it('accepts updatedToolOutput in hookSpecificOutput', () => {
+      const output = {
+        decision: 'block' as const,
+        reason: 'Tool output replaced',
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          updatedToolOutput: { replaced: true },
+        },
+      };
+      const result = postToolUseOutputSchema.safeParse(output);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.hookSpecificOutput?.updatedToolOutput).toEqual({
+          replaced: true,
+        });
+      }
+    });
+
     it('accepts updatedMCPToolOutput in hookSpecificOutput', () => {
       const output = {
         decision: 'block' as const,
@@ -1738,6 +1990,22 @@ describe('Phase 3: Output Schema Updates', () => {
         expect(result.data.hookSpecificOutput?.updatedMCPToolOutput).toEqual({
           result: 'sanitized data',
         });
+      }
+    });
+
+    it('accepts non-object updatedMCPToolOutput values', () => {
+      const output = {
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          updatedMCPToolOutput: 'sanitized string output',
+        },
+      };
+      const result = postToolUseOutputSchema.safeParse(output);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.hookSpecificOutput?.updatedMCPToolOutput).toBe(
+          'sanitized string output'
+        );
       }
     });
 
@@ -1790,7 +2058,7 @@ describe('Phase 3: Output Schema Updates', () => {
   });
 });
 
-describe('Phase 3: HookOutputBuilder Updates', () => {
+describe('HookOutputBuilder Schema Helpers', () => {
   describe('permission() with options', () => {
     it('creates output without options (backward compatible)', () => {
       const output = HookOutputBuilder.permission('allow', 'Approved');
@@ -2092,10 +2360,6 @@ describe('Phase 3: HookOutputBuilder Updates', () => {
   });
 });
 
-// =============================================================================
-// Phase 4+5: Glob/Grep/MultiEdit Tool Schemas & Hook Config Schemas
-// =============================================================================
-
 describe('Glob/Grep/MultiEdit Tool Input Schemas', () => {
   describe('globToolInputSchema', () => {
     it('validates minimal Glob input', () => {
@@ -2224,6 +2488,7 @@ describe('Hook Configuration Schemas (settings.json)', () => {
       const result = commandHookHandlerSchema.safeParse({
         type: 'command',
         command: '.claude/hooks/run-tests.sh',
+        args: ['--project', 'hooks'],
         async: true,
         asyncRewake: true,
         shell: 'powershell',
@@ -2233,6 +2498,16 @@ describe('Hook Configuration Schemas (settings.json)', () => {
         once: true,
       });
       expect(result.success).toBe(true);
+    });
+
+    it('rejects command handler with non-string args entries', () => {
+      const result = commandHookHandlerSchema.safeParse({
+        type: 'command',
+        command: '.claude/hooks/run-tests.sh',
+        args: ['--project', 1],
+      });
+
+      expect(result.success).toBe(false);
     });
 
     it('rejects command handler without command', () => {
@@ -2420,13 +2695,11 @@ describe('Hook Configuration Schemas (settings.json)', () => {
       });
       expect(commandResult.success).toBe(true);
 
-      // prompt handler should strip the async field (not fail, just ignore)
       const promptResult = promptHookHandlerSchema.safeParse({
         type: 'prompt',
         prompt: 'test',
         async: true,
       });
-      // Zod strips unknown fields by default, so this should still succeed
       expect(promptResult.success).toBe(true);
       if (promptResult.success) {
         expect('async' in promptResult.data).toBe(false);
@@ -2489,6 +2762,7 @@ describe('Hook Configuration Schemas (settings.json)', () => {
   describe('hookEventNameSchema', () => {
     const validEvents = [
       'SessionStart',
+      'Setup',
       'UserPromptSubmit',
       'UserPromptExpansion',
       'PreToolUse',
@@ -2498,6 +2772,7 @@ describe('Hook Configuration Schemas (settings.json)', () => {
       'PostToolUseFailure',
       'PostToolBatch',
       'Notification',
+      'MessageDisplay',
       'SubagentStart',
       'SubagentStop',
       'TaskCreated',
@@ -2518,7 +2793,8 @@ describe('Hook Configuration Schemas (settings.json)', () => {
       'SessionEnd',
     ];
 
-    it('accepts all 28 valid event names', () => {
+    it('accepts all 30 valid event names', () => {
+      expect(validEvents).toHaveLength(30);
       for (const event of validEvents) {
         const result = hookEventNameSchema.safeParse(event);
         expect(result.success).toBe(true);
@@ -2546,6 +2822,16 @@ describe('Hook Configuration Schemas (settings.json)', () => {
           Stop: [
             {
               hooks: [{ type: 'prompt', prompt: 'Check tasks: $ARGUMENTS' }],
+            },
+          ],
+          Setup: [
+            {
+              hooks: [{ type: 'command', command: '.claude/hooks/setup.ts' }],
+            },
+          ],
+          MessageDisplay: [
+            {
+              hooks: [{ type: 'command', command: '.claude/hooks/display.ts' }],
             },
           ],
         },
@@ -2668,20 +2954,16 @@ describe('Hook Configuration Schemas (settings.json)', () => {
   });
 });
 
-// =============================================================================
-// Post-Phase 5 Review: Additional Coverage
-// =============================================================================
-
 describe('Schema Collection Completeness', () => {
-  it('hookInputSchemas has all 28 event types', () => {
+  it('hookInputSchemas has all 30 event types', () => {
     const keys = Object.keys(hookInputSchemas);
-    expect(keys).toHaveLength(28);
+    expect(keys).toHaveLength(30);
     expect(keys.sort()).toEqual([...hookEventNameSchema.options].sort());
   });
 
-  it('hookOutputSchemas has all 28 event types', () => {
+  it('hookOutputSchemas has all 30 event types', () => {
     const keys = Object.keys(hookOutputSchemas);
-    expect(keys).toHaveLength(28);
+    expect(keys).toHaveLength(30);
     expect(keys.sort()).toEqual([...hookEventNameSchema.options].sort());
   });
 
@@ -2902,7 +3184,6 @@ describe('Edge Cases', () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      // Unknown key is stripped, known key is preserved
       expect(result.data.hooks?.['PreToolUse']).toBeDefined();
       expect('FakeEvent' in (result.data.hooks ?? {})).toBe(false);
     }

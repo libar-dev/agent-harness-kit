@@ -1,14 +1,13 @@
 /**
- * Standardized hook output builder utilities
- *
- * Provides convenience methods for creating properly structured
- * hook output objects for all hook event types.
+ * Builders for hook output JSON returned on stdout by Claude Code hook handlers.
+ * Each helper returns an event-specific output shape without performing I/O.
  */
 
 import type {
   BaseHookOutput,
   ElicitationAction,
   ElicitationOutput,
+  MessageDisplayOutput,
   PermissionDeniedOutput,
   PermissionMode,
   PermissionUpdateEntry,
@@ -17,12 +16,54 @@ import type {
   PostToolBatchOutput,
   PermissionRequestOutput,
   SubagentStartOutput,
+  SetupOutput,
   SessionStartOutput,
   StopOutput,
   UserPromptSubmitOutput,
   WatchPathsOutput,
   WorktreeCreateOutput,
 } from '../types/index.js';
+
+type SessionStartContextOptions = {
+  context?: string;
+  initialUserMessage?: string;
+  sessionTitle?: string;
+  watchPaths?: string[];
+  reloadSkills?: boolean;
+};
+
+function buildSessionStartContext(context: string): SessionStartOutput;
+function buildSessionStartContext(
+  options: SessionStartContextOptions
+): SessionStartOutput;
+function buildSessionStartContext(
+  contextOrOptions: string | SessionStartContextOptions
+): SessionStartOutput {
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'SessionStart',
+      ...(typeof contextOrOptions === 'string'
+        ? { additionalContext: contextOrOptions }
+        : {
+            ...(contextOrOptions.context && {
+              additionalContext: contextOrOptions.context,
+            }),
+            ...(contextOrOptions.initialUserMessage && {
+              initialUserMessage: contextOrOptions.initialUserMessage,
+            }),
+            ...(contextOrOptions.sessionTitle && {
+              sessionTitle: contextOrOptions.sessionTitle,
+            }),
+            ...(contextOrOptions.watchPaths && {
+              watchPaths: contextOrOptions.watchPaths,
+            }),
+            ...(contextOrOptions.reloadSkills !== undefined && {
+              reloadSkills: contextOrOptions.reloadSkills,
+            }),
+          }),
+    },
+  };
+}
 
 type LifecycleStopOutput = BaseHookOutput & {
   hookSpecificOutput: {
@@ -31,17 +72,20 @@ type LifecycleStopOutput = BaseHookOutput & {
 };
 
 export const HookOutputBuilder = {
+  /** Build a successful generic hook output with optional user-visible text. */
   success: (message?: string): BaseHookOutput => ({
     suppressOutput: !message,
     ...(message && { systemMessage: message }),
   }),
 
+  /** Build a generic error output, optionally stopping execution. */
   error: (reason: string, stopExecution = false): BaseHookOutput => ({
     continue: !stopExecution,
     ...(stopExecution && { stopReason: reason }),
     systemMessage: reason,
   }),
 
+  /** Build a PreToolUse permission decision. */
   permission: (
     decision: 'allow' | 'deny' | 'ask' | 'defer',
     reason: string,
@@ -61,20 +105,24 @@ export const HookOutputBuilder = {
     },
   }),
 
+  /** Build PostToolUse feedback for Claude and optional tool-output replacements. */
   feedback: (
     reason: string,
     additionalContext?: string,
-    updatedMCPToolOutput?: Record<string, unknown>
+    updatedMCPToolOutput?: unknown,
+    updatedToolOutput?: unknown
   ): PostToolUseOutput => ({
     decision: 'block',
     reason,
     hookSpecificOutput: {
       hookEventName: 'PostToolUse',
       ...(additionalContext && { additionalContext }),
-      ...(updatedMCPToolOutput && { updatedMCPToolOutput }),
+      ...(updatedMCPToolOutput !== undefined && { updatedMCPToolOutput }),
+      ...(updatedToolOutput !== undefined && { updatedToolOutput }),
     },
   }),
 
+  /** Build a PermissionRequest allow decision. */
   allowPermission: (options?: {
     updatedInput?: Record<string, unknown>;
     updatedPermissions?: PermissionUpdateEntry[];
@@ -91,6 +139,7 @@ export const HookOutputBuilder = {
     },
   }),
 
+  /** Build a PermissionRequest deny decision. */
   denyPermission: (options?: {
     message?: string;
     interrupt?: boolean;
@@ -107,6 +156,7 @@ export const HookOutputBuilder = {
     },
   }),
 
+  /** Build a PermissionRequest allow decision that changes the permission mode. */
   permissionRequestSetMode: (
     mode: PermissionMode,
     destination:
@@ -119,6 +169,7 @@ export const HookOutputBuilder = {
       updatedPermissions: [{ type: 'setMode', mode, destination }],
     }),
 
+  /** Build PermissionDenied retry guidance. */
   permissionDeniedRetry: (retry: boolean): PermissionDeniedOutput => ({
     hookSpecificOutput: {
       hookEventName: 'PermissionDenied',
@@ -126,6 +177,7 @@ export const HookOutputBuilder = {
     },
   }),
 
+  /** Build an Elicitation or ElicitationResult action response. */
   elicitation: (
     action: ElicitationAction,
     content?: Record<string, unknown>,
@@ -138,10 +190,12 @@ export const HookOutputBuilder = {
     },
   }),
 
+  /** Build watched-path updates for CwdChanged or FileChanged hooks. */
   watchPaths: (paths: string[]): WatchPathsOutput => ({
     watchPaths: paths,
   }),
 
+  /** Build a WorktreeCreate output with the created worktree path. */
   worktreePath: (absolutePath: string): WorktreeCreateOutput => ({
     hookSpecificOutput: {
       hookEventName: 'WorktreeCreate',
@@ -149,6 +203,7 @@ export const HookOutputBuilder = {
     },
   }),
 
+  /** Build a task lifecycle block response. */
   taskBlock: (
     reason: string,
     hookEventName: 'TaskCreated' | 'TaskCompleted' = 'TaskCompleted'
@@ -160,6 +215,7 @@ export const HookOutputBuilder = {
     },
   }),
 
+  /** Build a TeammateIdle stop response. */
   teammateStop: (reason: string): LifecycleStopOutput => ({
     continue: false,
     stopReason: reason,
@@ -168,6 +224,7 @@ export const HookOutputBuilder = {
     },
   }),
 
+  /** Build a PostToolBatch block response. */
   batchBlock: (reason: string): PostToolBatchOutput => ({
     decision: 'block',
     reason,
@@ -177,6 +234,7 @@ export const HookOutputBuilder = {
     },
   }),
 
+  /** Build SubagentStart context injection. */
   subagentContext: (context: string): SubagentStartOutput => ({
     hookSpecificOutput: {
       hookEventName: 'SubagentStart',
@@ -184,13 +242,26 @@ export const HookOutputBuilder = {
     },
   }),
 
-  sessionStartContext: (context: string): SessionStartOutput => ({
+  /** Build Setup context injection. */
+  setupContext: (context: string): SetupOutput => ({
     hookSpecificOutput: {
-      hookEventName: 'SessionStart',
+      hookEventName: 'Setup',
       additionalContext: context,
     },
   }),
 
+  /** Build MessageDisplay replacement content. */
+  messageDisplayContent: (content: string): MessageDisplayOutput => ({
+    hookSpecificOutput: {
+      hookEventName: 'MessageDisplay',
+      displayContent: content,
+    },
+  }),
+
+  /** Build SessionStart context, title, initial message, watch paths, or skill reload output. */
+  sessionStartContext: buildSessionStartContext,
+
+  /** Build UserPromptSubmit context injection. */
   addContext: (context: string): UserPromptSubmitOutput => ({
     hookSpecificOutput: {
       hookEventName: 'UserPromptSubmit',
@@ -198,6 +269,7 @@ export const HookOutputBuilder = {
     },
   }),
 
+  /** Build a UserPromptSubmit session-title update. */
   sessionTitle: (title: string): UserPromptSubmitOutput => ({
     hookSpecificOutput: {
       hookEventName: 'UserPromptSubmit',
@@ -205,16 +277,19 @@ export const HookOutputBuilder = {
     },
   }),
 
+  /** Build a UserPromptSubmit prompt block. */
   blockPrompt: (reason: string): UserPromptSubmitOutput => ({
     decision: 'block',
     reason,
   }),
 
+  /** Build a SubagentStop block with continuation context. */
   subagentStopContext: (reason: string): StopOutput => ({
     decision: 'block',
     reason,
   }),
 
+  /** Build StopFailure observability output. */
   stopFailureLog: (systemMessage?: string): BaseHookOutput =>
     HookOutputBuilder.success(systemMessage),
 };

@@ -1,16 +1,7 @@
 #!/usr/bin/env tsx
 
 /**
- * Stop Hook Handler
- *
- * This hook runs when Claude Code finishes responding and can control
- * whether Claude is allowed to stop or should continue with additional tasks.
- *
- * Use cases:
- * - Verify all requested tasks were completed
- * - Check for incomplete processes or pending work
- * - Ensure proper cleanup was performed
- * - Request additional follow-up actions
+ * Stop Hook Handler — Blocks session completion when configured checks find issues.
  */
 
 import {
@@ -101,7 +92,6 @@ async function handleStop(input: StopInput): Promise<void> {
     }
   }
 
-  // Check for failed tests (if tests were run recently)
   if (config.checkFailedTests) {
     const failedTests = await checkFailedTests();
     if (failedTests.length > 0) {
@@ -143,7 +133,7 @@ async function handleStop(input: StopInput): Promise<void> {
 }
 
 /**
- * Check for incomplete tasks by looking for TODO comments, failing processes, etc.
+ * Check for incomplete tasks by scanning for TODO markers, failing processes, etc.
  */
 async function checkIncompleteTasks(): Promise<string[]> {
   const issues: string[] = [];
@@ -214,18 +204,16 @@ async function checkUncommittedChanges(): Promise<string[]> {
 }
 
 /**
- * Check for recently failed tests
+ * Check for failed test indicators
  */
 async function checkFailedTests(): Promise<string[]> {
   const failedTests: string[] = [];
 
   try {
-    // This is a simple heuristic - in a real implementation,
-    // you might parse test output files or check recent test runs
+    // The .test-failures sentinel is the built-in failed-test source.
     const { access } = await import('node:fs/promises');
     const { constants } = await import('node:fs');
 
-    // Check if there's a recent test failure indicator file
     try {
       await access(`${getProjectDir()}/.test-failures`, constants.F_OK);
       failedTests.push('Recent test failures detected');
