@@ -20,6 +20,7 @@ import {
   toError,
 } from '../utils/index.js';
 import type { SessionStartInput } from '../types/index.js';
+import { consumePreCompactContext } from './pre-compact-context.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -100,6 +101,13 @@ async function handleSessionStart(input: SessionStartInput): Promise<void> {
   contextSections.push(
     getSessionInfo(source, session_id, modelName, agent_type)
   );
+
+  if (source === 'compact') {
+    const preservedContext = await consumePreCompactContext(session_id);
+    if (preservedContext) {
+      contextSections.push(preservedContext);
+    }
+  }
 
   try {
     const projectInfo = await loadProjectInfo(projectDir, config);

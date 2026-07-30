@@ -9,16 +9,21 @@ import type {
   ElicitationOutput,
   MessageDisplayOutput,
   PermissionDeniedOutput,
-  PermissionMode,
   PermissionUpdateEntry,
+  PermissionUpdateMode,
   PreToolUseOutput,
   PostToolUseOutput,
+  PostToolUseFailureOutput,
   PostToolBatchOutput,
   PermissionRequestOutput,
+  StopBlockOutput,
+  StopContextOutput,
   SubagentStartOutput,
   SetupOutput,
   SessionStartOutput,
-  StopOutput,
+  SubagentStopBlockOutput,
+  SubagentStopContextOutput,
+  SubagentStopOutput,
   UserPromptSubmitOutput,
   WatchPathsOutput,
   WorktreeCreateOutput,
@@ -64,12 +69,6 @@ function buildSessionStartContext(
     },
   };
 }
-
-type LifecycleStopOutput = BaseHookOutput & {
-  hookSpecificOutput: {
-    hookEventName: 'TaskCreated' | 'TaskCompleted' | 'TeammateIdle';
-  };
-};
 
 export const HookOutputBuilder = {
   /** Build a successful generic hook output with optional user-visible text. */
@@ -122,6 +121,19 @@ export const HookOutputBuilder = {
     },
   }),
 
+  /** Build PostToolUseFailure feedback for Claude after a tool failure. */
+  failureFeedback: (
+    reason: string,
+    additionalContext?: string
+  ): PostToolUseFailureOutput => ({
+    decision: 'block',
+    reason,
+    hookSpecificOutput: {
+      hookEventName: 'PostToolUseFailure',
+      ...(additionalContext && { additionalContext }),
+    },
+  }),
+
   /** Build a PermissionRequest allow decision. */
   allowPermission: (options?: {
     updatedInput?: Record<string, unknown>;
@@ -158,7 +170,7 @@ export const HookOutputBuilder = {
 
   /** Build a PermissionRequest allow decision that changes the permission mode. */
   permissionRequestSetMode: (
-    mode: PermissionMode,
+    mode: PermissionUpdateMode,
     destination:
       | 'session'
       | 'localSettings'
@@ -203,25 +215,23 @@ export const HookOutputBuilder = {
     },
   }),
 
-  /** Build a task lifecycle block response. */
+  /**
+   * Build a task lifecycle stop response.
+   *
+   * @deprecated The event-name argument is accepted for source compatibility but ignored.
+   */
   taskBlock: (
     reason: string,
-    hookEventName: 'TaskCreated' | 'TaskCompleted' = 'TaskCompleted'
-  ): LifecycleStopOutput => ({
+    _hookEventName: 'TaskCreated' | 'TaskCompleted' = 'TaskCompleted'
+  ): BaseHookOutput => ({
     continue: false,
     stopReason: reason,
-    hookSpecificOutput: {
-      hookEventName,
-    },
   }),
 
   /** Build a TeammateIdle stop response. */
-  teammateStop: (reason: string): LifecycleStopOutput => ({
+  teammateStop: (reason: string): BaseHookOutput => ({
     continue: false,
     stopReason: reason,
-    hookSpecificOutput: {
-      hookEventName: 'TeammateIdle',
-    },
   }),
 
   /** Build a PostToolBatch block response. */
@@ -277,19 +287,68 @@ export const HookOutputBuilder = {
     },
   }),
 
-  /** Build a UserPromptSubmit prompt block. */
-  blockPrompt: (reason: string): UserPromptSubmitOutput => ({
+  /**
+   * Build a UserPromptSubmit prompt block.
+   *
+   * @param reason - Reason shown to the user when the prompt is blocked
+   * @param options - Optional block modifiers
+   * @param options.suppressOriginalPrompt - When true, omit the original prompt
+   *   text from the block message shown to the user
+   */
+  blockPrompt: (
+    reason: string,
+    options?: { suppressOriginalPrompt?: boolean }
+  ): UserPromptSubmitOutput => {
+    const output: UserPromptSubmitOutput = {
+      decision: 'block',
+      reason,
+    };
+    if (options?.suppressOriginalPrompt !== undefined) {
+      output.suppressOriginalPrompt = options.suppressOriginalPrompt;
+    }
+    return output;
+  },
+
+  /** Build a Stop block that keeps the main session running. */
+  stopBlock: (reason: string): StopBlockOutput => ({
     decision: 'block',
     reason,
   }),
 
-  /** Build a SubagentStop block with continuation context. */
-  subagentStopContext: (reason: string): StopOutput => ({
+  /** Build non-error Stop feedback that keeps the main session running. */
+  stopContext: (context: string): StopContextOutput => ({
+    hookSpecificOutput: {
+      hookEventName: 'Stop',
+      additionalContext: context,
+    },
+  }),
+
+  /** Build a SubagentStop block that keeps the subagent running. */
+  subagentStopBlock: (reason: string): SubagentStopBlockOutput => ({
     decision: 'block',
     reason,
   }),
 
-  /** Build StopFailure observability output. */
-  stopFailureLog: (systemMessage?: string): BaseHookOutput =>
-    HookOutputBuilder.success(systemMessage),
+  /** Build non-error SubagentStop feedback that keeps the subagent running. */
+  subagentStopAdditionalContext: (
+    context: string
+  ): SubagentStopContextOutput => ({
+    hookSpecificOutput: {
+      hookEventName: 'SubagentStop',
+      additionalContext: context,
+    },
+  }),
+
+  /**
+   * @deprecated Use `subagentStopBlock` for blocking SubagentStop output.
+   * Compatibility alias that continues to emit `decision: "block"`.
+   */
+  subagentStopContext: (reason: string): SubagentStopOutput =>
+    HookOutputBuilder.subagentStopBlock(reason),
+
+  /**
+   * @deprecated StopFailure is side-effect-only; Claude Code ignores output and
+   * exit code. Kept as a no-op compatibility shim that returns an empty object.
+   */
+  stopFailureLog: (_systemMessage?: string): BaseHookOutput => ({}),
 };

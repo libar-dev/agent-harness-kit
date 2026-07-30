@@ -61,7 +61,7 @@ type ToolBearingHookInput =
   | PermissionDeniedInputSchema
   | PostToolUseFailureInputSchema;
 
-const MCP_TOOL_NAME_PATTERN = /^mcp__[^_]+__[^_]+/;
+const MCP_TOOL_NAME_PATTERN = /^mcp__[^_](?:.*?[^_])?__.+$/;
 
 /** Validation error with a stable code, context object, and optional Zod error details. */
 export class HookValidationError extends Error {

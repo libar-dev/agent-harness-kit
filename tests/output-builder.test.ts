@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  messageDisplayOutputSchema,
+  postToolUseFailureOutputSchema,
   postToolUseOutputSchema,
   sessionStartOutputSchema,
-} from '../src/validation/index.js';
-import {
-  messageDisplayOutputSchema,
   setupOutputSchema,
-} from '../src/validation/schemas.js';
+  stopOutputSchema,
+  subagentStopOutputSchema,
+  userPromptSubmitOutputSchema,
+} from '../src/validation/index.js';
 import { HookOutputBuilder } from '../src/utils/output-builder.js';
 
 describe('HookOutputBuilder parity helpers', () => {
@@ -130,5 +132,90 @@ describe('HookOutputBuilder parity helpers', () => {
       updatedToolOutput
     );
     expect(postToolUseOutputSchema.safeParse(output).success).toBe(true);
+  });
+
+  it('stop and subagent stop helpers emit event-safe discriminants', () => {
+    const stopBlock = HookOutputBuilder.stopBlock('keep going');
+    const stopContext = HookOutputBuilder.stopContext('run tests');
+    const subagentBlock = HookOutputBuilder.subagentStopBlock('keep going');
+    const subagentContext =
+      HookOutputBuilder.subagentStopAdditionalContext('investigate more');
+    const deprecatedAlias =
+      HookOutputBuilder.subagentStopContext('compat block');
+
+    expect(stopOutputSchema.safeParse(stopBlock).success).toBe(true);
+    expect(stopOutputSchema.safeParse(stopContext).success).toBe(true);
+    expect(subagentStopOutputSchema.safeParse(subagentBlock).success).toBe(
+      true
+    );
+    expect(subagentStopOutputSchema.safeParse(subagentContext).success).toBe(
+      true
+    );
+    expect(deprecatedAlias).toEqual({
+      decision: 'block',
+      reason: 'compat block',
+    });
+  });
+
+  it('stop builders with empty strings still validate against schemas', () => {
+    const stopBlock = HookOutputBuilder.stopBlock('');
+    const stopContext = HookOutputBuilder.stopContext('');
+    const subagentBlock = HookOutputBuilder.subagentStopBlock('');
+    const subagentContext = HookOutputBuilder.subagentStopAdditionalContext('');
+
+    expect(stopOutputSchema.safeParse(stopBlock).success).toBe(true);
+    expect(stopOutputSchema.safeParse(stopContext).success).toBe(true);
+    expect(subagentStopOutputSchema.safeParse(subagentBlock).success).toBe(
+      true
+    );
+    expect(subagentStopOutputSchema.safeParse(subagentContext).success).toBe(
+      true
+    );
+  });
+
+  it('blockPrompt accepts suppressOriginalPrompt and validates', () => {
+    const output = HookOutputBuilder.blockPrompt('Not allowed', {
+      suppressOriginalPrompt: true,
+    });
+
+    expect(output).toEqual({
+      decision: 'block',
+      reason: 'Not allowed',
+      suppressOriginalPrompt: true,
+    });
+    expect(userPromptSubmitOutputSchema.safeParse(output).success).toBe(true);
+  });
+
+  it('failureFeedback builds PostToolUseFailure output', () => {
+    const output = HookOutputBuilder.failureFeedback(
+      'retry later',
+      'use absolute path'
+    );
+
+    expect(output.decision).toBe('block');
+    expect(output.hookSpecificOutput?.hookEventName).toBe('PostToolUseFailure');
+    expect(postToolUseFailureOutputSchema.safeParse(output).success).toBe(true);
+  });
+
+  it('permissionRequestSetMode accepts manual mode alias', () => {
+    const output = HookOutputBuilder.permissionRequestSetMode(
+      'manual',
+      'localSettings'
+    );
+    const decision = output.hookSpecificOutput?.decision;
+    expect(decision?.behavior).toBe('allow');
+    if (decision?.behavior === 'allow') {
+      expect(decision.updatedPermissions).toEqual([
+        {
+          type: 'setMode',
+          mode: 'manual',
+          destination: 'localSettings',
+        },
+      ]);
+    }
+  });
+
+  it('stopFailureLog is a no-op compatibility shim', () => {
+    expect(HookOutputBuilder.stopFailureLog('ignored')).toEqual({});
   });
 });

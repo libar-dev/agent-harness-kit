@@ -1,264 +1,144 @@
 # Validators Reference
 
-All exported validators from `@libar-dev/agent-harness-kit/validation`.
+Runtime validation exports from `@libar-dev/agent-harness-kit/validation`.
 
-**Source:** [`src/validation/index.ts`](../../src/validation/index.ts) · [`src/validation/validators.ts`](../../src/validation/validators.ts)
+**Sources:** [`src/validation/schemas.ts`](../../src/validation/schemas.ts), [`src/validation/validators.ts`](../../src/validation/validators.ts), [`src/validation/index.ts`](../../src/validation/index.ts)
 
----
-
-## Tool-Input Validators
-
-These functions extract a typed tool-input from a hook's `tool_input: Record<string, unknown>`. Each throws `HookValidationError` if the shape doesn't match.
-
-```typescript
-import { validateBashToolInput } from '@libar-dev/agent-harness-kit/validation';
-import type { PreToolUseInput } from '@libar-dev/agent-harness-kit/types';
-
-async function hook(input: PreToolUseInput): Promise<void> {
-  const bash = validateBashToolInput(input); // BashToolInput — fully typed
-  const command: string = bash.command;
-}
-```
-
-| Function | Returns | Tool |
-|----------|---------|------|
-| `validateBashToolInput(input)` | `BashToolInput` | `Bash` |
-| `validateWriteToolInput(input)` | `WriteToolInput` | `Write` |
-| `validateEditToolInput(input)` | `EditToolInput` | `Edit` |
-| `validateMultiEditToolInput(input)` | `MultiEditToolInput` | `MultiEdit` |
-| `validateReadToolInput(input)` | `ReadToolInput` | `Read` |
-| `validateGlobToolInput(input)` | `GlobToolInput` | `Glob` |
-| `validateGrepToolInput(input)` | `GrepToolInput` | `Grep` |
-| `validateWebFetchToolInput(input)` | `WebFetchToolInput` | `WebFetch` |
-| `validateWebSearchToolInput(input)` | `WebSearchToolInput` | `WebSearch` |
-| `validateAgentToolInput(input)` | `AgentToolInput` | `Agent` |
-| `validateAskUserQuestionToolInput(input)` | `AskUserQuestionToolInput` | `AskUserQuestion` |
-| `validateExitPlanModeToolInput(input)` | `ExitPlanModeToolInput` | `ExitPlanMode` |
-| `validateTodoWriteToolInput(input)` | `TodoWriteToolInput` | `TodoWrite` |
-| `validateMCPToolInput(input)` | `MCPToolInput` | Any MCP tool |
-| `validateTaskToolInput(input)` | `TaskToolInput` | `Task` |
-
-The generic form works for any tool name:
-
-```typescript
-import { validateToolInput } from '@libar-dev/agent-harness-kit/validation';
-const typed = validateToolInput('Bash', input);
-```
-
----
-
-## Generic Hook-Input Validators
+## Hook input validation
 
 ### `validateHookInput(data)`
 
-```typescript
-validateHookInput(data: unknown): HookInputSchema
-```
-
-Validates any hook input. Throws a Zod error if the shape is invalid. Used internally by `executeHook()`.
+Validates unknown JSON by reading `hook_event_name`, selecting one of the 30 event schemas, and returning the inferred `HookInputSchema`. It throws `HookValidationError` for a non-object, a missing/invalid event name, an unsupported event, or a schema mismatch.
 
 ### `safeValidateHookInput(data)`
 
-```typescript
-safeValidateHookInput(data: unknown): HookInputSchema | null
-```
+Returns a validated input or `null` instead of throwing.
 
-Same as `validateHookInput` but returns `null` instead of throwing. Use when you want to handle invalid input gracefully.
+### Type guards
 
----
+The public guards cover every event:
 
-## Per-Event Input Validators
+`isSetupInput`, `isSessionStartInput`, `isUserPromptSubmitInput`, `isUserPromptExpansionInput`, `isPreToolUseInput`, `isPermissionRequestInput`, `isPermissionDeniedInput`, `isPostToolUseInput`, `isPostToolUseFailureInput`, `isPostToolBatchInput`, `isNotificationInput`, `isMessageDisplayInput`, `isSubagentStartInput`, `isSubagentStopInput`, `isTaskCreatedInput`, `isTaskCompletedInput`, `isStopInput`, `isStopFailureInput`, `isTeammateIdleInput`, `isInstructionsLoadedInput`, `isConfigChangeInput`, `isCwdChangedInput`, `isFileChangedInput`, `isWorktreeCreateInput`, `isWorktreeRemoveInput`, `isPreCompactInput`, `isPostCompactInput`, `isElicitationInput`, `isElicitationResultInput`, and `isSessionEndInput`.
 
-Validate a hook input and narrow its type to a specific event. Throws `HookValidationError` if the event name doesn't match.
+### Event-specific throwing validators
 
-```typescript
-import { validatePreToolUseInput } from '@libar-dev/agent-harness-kit/validation';
-const typedInput = validatePreToolUseInput(input); // PreToolUseInput
-```
+The barrel exports:
 
-| Function | Returns |
-|----------|---------|
-| `validatePreToolUseInput(input)` | `PreToolUseInput` |
-| `validatePostToolUseInput(input)` | `PostToolUseInput` |
-| `validateUserPromptExpansionInput(input)` | `UserPromptExpansionInput` |
-| `validatePermissionDeniedInput(input)` | `PermissionDeniedInput` |
-| `validatePostToolBatchInput(input)` | `PostToolBatchInput` |
-| `validateTaskCreatedInput(input)` | `TaskCreatedInput` |
-| `validateStopFailureInput(input)` | `StopFailureInput` |
-| `validateInstructionsLoadedInput(input)` | `InstructionsLoadedInput` |
-| `validateConfigChangeInput(input)` | `ConfigChangeInput` |
-| `validateCwdChangedInput(input)` | `CwdChangedInput` |
-| `validateFileChangedInput(input)` | `FileChangedInput` |
-| `validateWorktreeCreateInput(input)` | `WorktreeCreateInput` |
-| `validateWorktreeRemoveInput(input)` | `WorktreeRemoveInput` |
-| `validatePostCompactInput(input)` | `PostCompactInput` |
-| `validateElicitationInput(input)` | `ElicitationInput` |
-| `validateElicitationResultInput(input)` | `ElicitationResultInput` |
+- `validateSetupInput`
+- `validatePreToolUseInput`
+- `validatePostToolUseInput`
+- `validateUserPromptExpansionInput`
+- `validatePermissionDeniedInput`
+- `validatePostToolBatchInput`
+- `validateTaskCreatedInput`
+- `validateStopFailureInput`
+- `validateInstructionsLoadedInput`
+- `validateConfigChangeInput`
+- `validateCwdChangedInput`
+- `validateFileChangedInput`
+- `validateWorktreeCreateInput`
+- `validateWorktreeRemoveInput`
+- `validatePostCompactInput`
+- `validateMessageDisplayInput`
+- `validateElicitationInput`
+- `validateElicitationResultInput`
 
----
+Use `validateHookInput` plus a guard for events without a dedicated throwing helper.
 
-## Type Guards
+## Tool input validation
 
-Check a hook input's event type without throwing:
+Tool validators accept any tool-bearing hook input: `PreToolUse`, `PostToolUse`, `PermissionRequest`, `PermissionDenied`, or `PostToolUseFailure`.
 
-```typescript
-import { isPreToolUseInput } from '@libar-dev/agent-harness-kit/validation';
+| Function | Return type | Tool name |
+|---|---|---|
+| `validateBashToolInput` | `BashToolInputSchema` | `Bash` |
+| `validateWriteToolInput` | `WriteToolInputSchema` | `Write` |
+| `validateEditToolInput` | `EditToolInputSchema` | `Edit` |
+| `validateReadToolInput` | `ReadToolInputSchema` | `Read` |
+| `validateGlobToolInput` | `GlobToolInputSchema` | `Glob` |
+| `validateGrepToolInput` | `GrepToolInputSchema` | `Grep` |
+| `validateMultiEditToolInput` | `MultiEditToolInputSchema` | `MultiEdit` |
+| `validateWebFetchToolInput` | `WebFetchToolInputSchema` | `WebFetch` |
+| `validateWebSearchToolInput` | `WebSearchToolInputSchema` | `WebSearch` |
+| `validateAgentToolInput` | `AgentToolInputSchema` | `Agent` |
+| `validateTaskToolInput` | `TaskToolInputSchema` | compatibility `Task` |
+| `validateAskUserQuestionToolInput` | `AskUserQuestionToolInputSchema` | `AskUserQuestion` |
+| `validateExitPlanModeToolInput` | `ExitPlanModeToolInputSchema` | `ExitPlanMode` |
+| `validateTodoWriteToolInput` | `TodoWriteToolInputSchema` | `TodoWrite` |
+| `validateMCPToolInput` | `MCPToolInputSchema` | dynamic MCP names |
 
-if (isPreToolUseInput(input)) {
-  // input is PreToolUseInput here
-}
-```
+`Agent` and compatibility `Task` accept `prompt`, optional `description`, `subagent_type`, `model`, and `run_in_background`.
 
-| Guard | Narrows to |
-|-------|-----------|
-| `isPreToolUseInput(input)` | `PreToolUseInput` |
-| `isPostToolUseInput(input)` | `PostToolUseInput` |
-| `isPermissionRequestInput(input)` | `PermissionRequestInput` |
-| `isPermissionDeniedInput(input)` | `PermissionDeniedInput` |
-| `isPostToolUseFailureInput(input)` | `PostToolUseFailureInput` |
-| `isPostToolBatchInput(input)` | `PostToolBatchInput` |
-| `isUserPromptSubmitInput(input)` | `UserPromptSubmitInput` |
-| `isUserPromptExpansionInput(input)` | `UserPromptExpansionInput` |
-| `isSessionStartInput(input)` | `SessionStartInput` |
-| `isSessionEndInput(input)` | `SessionEndInput` |
-| `isNotificationInput(input)` | `NotificationInput` |
-| `isStopInput(input)` | `StopInput` |
-| `isStopFailureInput(input)` | `StopFailureInput` |
-| `isSubagentStartInput(input)` | `SubagentStartInput` |
-| `isSubagentStopInput(input)` | `SubagentStopInput` |
-| `isTeammateIdleInput(input)` | `TeammateIdleInput` |
-| `isTaskCreatedInput(input)` | `TaskCreatedInput` |
-| `isTaskCompletedInput(input)` | `TaskCompletedInput` |
-| `isInstructionsLoadedInput(input)` | `InstructionsLoadedInput` |
-| `isConfigChangeInput(input)` | `ConfigChangeInput` |
-| `isCwdChangedInput(input)` | `CwdChangedInput` |
-| `isFileChangedInput(input)` | `FileChangedInput` |
-| `isWorktreeCreateInput(input)` | `WorktreeCreateInput` |
-| `isWorktreeRemoveInput(input)` | `WorktreeRemoveInput` |
-| `isPreCompactInput(input)` | `PreCompactInput` |
-| `isPostCompactInput(input)` | `PostCompactInput` |
-| `isElicitationInput(input)` | `ElicitationInput` |
-| `isElicitationResultInput(input)` | `ElicitationResultInput` |
+`ExitPlanMode` requires the injected `plan` and `planFilePath` fields. It may include deprecated `allowedPrompts: Array<{ tool, prompt }>` entries, which Claude Code accepts but ignores.
 
----
+### Dynamic MCP routing
 
-## Content Validators
+`validateToolInput(hookInput)` routes built-ins through `toolInputSchemas`. Unknown names matching `mcp__<server>__<tool>` use the generic record schema. The matcher permits hyphenated and underscore-separated server/tool segments, including plugin-scoped names such as `mcp__plugin_my-plugin_db__query`.
 
-### `validateBashCommand(command, rules?)`
+`validateMCPToolInput` validates the same `Record<string, unknown>` shape directly.
 
-```typescript
-validateBashCommand(
-  command: string,
-  rules?: BashValidationRule[]
-): { issues: Array<{ severity: 'error' | 'warning' | 'info'; message: string; suggestion?: string }> }
-```
+## Output schemas
 
-Validates a Bash command against safety rules. Returns an object with an `issues` array. An empty array means the command is clean.
+`hookOutputSchemas` exposes an output schema for every event. Important strict contracts include:
 
-```typescript
-const result = validateBashCommand('rm -rf /');
-// result.issues[0] = { severity: 'error', message: 'rm -rf detected', suggestion: 'Use a safer delete command' }
-```
+- `notificationOutputSchema` is strict universal output only. Notification-specific fields and `additionalContext` are rejected.
+- `stopOutputSchema` and `subagentStopOutputSchema` distinguish universal output, block mode, and non-error additional-context mode.
+- Block mode requires `decision: 'block'` and a present `reason` string (empty string accepted).
+- Non-error Stop/SubagentStop feedback requires a present `hookSpecificOutput.additionalContext` string and cannot be combined with top-level decision fields.
+- `postToolUseFailureOutputSchema` does not accept PostToolUse output-replacement fields.
+- `permissionRequestOutputSchema` validates the complete documented `PermissionUpdateEntry` union, including `manual` as a `setMode` alias.
 
-### `DEFAULT_BASH_RULES`
-
-```typescript
-const DEFAULT_BASH_RULES: BashValidationRule[]
-```
-
-The built-in rule set covering: `rm -rf`, `sudo`, `chmod 777`, `dd`, and `mkfs` (errors), plus performance suggestions.
-
-Pass custom rules as the second argument to `validateBashCommand`:
-
-```typescript
-const myRules: BashValidationRule[] = [
-  { pattern: /git push --force/, severity: 'error', message: 'Force push is not allowed' },
-];
-validateBashCommand(command, [...DEFAULT_BASH_RULES, ...myRules]);
-```
-
-### `containsSecrets(text)`
-
-```typescript
-containsSecrets(text: string): boolean
-```
-
-Returns `true` if the text appears to contain an API key, token, or password pattern.
-
-### `validateFileSyntax(filePath, content)`
-
-```typescript
-validateFileSyntax(filePath: string, content: string): void
-```
-
-Validates file content against expected syntax for common extensions (JSON, TypeScript). Throws on syntax errors.
-
-### `validateSafeFilePath(filePath)`
-
-```typescript
-validateSafeFilePath(filePath: string): void
-```
-
-Throws if the path contains `..` (path traversal) or other unsafe patterns.
-
-### `normalizeFilePath(path)` (re-exported from utils)
-
-```typescript
-normalizeFilePath(path: string): string
-```
-
-Cross-platform path normalization (Windows backslashes → forward slashes, trailing slash removal, case normalization on win32).
-
----
-
-## Config Validators
-
-Validate hook configuration objects from `settings.json`.
+## Settings validation
 
 ### `validateHooksConfig(data)`
 
-```typescript
-validateHooksConfig(data: unknown): HooksConfig
-```
+Validates the settings-shaped hook contract:
 
-Validates the full `hooks` block (or entire settings object). Throws a Zod error if invalid.
+- optional event-aware `hooks` map
+- `disableAllHooks`
+- `allowManagedHooksOnly`
+- `allowedHttpHookUrls`
+- `httpHookAllowedEnvVars`
 
-```typescript
-const raw = JSON.parse(fs.readFileSync('.claude/settings.json', 'utf8'));
-const config = validateHooksConfig(raw); // HooksConfig
-```
+Unknown event names are rejected. Event entries enforce the implemented handler matrix: all five handler types for decision-capable events, external handlers for observation/external events, and command/MCP-only handlers for `SessionStart` and `Setup`. `MessageDisplay` deliberately remains on the generic compatibility schema because upstream does not classify its handler types.
 
 ### `validateHookHandler(data)`
 
-```typescript
-validateHookHandler(data: unknown): HookHandler
-```
-
-Validates a single handler object. Returns the discriminated-union type.
+Validates one generic handler. It does not know which event will contain the handler; use `validateHooksConfig` to enforce event compatibility.
 
 ### `validateMatcherGroup(data)`
 
-```typescript
-validateMatcherGroup(data: unknown): MatcherGroup
-```
+Validates a generic `{ matcher?, hooks }` group. Event-specific matcher support is runtime semantics, not a rejection rule: matchers on no-matcher events are accepted and ignored by Claude Code.
 
-Validates a single matcher group `{ matcher?, hooks[] }`.
+### Exported settings schemas
 
----
+- `commandHookHandlerSchema`
+- `httpHookHandlerSchema`
+- `mcpToolHookHandlerSchema`
+- `promptHookHandlerSchema`
+- `agentHookHandlerSchema`
+- `hookHandlerSchema`
+- `decisionHookHandlerSchema`
+- `externalHookHandlerSchema`
+- `startupHookHandlerSchema`
+- `matcherGroupSchema`
+- `decisionMatcherGroupSchema`
+- `externalMatcherGroupSchema`
+- `startupMatcherGroupSchema`
+- `hookEventNameSchema`
+- `hooksConfigSchema`
 
-## HookValidationError
+Handler schemas accept common `timeout`, `statusMessage`, `once`, and `if` fields. Runtime significance is narrower: `once` is honored only in skill frontmatter, and `if` only on tool events. `continueOnBlock` is accepted only for prompt and agent handlers.
 
-Thrown by all `validate*` functions on validation failure.
+## Content validators
 
-```typescript
-import { HookValidationError } from '@libar-dev/agent-harness-kit/validation';
+- `validateBashCommand(command, rules?)` returns safety issues.
+- `DEFAULT_BASH_RULES` is the built-in command rule set.
+- `containsSecrets(text)` checks common secret patterns.
+- `validateFileSyntax(filePath, content)` validates supported file formats.
+- `validateSafeFilePath(filePath)` rejects traversal patterns.
+- `normalizeFilePath(path)` is re-exported from utilities.
 
-try {
-  validateBashToolInput(input);
-} catch (err) {
-  if (err instanceof HookValidationError) {
-    console.error('Validation failed:', err.message);
-    // err.issues contains the Zod issue array
-  }
-}
-```
+## `HookValidationError`
+
+`HookValidationError` exposes `code`, `context`, optional `zodError`, and `getDetailedMessage()`. Catch it when callers need stable error classification rather than raw Zod formatting.

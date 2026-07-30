@@ -8,7 +8,6 @@ import {
   executeHook,
   logInfo,
   logDebug,
-  logWarning,
   outputJson,
   getConfig,
   getProjectDir,
@@ -25,8 +24,6 @@ interface StopHookConfig {
   checkUncommittedChanges: boolean;
   /** Check for failed tests */
   checkFailedTests: boolean;
-  /** Prevent infinite loops by limiting continuations */
-  maxContinuations: number;
 }
 
 /**
@@ -37,10 +34,6 @@ function getStopConfig(): StopHookConfig {
     checkIncompleteTasks: process.env['CLAUDE_HOOK_CHECK_TASKS'] !== 'false',
     checkUncommittedChanges: process.env['CLAUDE_HOOK_CHECK_GIT'] !== 'false',
     checkFailedTests: process.env['CLAUDE_HOOK_CHECK_TESTS'] !== 'false',
-    maxContinuations: parseInt(
-      process.env['CLAUDE_HOOK_MAX_CONTINUATIONS'] ?? '3',
-      10
-    ),
   };
 }
 
@@ -62,15 +55,6 @@ async function handleStop(input: StopInput): Promise<void> {
   // Prevent infinite loops - if stop hook is already active, allow stopping
   if (stop_hook_active) {
     logDebug('Stop hook already active - allowing Claude to stop');
-    return;
-  }
-
-  // Track number of continuations to prevent infinite loops
-  const continuationCount = await getContinuationCount(session_id);
-  if (continuationCount >= config.maxContinuations) {
-    logWarning(
-      `Maximum continuations (${config.maxContinuations}) reached - allowing stop`
-    );
     return;
   }
 
@@ -101,15 +85,12 @@ async function handleStop(input: StopInput): Promise<void> {
 
   // If issues found, block stopping and provide feedback
   if (issues.length > 0) {
-    await incrementContinuationCount(session_id);
-
     const blockMessage = [
       'Cannot stop yet - issues detected:',
       '',
       ...issues.map(issue => `• ${issue}`),
       '',
       'Please address these issues before completing the session.',
-      `(Continuation ${continuationCount + 1}/${config.maxContinuations})`,
     ].join('\n');
 
     outputJson({
@@ -225,42 +206,6 @@ async function checkFailedTests(): Promise<string[]> {
   }
 
   return failedTests;
-}
-
-/**
- * Get continuation count for session (simple file-based tracking)
- */
-async function getContinuationCount(sessionId: string): Promise<number> {
-  try {
-    const { readFile } = await import('node:fs/promises');
-    const countFile = `/tmp/claude-stop-continuations-${sessionId}`;
-
-    try {
-      const content = await readFile(countFile, 'utf-8');
-      const parsed = parseInt(content.trim(), 10);
-      return Number.isNaN(parsed) ? 0 : parsed;
-    } catch {
-      return 0; // File doesn't exist, first continuation
-    }
-  } catch (error) {
-    logDebug('Could not read continuation count:', error);
-    return 0;
-  }
-}
-
-/**
- * Increment continuation count for session
- */
-async function incrementContinuationCount(sessionId: string): Promise<void> {
-  try {
-    const { writeFile } = await import('node:fs/promises');
-    const countFile = `/tmp/claude-stop-continuations-${sessionId}`;
-
-    const currentCount = await getContinuationCount(sessionId);
-    await writeFile(countFile, (currentCount + 1).toString(), 'utf-8');
-  } catch (error) {
-    logDebug('Could not increment continuation count:', error);
-  }
 }
 
 /**

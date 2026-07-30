@@ -13,6 +13,7 @@ import {
   getProjectDir,
 } from '../utils/index.js';
 import { type PreCompactInput } from '../types/index.js';
+import { savePreCompactContext } from './pre-compact-context.js';
 import { readTranscript } from './utils.js';
 
 /**
@@ -150,24 +151,21 @@ async function handlePreCompact(input: PreCompactInput): Promise<void> {
     if (contextSummary.length > 0) {
       logInfo('Pre-compact context extraction completed');
 
-      // Claude Code includes additionalContext in the compaction prompt.
+      const preservedContext = [
+        'Pre-Compact Context Summary',
+        '',
+        ...contextSummary,
+        '',
+        '(This summary was generated before context compaction to preserve important information)',
+      ].join('\n');
+      await savePreCompactContext(session_id, preservedContext);
       outputJson({
-        hookSpecificOutput: {
-          hookEventName: 'PreCompact',
-          additionalContext: [
-            'Pre-Compact Context Summary',
-            '',
-            ...contextSummary,
-            '',
-            '(This summary was generated before context compaction to preserve important information)',
-          ].join('\n'),
-        },
         systemMessage: [
           '📄 **Pre-Compact Context Summary**',
           '',
           ...contextSummary,
           '',
-          '*(This summary was generated before context compaction to preserve important information)*',
+          '*(This summary will be restored after compaction.)*',
         ].join('\n'),
       });
     }
@@ -176,15 +174,9 @@ async function handlePreCompact(input: PreCompactInput): Promise<void> {
       `Pre-compact hook encountered error: ${error instanceof Error ? error.message : String(error)}`
     );
 
-    // Still allow compaction to proceed, but note the error
+    // Still allow compaction to proceed, but notify the user.
     const message = `Pre-compact context extraction failed: ${error instanceof Error ? error.message : String(error)}`;
-    outputJson({
-      hookSpecificOutput: {
-        hookEventName: 'PreCompact',
-        additionalContext: message,
-      },
-      systemMessage: `⚠️ ${message}`,
-    });
+    outputJson({ systemMessage: `⚠️ ${message}` });
   }
 }
 
@@ -464,17 +456,25 @@ async function saveContextSummary(
   sessionId: string
 ): Promise<void> {
   try {
-    const { writeFile } = await import('node:fs/promises');
-    const summaryFile = `/tmp/claude-pre-compact-${sessionId}.json`;
-
-    const summary = {
-      timestamp: new Date().toISOString(),
-      session_id: sessionId,
-      context,
-    };
-
-    await writeFile(summaryFile, JSON.stringify(summary, null, 2), 'utf-8');
-    logDebug(`Context summary saved to ${summaryFile}`);
+    const summary = [
+      context.projectStatus && `Project status: ${context.projectStatus}`,
+      context.keyDecisions.length > 0 &&
+        `Key decisions:\n${context.keyDecisions.map(value => `- ${value}`).join('\n')}`,
+      context.recentChanges.length > 0 &&
+        `Recent changes:\n${context.recentChanges.map(value => `- ${value}`).join('\n')}`,
+      context.pendingTasks.length > 0 &&
+        `Pending tasks:\n${context.pendingTasks.map(value => `- ${value}`).join('\n')}`,
+      context.errors.length > 0 &&
+        `Unresolved errors:\n${context.errors.map(value => `- ${value}`).join('\n')}`,
+      context.importantFiles.length > 0 &&
+        `Important files:\n${context.importantFiles.map(value => `- ${value}`).join('\n')}`,
+    ]
+      .filter((value): value is string => typeof value === 'string')
+      .join('\n\n');
+    if (summary) {
+      await savePreCompactContext(sessionId, summary);
+      logDebug('Pre-compact context summary saved');
+    }
   } catch (error) {
     logDebug('Could not save context summary:', error);
   }

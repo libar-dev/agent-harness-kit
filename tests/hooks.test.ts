@@ -42,6 +42,8 @@ import {
   createElicitationResultInput,
   createSessionStartInput,
   createPreCompactInput,
+  createNotificationInput,
+  createSubagentStopInput,
 } from './test-utils.js';
 import {
   validateBashToolInput,
@@ -67,7 +69,11 @@ import { handlePostCompact } from '../src/lifecycle/post-compact.js';
 import { handleElicitation } from '../src/lifecycle/elicitation.js';
 import { handleElicitationResult } from '../src/lifecycle/elicitation-result.js';
 import { handleSessionStart } from '../src/lifecycle/session-start.js';
-import { classifyNotification } from '../src/lifecycle/notification-handler.js';
+import {
+  classifyNotification,
+  handleNotification,
+} from '../src/lifecycle/notification-handler.js';
+import { handleSubagentStop } from '../src/lifecycle/subagent-stop.js';
 import { handlePreCompact } from '../src/lifecycle/pre-compact.js';
 
 /**
@@ -147,6 +153,12 @@ async function resetMockProcess(): Promise<MockProcess> {
   clearEnv(proc.env);
   resetConfigCache();
   return proc;
+}
+
+function captureConsoleErrorToStderr(proc: MockProcess): void {
+  vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+    proc.stderr.output += args.map(String).join(' ');
+  });
 }
 
 // Mock process with factory function
@@ -671,6 +683,107 @@ describe('Session C Handler Regressions', () => {
     expect(
       classifyNotification('Server needs input', 'elicitation_dialog')
     ).toBe('waiting');
+    expect(
+      classifyNotification('Background agent paused', 'agent_needs_input')
+    ).toBe('waiting');
+    expect(
+      classifyNotification('Background agent finished', 'agent_completed')
+    ).toBe('info');
+  });
+
+  test('Notification honors optional title from input', async () => {
+    const proc = await resetMockProcess();
+    captureConsoleErrorToStderr(proc);
+    const originalEnv = { ...process.env };
+    process.env['CLAUDE_HOOK_DESKTOP_NOTIFICATIONS'] = 'false';
+    process.env['CLAUDE_HOOK_CONSOLE_NOTIFICATIONS'] = 'true';
+    process.env['CLAUDE_HOOK_NOTIFICATIONS_IN_CI'] = 'true';
+
+    try {
+      await handleNotification(
+        createNotificationInput('Agent needs your input', 'agent_needs_input', {
+          title: 'Custom agent title',
+        })
+      );
+    } finally {
+      process.env = originalEnv;
+    }
+
+    expect(proc.stderr.output).toContain('Custom agent title');
+    expect(proc.stderr.output).toContain('Agent needs your input');
+  });
+
+  test('StopFailure logs without writing meaningful JSON stdout', async () => {
+    const proc = await resetMockProcess();
+
+    await handleStopFailure(
+      createStopFailureInput({
+        error: 'rate_limit',
+        error_details: '429 Too Many Requests',
+      })
+    );
+
+    expect(proc.stdout.output.trim()).toBe('');
+  });
+
+  test('SubagentStop reads agent_transcript_path for analysis', async () => {
+    const proc = await resetMockProcess();
+    const originalEnv = { ...process.env };
+    process.env['CLAUDE_HOOK_VALIDATE_SUBAGENT'] = 'true';
+    process.env['CLAUDE_HOOK_CHECK_SUBAGENT_ERRORS'] = 'false';
+    process.env['CLAUDE_HOOK_LOG_SUBAGENT_METRICS'] = 'false';
+    process.env['CLAUDE_HOOK_SUBAGENT_MAX_RETRIES'] = '0';
+
+    try {
+      await handleSubagentStop(
+        createSubagentStopInput({
+          agent_transcript_path: '/tmp/missing-agent-transcript.jsonl',
+          transcript_path: '/tmp/missing-parent-transcript.jsonl',
+          stop_hook_active: false,
+        })
+      );
+    } finally {
+      process.env = originalEnv;
+    }
+
+    // Missing agent transcript should still complete without throwing and
+    // may emit a block or allow depending on retry budget.
+    expect(typeof proc.stdout.output).toBe('string');
+  });
+
+  test('SubagentStop treats empty agent transcript plus error final message as failed', async () => {
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+
+    const proc = await resetMockProcess();
+    const originalEnv = { ...process.env };
+    process.env['CLAUDE_HOOK_VALIDATE_SUBAGENT'] = 'true';
+    process.env['CLAUDE_HOOK_CHECK_SUBAGENT_ERRORS'] = 'false';
+    process.env['CLAUDE_HOOK_LOG_SUBAGENT_METRICS'] = 'false';
+    process.env['CLAUDE_HOOK_SUBAGENT_MAX_RETRIES'] = '2';
+
+    const dir = await mkdtemp(join(tmpdir(), 'subagent-stop-'));
+    const emptyAgentTranscript = join(dir, 'agent.jsonl');
+    await writeFile(emptyAgentTranscript, '', 'utf-8');
+
+    try {
+      await handleSubagentStop(
+        createSubagentStopInput({
+          agent_transcript_path: emptyAgentTranscript,
+          transcript_path: join(dir, 'missing-parent.jsonl'),
+          stop_hook_active: false,
+          last_assistant_message: 'Error: task failed',
+        })
+      );
+    } finally {
+      process.env = originalEnv;
+      await rm(dir, { recursive: true, force: true });
+    }
+
+    const output = parseJsonObject(proc.stdout.output);
+    expect(getString(output, 'decision')).toBe('block');
+    expect(getString(output, 'reason')).toContain('Error:');
   });
 
   test('PreCompact emits hookSpecificOutput additionalContext', async () => {

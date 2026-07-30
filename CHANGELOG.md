@@ -11,6 +11,33 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ## [Unreleased]
 
+### Added
+
+- Added Claude Code hook parity for optional `prompt_id`, eight Notification
+  types, Stop/SubagentStop background-task and session-cron registries, six
+  permission-update variants, the `manual` set-mode alias, `disableAllHooks`,
+  `continueOnBlock`, Agent background execution input, and injected
+  ExitPlanMode plan fields.
+- Added event-aware hook-handler schemas and dedicated builder methods for
+  PostToolUseFailure, Stop, and SubagentStop feedback modes.
+- Added `UserPromptSubmitOutput.suppressOriginalPrompt` and
+  `blockPrompt(reason, options?)` support for omitting the original prompt from
+  block messages.
+
+### Changed
+
+- Notification output is restricted to universal hook fields.
+- Stop and SubagentStop block outputs require a present `reason` string (empty
+  string accepted) and remain distinct from non-error `additionalContext`
+  feedback.
+- SubagentStop analysis treats blank agent transcripts as unavailable and
+  includes `last_assistant_message` when scoring completion errors.
+- `stopFailureLog()` is a deprecated no-op compatibility shim because Claude
+  Code ignores StopFailure output and exit code.
+- Project-authored hook documentation was audited against refreshed official
+  mirrors on 2026-07-12, including matcher semantics, handler support,
+  timeout overrides, root restrictions, tool inputs, and environment defaults.
+
 ### Fixed
 
 - Canonicalized existing hook-event working directories before project-root
@@ -81,7 +108,7 @@ Development milestone for `@libar-dev/claude-code-hooks` before the first public
 
 ### Added
 
-- Full TypeScript coverage of all 28 Claude Code hook events (SessionStart through
+- Full TypeScript coverage of all 30 Claude Code hook events (SessionStart through
   ElicitationResult).
 - `HookOutputBuilder` with methods for every output pattern across all hook types.
 - Zod-based validation: per-event input/output schemas, tool-input schemas for 15 tools,
@@ -105,7 +132,7 @@ Development milestone for `@libar-dev/claude-code-hooks` before the first public
 - `.nvmrc` pinning the development Node version.
 - Full developer documentation tree: getting-started guide, hook-writing walkthrough,
   settings.json configuration reference, cookbook, troubleshooting guide, and a complete
-  API reference (all 28 hook events, `HookOutputBuilder` methods, validator catalogue,
+  API reference (all 30 hook events, `HookOutputBuilder` methods, validator catalogue,
   public type catalogue, and environment variable reference).
 
 ### Changed
