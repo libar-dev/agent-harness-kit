@@ -732,7 +732,6 @@ describe('Session C Handler Regressions', () => {
     process.env['CLAUDE_HOOK_VALIDATE_SUBAGENT'] = 'true';
     process.env['CLAUDE_HOOK_CHECK_SUBAGENT_ERRORS'] = 'false';
     process.env['CLAUDE_HOOK_LOG_SUBAGENT_METRICS'] = 'false';
-    process.env['CLAUDE_HOOK_SUBAGENT_MAX_RETRIES'] = '0';
 
     try {
       await handleSubagentStop(
@@ -746,8 +745,7 @@ describe('Session C Handler Regressions', () => {
       process.env = originalEnv;
     }
 
-    // Missing agent transcript should still complete without throwing and
-    // may emit a block or allow depending on retry budget.
+    // Missing transcripts complete without throwing when no error markers exist.
     expect(typeof proc.stdout.output).toBe('string');
   });
 
@@ -761,7 +759,6 @@ describe('Session C Handler Regressions', () => {
     process.env['CLAUDE_HOOK_VALIDATE_SUBAGENT'] = 'true';
     process.env['CLAUDE_HOOK_CHECK_SUBAGENT_ERRORS'] = 'false';
     process.env['CLAUDE_HOOK_LOG_SUBAGENT_METRICS'] = 'false';
-    process.env['CLAUDE_HOOK_SUBAGENT_MAX_RETRIES'] = '2';
 
     const dir = await mkdtemp(join(tmpdir(), 'subagent-stop-'));
     const emptyAgentTranscript = join(dir, 'agent.jsonl');
@@ -786,7 +783,7 @@ describe('Session C Handler Regressions', () => {
     expect(getString(output, 'reason')).toContain('Error:');
   });
 
-  test('PreCompact emits hookSpecificOutput additionalContext', async () => {
+  test('PreCompact emits systemMessage and stores context for SessionStart', async () => {
     const proc = await resetMockProcess();
 
     const originalEnv = { ...process.env };
@@ -805,11 +802,12 @@ describe('Session C Handler Regressions', () => {
     }
 
     const output = parseJsonObject(proc.stdout.output);
-    const hookSpecificOutput = getRecord(output, 'hookSpecificOutput');
-    expect(getString(hookSpecificOutput, 'hookEventName')).toBe('PreCompact');
-    expect(getString(hookSpecificOutput, 'additionalContext')).toContain(
+    // PreCompact no longer injects additionalContext (not a documented channel).
+    // Context is user-visible via systemMessage and re-injected on compact SessionStart.
+    expect(getString(output, 'systemMessage')).toContain(
       'Instruction Validation'
     );
+    expect(output['hookSpecificOutput']).toBeUndefined();
   });
 });
 

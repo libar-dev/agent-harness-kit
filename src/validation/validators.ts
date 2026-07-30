@@ -61,7 +61,29 @@ type ToolBearingHookInput =
   | PermissionDeniedInputSchema
   | PostToolUseFailureInputSchema;
 
-const MCP_TOOL_NAME_PATTERN = /^mcp__[^_](?:.*?[^_])?__.+$/;
+/**
+ * MCP tool names are `mcp__<server>__<tool>`.
+ * Server and tool segments may contain single underscores or hyphens
+ * (including plugin-scoped servers like `plugin_slack_slack`).
+ * Reject empty segments, extra `__` parts, and characters outside the
+ * documented identifier set.
+ */
+const MCP_SEGMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+function isMCPToolName(toolName: string): boolean {
+  const parts = toolName.split('__');
+  if (parts.length !== 3 || parts[0] !== 'mcp') {
+    return false;
+  }
+  const server = parts[1];
+  const tool = parts[2];
+  return (
+    typeof server === 'string' &&
+    typeof tool === 'string' &&
+    MCP_SEGMENT_PATTERN.test(server) &&
+    MCP_SEGMENT_PATTERN.test(tool)
+  );
+}
 
 /** Validation error with a stable code, context object, and optional Zod error details. */
 export class HookValidationError extends Error {
@@ -194,7 +216,7 @@ export function validateToolInput(
     >
   )[toolName];
   if (schema === undefined) {
-    if (MCP_TOOL_NAME_PATTERN.test(toolName)) {
+    if (isMCPToolName(toolName)) {
       const result = mcpToolInputSchema.safeParse(hookInput.tool_input);
       if (!result.success) {
         throw new HookValidationError(
@@ -584,7 +606,7 @@ export function validateTodoWriteToolInput(
 export function validateMCPToolInput(
   hookInput: ToolBearingHookInput
 ): z.infer<typeof mcpToolInputSchema> {
-  if (!MCP_TOOL_NAME_PATTERN.test(hookInput.tool_name)) {
+  if (!isMCPToolName(hookInput.tool_name)) {
     throw new HookValidationError(
       `Expected MCP tool name, got ${hookInput.tool_name}`,
       'WRONG_TOOL_TYPE',

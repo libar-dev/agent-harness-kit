@@ -1645,14 +1645,21 @@ describe('Additional Event Output Schemas', () => {
     expect(result.success).toBe(true);
   });
 
-  it('accepts PreCompact additionalContext output', () => {
-    const result = preCompactOutputSchema.safeParse({
-      hookSpecificOutput: {
-        hookEventName: 'PreCompact',
-        additionalContext: 'Compact this detail',
-      },
+  it('accepts PreCompact block output and rejects context injection', () => {
+    expect(
+      preCompactOutputSchema.safeParse({
+        decision: 'block',
+        reason: 'Do not compact yet',
+      }).success
+    ).toBe(true);
+
+    // PreCompact decision control is block-only; additionalContext is not a
+    // documented PreCompact channel. Stripped unknown keys still parse as
+    // universal output, so assert the documented block shape instead.
+    const allowed = preCompactOutputSchema.safeParse({
+      systemMessage: 'Saved context for SessionStart re-injection',
     });
-    expect(result.success).toBe(true);
+    expect(allowed.success).toBe(true);
   });
 
   it('accepts ConfigChange block output', () => {
@@ -2603,7 +2610,9 @@ describe('HookOutputBuilder Schema Helpers', () => {
     it('teammateStop() creates TeammateIdle stop output', () => {
       const output = HookOutputBuilder.teammateStop('Teammate should continue');
       expect(output.continue).toBe(false);
-      expect(output.hookSpecificOutput.hookEventName).toBe('TeammateIdle');
+      expect(output.stopReason).toBe('Teammate should continue');
+      // Official TeammateIdle control is continue/stopReason only.
+      expect('hookSpecificOutput' in output).toBe(false);
       expect(baseHookOutputSchema.safeParse(output).success).toBe(true);
     });
 

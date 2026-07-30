@@ -31,6 +31,29 @@ export async function savePreCompactContext(
   );
 }
 
+function readStoredContext(value: unknown): StoredPreCompactContext | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  let createdAt: string | undefined;
+  let context: string | undefined;
+
+  for (const [key, field] of Object.entries(value)) {
+    if (key === 'createdAt' && typeof field === 'string') {
+      createdAt = field;
+    } else if (key === 'context' && typeof field === 'string') {
+      context = field;
+    }
+  }
+
+  if (createdAt === undefined || context === undefined) {
+    return null;
+  }
+
+  return { createdAt, context };
+}
+
 /** Consume fresh context saved before compaction, removing it after reading. */
 export async function consumePreCompactContext(
   sessionId: string
@@ -40,19 +63,19 @@ export async function consumePreCompactContext(
     const raw = await readFile(path, 'utf-8');
     await unlink(path).catch(() => undefined);
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    const createdAt = Reflect.get(parsed, 'createdAt');
-    const context = Reflect.get(parsed, 'context');
-    if (typeof createdAt !== 'string' || typeof context !== 'string') return null;
-    const createdAtMs = Date.parse(createdAt);
+    const stored = readStoredContext(parsed);
+    if (!stored) {
+      return null;
+    }
+    const createdAtMs = Date.parse(stored.createdAt);
     if (
       !Number.isFinite(createdAtMs) ||
       Date.now() - createdAtMs > MAX_CONTEXT_AGE_MS ||
-      context.trim().length === 0
+      stored.context.trim().length === 0
     ) {
       return null;
     }
-    return context;
+    return stored.context;
   } catch {
     await unlink(path).catch(() => undefined);
     return null;

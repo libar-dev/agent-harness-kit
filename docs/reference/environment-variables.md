@@ -131,11 +131,9 @@ The following variables are read directly by bundled example/reference handlers.
 | `CLAUDE_HOOK_CHECK_TASKS` | `true` | Set to `false` to skip task checks. |
 | `CLAUDE_HOOK_CHECK_GIT` | `true` | Set to `false` to skip git checks. |
 | `CLAUDE_HOOK_CHECK_TESTS` | `true` | Set to `false` to skip test checks. |
-| `CLAUDE_HOOK_MAX_CONTINUATIONS` | `3` | Main-session continuation limit. |
 | `CLAUDE_HOOK_VALIDATE_SUBAGENT` | `true` | Set to `false` to skip completion validation. |
-| `CLAUDE_HOOK_CHECK_SUBAGENT_ERRORS` | `true` | Set to `false` to skip transcript error checks. |
+| `CLAUDE_HOOK_CHECK_SUBAGENT_ERRORS` | `true` | Set to `false` to skip critical-error escalation checks. Completion validation still scores transcript and final-message error markers. |
 | `CLAUDE_HOOK_LOG_SUBAGENT_METRICS` | `false` | `true` logs subagent metrics. |
-| `CLAUDE_HOOK_SUBAGENT_MAX_RETRIES` | `2` | Subagent retry limit. |
 
 ### PreCompact
 

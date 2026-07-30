@@ -1072,8 +1072,8 @@ export const taskToolInputSchema = z.object({
 
 /** Schema for Agent tool inputs. */
 export const agentToolInputSchema = z.object({
-  description: z.string().min(1),
   prompt: z.string().min(1),
+  description: z.string().min(1).optional(),
   subagent_type: z.string().optional(),
   model: z.string().optional(),
   run_in_background: z.boolean().optional(),
@@ -1082,15 +1082,16 @@ export const agentToolInputSchema = z.object({
 
 const askUserQuestionOptionSchema = z.object({
   label: z.string().min(1),
-  description: z.string().min(1),
+  description: z.string().optional(),
   preview: z.string().optional(),
 });
 
 const askUserQuestionQuestionSchema = z.object({
   question: z.string().min(1),
   header: z.string().min(1).max(12),
-  options: z.array(askUserQuestionOptionSchema).min(2).max(4),
-  multiSelect: z.boolean(),
+  // Official examples use label-only options; require at least one choice.
+  options: z.array(askUserQuestionOptionSchema).min(1).max(4),
+  multiSelect: z.boolean().optional(),
 });
 
 const askUserQuestionAnnotationSchema = z.object({
@@ -1102,9 +1103,7 @@ const askUserQuestionAnnotationSchema = z.object({
 export const askUserQuestionToolInputSchema = z.object({
   questions: z.array(askUserQuestionQuestionSchema).min(1).max(4),
   answers: z.record(z.string(), z.string()).optional(),
-  annotations: z
-    .record(z.string(), askUserQuestionAnnotationSchema)
-    .optional(),
+  annotations: z.record(z.string(), askUserQuestionAnnotationSchema).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 

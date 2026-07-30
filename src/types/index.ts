@@ -1077,10 +1077,10 @@ export interface WebSearchToolInput {
 
 /** Input for the Agent tool. */
 export interface AgentToolInput {
-  /** Short description shown while the agent runs */
-  description: string;
   /** Task for the agent to perform */
   prompt: string;
+  /** Short description shown while the agent runs */
+  description?: string | undefined;
   subagent_type?: string | undefined;
   model?: string | undefined;
   run_in_background?: boolean | undefined;
@@ -1090,7 +1090,7 @@ export interface AgentToolInput {
 /** Selectable option shown by AskUserQuestion. */
 export interface AskUserQuestionOption {
   label: string;
-  description: string;
+  description?: string | undefined;
   preview?: string | undefined;
 }
 
@@ -1099,7 +1099,7 @@ export interface AskUserQuestionEntry {
   question: string;
   header: string;
   options: AskUserQuestionOption[];
-  multiSelect: boolean;
+  multiSelect?: boolean | undefined;
 }
 
 /** Input for the AskUserQuestion tool. */

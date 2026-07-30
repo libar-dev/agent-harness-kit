@@ -90,7 +90,7 @@ async function handleSubagentStop(input: SubagentStopInput): Promise<void> {
   if (config.validateTaskCompletion) {
     taskResult = await analyzeSubagentTask(input);
 
-    if (config.checkForErrors && !taskResult.success) {
+    if (!taskResult.success) {
       issues.push(`Subagent task failed: ${taskResult.errors.join(', ')}`);
     }
 
@@ -192,9 +192,14 @@ async function analyzeSubagentTask(
       }
     }
 
-    // Final assistant prose contributes output size and warnings, not failure state.
+    // Final assistant prose is authoritative when the transcript lags or is blank.
+    // Score prose error markers into the failure state (CHANGELOG parity claim).
     if (finalMessage.length > 0) {
       result.outputSize = Math.max(result.outputSize, finalMessage.length);
+      result.errors = mergeUnique(
+        result.errors,
+        extractProseErrors(finalMessage)
+      );
       result.warnings = mergeUnique(
         result.warnings,
         extractWarnings(finalMessage)
@@ -282,6 +287,35 @@ function extractStructuredErrors(transcript: string): string[] {
       // Transcript readers may receive partial trailing lines; ignore them.
     }
   }
+  return errors;
+}
+
+/**
+ * Extract prose error markers from free-form assistant text.
+ * Used for `last_assistant_message` and non-JSONL completion text.
+ */
+function extractProseErrors(text: string): string[] {
+  const errors: string[] = [];
+  const patterns = [
+    /Error:.+/gi,
+    /Failed to.+/gi,
+    /Cannot .+/gi,
+    /Permission denied.+/gi,
+    /File not found.+/gi,
+    /Command not found.+/gi,
+  ];
+
+  for (const pattern of patterns) {
+    const matches = text.match(pattern);
+    if (!matches) continue;
+    for (const match of matches) {
+      const trimmed = match.trim();
+      if (trimmed.length > 0) {
+        errors.push(trimmed);
+      }
+    }
+  }
+
   return errors;
 }
 
@@ -435,42 +469,6 @@ async function logSubagentMetrics(
     await appendFile(metricsFile, JSON.stringify(metrics) + '\n', 'utf-8');
   } catch (error) {
     logDebug('Could not write metrics file:', error);
-  }
-}
-
-/**
- * Get subagent retry count for session
- */
-async function getSubagentRetryCount(sessionId: string): Promise<number> {
-  try {
-    const { readFile } = await import('node:fs/promises');
-    const countFile = `/tmp/claude-subagent-retries-${sessionId}`;
-
-    try {
-      const content = await readFile(countFile, 'utf-8');
-      const parsed = parseInt(content.trim(), 10);
-      return Number.isNaN(parsed) ? 0 : parsed;
-    } catch {
-      return 0; // File doesn't exist, first attempt
-    }
-  } catch (error) {
-    logDebug('Could not read subagent retry count:', error);
-    return 0;
-  }
-}
-
-/**
- * Increment subagent retry count for session
- */
-async function incrementSubagentRetryCount(sessionId: string): Promise<void> {
-  try {
-    const { writeFile } = await import('node:fs/promises');
-    const countFile = `/tmp/claude-subagent-retries-${sessionId}`;
-
-    const currentCount = await getSubagentRetryCount(sessionId);
-    await writeFile(countFile, (currentCount + 1).toString(), 'utf-8');
-  } catch (error) {
-    logDebug('Could not increment subagent retry count:', error);
   }
 }
 

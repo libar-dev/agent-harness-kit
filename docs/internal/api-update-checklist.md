@@ -88,19 +88,22 @@ Excluded from edits:
 
 ## Verification checklist
 
+Re-verified on 2026-07-30 after finishing incomplete parity follow-ups on `feat/hook-api-parity`.
+
 - [x] Inspected current source diff
 - [x] Inspected current test diff
 - [x] Inspected refreshed official mirror diff
 - [x] Updated the scoped project-authored documentation files
 - [x] Run stale-claim/content searches after edits
 - [ ] Run documentation-link checks; no repository link-check command exists
-- [x] Run `pnpm run type-check` — pass
-- [x] Run `pnpm run lint` — pass
-- [x] Run `pnpm run test:run` — pass (34 files, 1410 tests)
-- [x] Run `pnpm run build` — pass (`tsc --project tsconfig.build.json` + esbuild forwarder bundle)
-- [x] Inspect generated `dist/types` and `dist/validation` declaration files — `suppressOriginalPrompt` present on `UserPromptSubmitOutput`; Setup/MessageDisplay named schemas re-exported from `dist/validation/index.d.ts`; `blockPrompt(reason, options?)` present in `dist/utils/output-builder.d.ts`
-- [x] Run `git diff --check` — pass (no whitespace errors)
-- [x] Review final git diff. Upstream mirror modifications remain the pre-existing refreshed audit inputs; `plans/foamy-questing-catmull.md` was not edited
+- [x] Run `pnpm run type-check` — pass (2026-07-30)
+- [x] Run `pnpm run test:run` — pass (34 files, 1410 tests, 2026-07-30)
+- [x] Run `pnpm run lint` — pass (0 errors; pre-existing subagent-stop type-assertion warning only, 2026-07-30)
+- [x] Run `pnpm run build` — pass (`tsc --project tsconfig.build.json` + esbuild forwarder, 2026-07-30)
+- [x] Tool-input strictness reconciled with official examples (optional Agent `description`, label-only AskUserQuestion options, exact `mcp__server__tool` naming)
+- [x] SubagentStop scores `last_assistant_message` prose error markers; local max-retry helpers removed
+- [x] PreCompact uses `systemMessage` + SessionStart re-injection rather than undocumented PreCompact `additionalContext`
+- [x] Review final git diff. Upstream mirrors remain audit inputs; `plans/` is not committed
 
 Do not mark pending checks complete until their commands finish successfully in this working tree.
 

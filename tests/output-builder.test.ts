@@ -59,7 +59,7 @@ describe('HookOutputBuilder parity helpers', () => {
     expect(sessionStartOutputSchema.safeParse(output).success).toBe(true);
   });
 
-  it('taskBlock can target TaskCreated output explicitly', () => {
+  it('taskBlock emits continue:false stopReason (event arg ignored)', () => {
     const output = HookOutputBuilder.taskBlock(
       'Task needs more detail',
       'TaskCreated'
@@ -67,7 +67,8 @@ describe('HookOutputBuilder parity helpers', () => {
 
     expect(output.continue).toBe(false);
     expect(output.stopReason).toBe('Task needs more detail');
-    expect(output.hookSpecificOutput.hookEventName).toBe('TaskCreated');
+    // Official TaskCreated/TaskCompleted control is continue/stopReason only.
+    expect('hookSpecificOutput' in output).toBe(false);
   });
 
   it('feedback includes updatedToolOutput when provided', () => {
