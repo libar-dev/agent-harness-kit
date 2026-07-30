@@ -71,10 +71,18 @@ import { handleElicitationResult } from '../src/lifecycle/elicitation-result.js'
 import { handleSessionStart } from '../src/lifecycle/session-start.js';
 import {
   classifyNotification,
+  expandNotificationCommandPlaceholders,
   handleNotification,
 } from '../src/lifecycle/notification-handler.js';
 import { handleSubagentStop } from '../src/lifecycle/subagent-stop.js';
-import { handlePreCompact } from '../src/lifecycle/pre-compact.js';
+import {
+  formatDetailedContextSummary,
+  handlePreCompact,
+} from '../src/lifecycle/pre-compact.js';
+import {
+  consumePreCompactContext,
+  savePreCompactContext,
+} from '../src/lifecycle/pre-compact-context.js';
 
 /**
  * Typed mock interfaces for process streams
@@ -713,6 +721,21 @@ describe('Session C Handler Regressions', () => {
     expect(proc.stderr.output).toContain('Agent needs your input');
   });
 
+  test('custom notification commands expand legacy placeholders', () => {
+    const expanded = expandNotificationCommandPlaceholders(
+      'notify --title {title} --body {message} --p {priority} {icon}',
+      {
+        title: 'T',
+        message: 'M',
+        priority: 'high',
+        icon: '🔐',
+      }
+    );
+    expect(expanded).toBe('notify --title T --body M --p high 🔐');
+    expect(expanded).not.toContain('{title}');
+    expect(expanded).not.toContain('{message}');
+  });
+
   test('StopFailure logs without writing meaningful JSON stdout', async () => {
     const proc = await resetMockProcess();
 
@@ -808,6 +831,59 @@ describe('Session C Handler Regressions', () => {
       'Instruction Validation'
     );
     expect(output['hookSpecificOutput']).toBeUndefined();
+  });
+
+  test('formatDetailedContextSummary keeps full decisions and files (not counts only)', () => {
+    const detailed = formatDetailedContextSummary({
+      projectStatus: '3 modified files',
+      keyDecisions: ['decided to use Vitest for unit tests'],
+      recentChanges: ['src/lifecycle/pre-compact.ts'],
+      pendingTasks: [],
+      errors: ['Type error in hooks'],
+      importantFiles: [
+        'src/lifecycle/pre-compact.ts',
+        'src/lifecycle/session-start.ts',
+      ],
+    });
+
+    expect(detailed).toContain('decided to use Vitest for unit tests');
+    expect(detailed).toContain('src/lifecycle/session-start.ts');
+    expect(detailed).toContain('Type error in hooks');
+    // Abbreviated board style ("1 recorded") must not replace the detailed body.
+    expect(detailed).not.toMatch(/Key Decisions:\s*1 recorded/i);
+  });
+
+  test('PreCompact SessionStart restore keeps detailed context after single write', async () => {
+    const sessionId = `precompact-restore-${Date.now()}`;
+    // Simulate the two payloads the handler used to write separately.
+    // The bug was a second savePreCompactContext call overwriting the first.
+    const detailed = formatDetailedContextSummary({
+      projectStatus: 'dirty tree',
+      keyDecisions: ['decided to use strict PreCompact schema'],
+      recentChanges: [],
+      pendingTasks: [],
+      errors: [],
+      importantFiles: ['src/validation/schemas.ts'],
+    });
+    const abbreviated = [
+      'Pre-Compact Context Summary',
+      '',
+      '📋 **Project Status Preserved**',
+      'Key Decisions: 1 recorded',
+    ].join('\n');
+
+    // Correct single-write contract used by handlePreCompact after the fix.
+    await savePreCompactContext(
+      sessionId,
+      [detailed, abbreviated].filter(Boolean).join('\n\n')
+    );
+    const restored = await consumePreCompactContext(sessionId);
+
+    expect(restored).toContain('decided to use strict PreCompact schema');
+    expect(restored).toContain('src/validation/schemas.ts');
+    expect(restored).toContain('Key Decisions: 1 recorded');
+    // Second consume should find nothing (file removed).
+    expect(await consumePreCompactContext(sessionId)).toBeNull();
   });
 });
 

@@ -79,13 +79,16 @@ async function handlePreCompact(input: PreCompactInput): Promise<void> {
     );
   }
 
+  /** Abbreviated, user-visible board (systemMessage). */
   const contextSummary: string[] = [];
+  /** Detailed restore payload for SessionStart after compact (written once). */
+  let detailedRestoreContext = '';
 
   try {
-    // Extract and save important context
+    // Extract important context for SessionStart re-injection and the UI board
     if (config.saveImportantContext) {
       const importantContext = await extractImportantContext(input);
-      await saveContextSummary(importantContext, session_id);
+      detailedRestoreContext = formatDetailedContextSummary(importantContext);
 
       contextSummary.push('📋 **Project Status Preserved**');
       if (importantContext.projectStatus) {
@@ -147,27 +150,40 @@ async function handlePreCompact(input: PreCompactInput): Promise<void> {
       }
     }
 
-    // Output context summary if we have important information to preserve
-    if (contextSummary.length > 0) {
+    // Single write for SessionStart restore: detailed body first, then board.
+    // Do not call savePreCompactContext twice — a second write overwrites the first.
+    if (detailedRestoreContext || contextSummary.length > 0) {
       logInfo('Pre-compact context extraction completed');
 
-      const preservedContext = [
-        'Pre-Compact Context Summary',
-        '',
-        ...contextSummary,
-        '',
-        '(This summary was generated before context compaction to preserve important information)',
-      ].join('\n');
-      await savePreCompactContext(session_id, preservedContext);
-      outputJson({
-        systemMessage: [
-          '📄 **Pre-Compact Context Summary**',
-          '',
-          ...contextSummary,
-          '',
-          '*(This summary will be restored after compaction.)*',
-        ].join('\n'),
-      });
+      const preservedParts: string[] = [];
+      if (detailedRestoreContext) {
+        preservedParts.push(detailedRestoreContext);
+      }
+      if (contextSummary.length > 0) {
+        preservedParts.push(
+          [
+            'Pre-Compact Context Summary',
+            '',
+            ...contextSummary,
+            '',
+            '(This summary was generated before context compaction to preserve important information)',
+          ].join('\n')
+        );
+      }
+
+      await savePreCompactContext(session_id, preservedParts.join('\n\n'));
+
+      if (contextSummary.length > 0) {
+        outputJson({
+          systemMessage: [
+            '📄 **Pre-Compact Context Summary**',
+            '',
+            ...contextSummary,
+            '',
+            '*(This summary will be restored after compaction.)*',
+          ].join('\n'),
+        });
+      }
     }
   } catch (error) {
     logWarning(
@@ -449,35 +465,27 @@ async function getTestStatus(): Promise<string | null> {
 }
 
 /**
- * Save context summary to file
+ * Format detailed important-context text for SessionStart restore after compact.
+ *
+ * Includes full decision text and complete important-file lists (not counts).
+ * The abbreviated board is built separately for the user-visible systemMessage.
  */
-async function saveContextSummary(
-  context: ImportantContext,
-  sessionId: string
-): Promise<void> {
-  try {
-    const summary = [
-      context.projectStatus && `Project status: ${context.projectStatus}`,
-      context.keyDecisions.length > 0 &&
-        `Key decisions:\n${context.keyDecisions.map(value => `- ${value}`).join('\n')}`,
-      context.recentChanges.length > 0 &&
-        `Recent changes:\n${context.recentChanges.map(value => `- ${value}`).join('\n')}`,
-      context.pendingTasks.length > 0 &&
-        `Pending tasks:\n${context.pendingTasks.map(value => `- ${value}`).join('\n')}`,
-      context.errors.length > 0 &&
-        `Unresolved errors:\n${context.errors.map(value => `- ${value}`).join('\n')}`,
-      context.importantFiles.length > 0 &&
-        `Important files:\n${context.importantFiles.map(value => `- ${value}`).join('\n')}`,
-    ]
-      .filter((value): value is string => typeof value === 'string')
-      .join('\n\n');
-    if (summary) {
-      await savePreCompactContext(sessionId, summary);
-      logDebug('Pre-compact context summary saved');
-    }
-  } catch (error) {
-    logDebug('Could not save context summary:', error);
-  }
+function formatDetailedContextSummary(context: ImportantContext): string {
+  return [
+    context.projectStatus && `Project status: ${context.projectStatus}`,
+    context.keyDecisions.length > 0 &&
+      `Key decisions:\n${context.keyDecisions.map(value => `- ${value}`).join('\n')}`,
+    context.recentChanges.length > 0 &&
+      `Recent changes:\n${context.recentChanges.map(value => `- ${value}`).join('\n')}`,
+    context.pendingTasks.length > 0 &&
+      `Pending tasks:\n${context.pendingTasks.map(value => `- ${value}`).join('\n')}`,
+    context.errors.length > 0 &&
+      `Unresolved errors:\n${context.errors.map(value => `- ${value}`).join('\n')}`,
+    context.importantFiles.length > 0 &&
+      `Important files:\n${context.importantFiles.map(value => `- ${value}`).join('\n')}`,
+  ]
+    .filter((value): value is string => typeof value === 'string')
+    .join('\n\n');
 }
 
 /**
@@ -554,6 +562,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 export {
   handlePreCompact,
   extractImportantContext,
+  formatDetailedContextSummary,
   getCurrentProjectStatus,
   validateCustomInstructions,
 };

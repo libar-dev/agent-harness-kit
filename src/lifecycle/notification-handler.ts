@@ -321,12 +321,34 @@ async function sendDesktopNotification(
   }
 }
 
+/**
+ * Expand legacy `{title}`, `{message}`, `{priority}`, and `{icon}` placeholders
+ * in custom notification commands. Also exported for unit tests.
+ */
+export function expandNotificationCommandPlaceholders(
+  command: string,
+  notification: NotificationData
+): string {
+  return command
+    .replace(/\{title\}/g, notification.title)
+    .replace(/\{message\}/g, notification.message)
+    .replace(/\{priority\}/g, notification.priority)
+    .replace(/\{icon\}/g, notification.icon);
+}
+
 async function sendCustomNotification(
   notification: NotificationData,
   command: string
 ): Promise<void> {
   try {
-    await execFileAsync('sh', ['-c', command], {
+    // Preserve placeholder expansion for existing CLAUDE_HOOK_NOTIFICATION_COMMAND
+    // configs, and still export CLAUDE_NOTIFICATION_* for env-based consumers.
+    const processedCommand = expandNotificationCommandPlaceholders(
+      command,
+      notification
+    );
+
+    await execFileAsync('sh', ['-c', processedCommand], {
       timeout: 10000,
       env: {
         ...process.env,

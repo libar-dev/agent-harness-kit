@@ -56,6 +56,10 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
   filtering so symlinked paths still reach an open project's endpoint.
 - Exercised the actual esbuild-bundled forwarder in subprocess tests, including
   its exit-zero, empty-output behavior for malformed stdin.
+- PreCompact no longer overwrites detailed SessionStart restore context with the
+  abbreviated systemMessage board; both are persisted in a single write.
+- Custom notification commands again expand `{title}`, `{message}`, `{priority}`,
+  and `{icon}` placeholders while still exporting `CLAUDE_NOTIFICATION_*` env vars.
 
 ## [0.2.0] - 2026-07-12
 
