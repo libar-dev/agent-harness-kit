@@ -67,9 +67,9 @@ Tool validators accept any tool-bearing hook input: `PreToolUse`, `PostToolUse`,
 | `validateTodoWriteToolInput` | `TodoWriteToolInputSchema` | `TodoWrite` |
 | `validateMCPToolInput` | `MCPToolInputSchema` | dynamic MCP names |
 
-`Agent` and compatibility `Task` accept `prompt`, optional `description`, `subagent_type`, `model`, and `run_in_background`.
+`Agent` accepts `prompt`, optional `description`, `subagent_type`, `model`, `run_in_background`, and `isolation` (`worktree` | `remote`). Compatibility `Task` is a legacy subset of the same core fields without `isolation`.
 
-`ExitPlanMode` requires the injected `plan` and `planFilePath` fields. It may include deprecated `allowedPrompts: Array<{ tool, prompt }>` entries, which Claude Code accepts but ignores.
+`ExitPlanMode` requires the injected `plan` and `planFilePath` fields. It may include deprecated `allowedPrompts: Array<{ tool, prompt }>` entries, which Claude Code accepts but ignores. Unknown tool-input keys are stripped like other tool schemas.
 
 ### Dynamic MCP routing
 
@@ -85,6 +85,7 @@ Tool validators accept any tool-bearing hook input: `PreToolUse`, `PostToolUse`,
 - `stopOutputSchema` and `subagentStopOutputSchema` distinguish universal output, block mode, and non-error additional-context mode.
 - Block mode requires `decision: 'block'` and a present `reason` string (empty string accepted).
 - Non-error Stop/SubagentStop feedback requires a present `hookSpecificOutput.additionalContext` string and cannot be combined with top-level decision fields.
+- `preCompactOutputSchema` is strict: universal fields or top-level block/reason only; PreCompact `hookSpecificOutput` is rejected.
 - `postToolUseFailureOutputSchema` does not accept PostToolUse output-replacement fields.
 - `permissionRequestOutputSchema` validates the complete documented `PermissionUpdateEntry` union, including `manual` as a `setMode` alias.
 

@@ -908,17 +908,25 @@ export const subagentStartOutputSchema = baseHookOutputSchema.extend({
 });
 
 /**
- * Schema for PreCompact hook outputs
+ * Schema for PreCompact hook outputs.
+ *
+ * Event-safe: universal fields only, or top-level block/reason.
+ * Rejects PreCompact hookSpecificOutput / additionalContext injection;
+ * post-compact re-injection uses SessionStart with source "compact".
  */
 export const preCompactOutputSchema = z.union([
-  baseHookOutputSchema.extend({
-    decision: z.never().optional(),
-    reason: z.never().optional(),
-  }),
-  baseHookOutputSchema.extend({
-    decision: z.literal('block'),
-    reason: z.string(),
-  }),
+  baseHookOutputSchema
+    .extend({
+      decision: z.never().optional(),
+      reason: z.never().optional(),
+    })
+    .strict(),
+  baseHookOutputSchema
+    .extend({
+      decision: z.literal('block'),
+      reason: z.string(),
+    })
+    .strict(),
 ]);
 
 /**
@@ -1113,14 +1121,12 @@ const exitPlanModeAllowedPromptSchema = z.object({
 });
 
 /** Schema for ExitPlanMode tool inputs after plan injection. */
-export const exitPlanModeToolInputSchema = z
-  .object({
-    plan: z.string(),
-    planFilePath: z.string().min(1),
-    /** Deprecated prompt-based permissions accepted but ignored by Claude Code */
-    allowedPrompts: z.array(exitPlanModeAllowedPromptSchema).optional(),
-  })
-  .strict();
+export const exitPlanModeToolInputSchema = z.object({
+  plan: z.string(),
+  planFilePath: z.string().min(1),
+  /** Deprecated prompt-based permissions accepted but ignored by Claude Code */
+  allowedPrompts: z.array(exitPlanModeAllowedPromptSchema).optional(),
+});
 
 /**
  * Schema for TodoWrite tool inputs.

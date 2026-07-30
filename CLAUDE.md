@@ -60,8 +60,10 @@ const bashInput = validateBashToolInput(input); // Returns typed BashToolInput
 ## HookOutputBuilder Methods
 
 - `permission(decision, reason, options?)` — PreToolUse allow/deny/ask/defer with optional `updatedInput`, `additionalContext`
-- `feedback(reason, additionalContext?, updatedMCPToolOutput?, updatedToolOutput?)` — PostToolUse feedback and output replacement
-- `failureFeedback(reason, additionalContext?)` — PostToolUseFailure feedback without output replacement
+- `feedback(reason, additionalContext?, updatedMCPToolOutput?, updatedToolOutput?)` — PostToolUse block feedback with optional output replacement
+- `postToolUseContext(options)` — PostToolUse non-block context and/or tool-output replacement
+- `failureFeedback(reason, additionalContext?)` — PostToolUseFailure block feedback without output replacement
+- `failureContext(additionalContext)` — PostToolUseFailure non-block context injection
 - `allowPermission(options?)` / `denyPermission(options?)` — PermissionRequest decisions
 - `permissionRequestSetMode(mode, destination?)` — PermissionRequest mode update helper, including the `manual` output alias
 - `permissionDeniedRetry(retry)` — PermissionDenied retry guidance

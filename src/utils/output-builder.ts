@@ -50,16 +50,16 @@ function buildSessionStartContext(
       ...(typeof contextOrOptions === 'string'
         ? { additionalContext: contextOrOptions }
         : {
-            ...(contextOrOptions.context && {
+            ...(contextOrOptions.context !== undefined && {
               additionalContext: contextOrOptions.context,
             }),
-            ...(contextOrOptions.initialUserMessage && {
+            ...(contextOrOptions.initialUserMessage !== undefined && {
               initialUserMessage: contextOrOptions.initialUserMessage,
             }),
-            ...(contextOrOptions.sessionTitle && {
+            ...(contextOrOptions.sessionTitle !== undefined && {
               sessionTitle: contextOrOptions.sessionTitle,
             }),
-            ...(contextOrOptions.watchPaths && {
+            ...(contextOrOptions.watchPaths !== undefined && {
               watchPaths: contextOrOptions.watchPaths,
             }),
             ...(contextOrOptions.reloadSkills !== undefined && {
@@ -104,7 +104,13 @@ export const HookOutputBuilder = {
     },
   }),
 
-  /** Build PostToolUse feedback for Claude and optional tool-output replacements. */
+  /**
+   * Build PostToolUse block feedback for Claude, with optional context and
+   * tool-output replacements.
+   *
+   * Always sets `decision: "block"` and `reason`. For replace/context-only
+   * output without a block decision, use {@link HookOutputBuilder.postToolUseContext}.
+   */
   feedback: (
     reason: string,
     additionalContext?: string,
@@ -115,13 +121,43 @@ export const HookOutputBuilder = {
     reason,
     hookSpecificOutput: {
       hookEventName: 'PostToolUse',
-      ...(additionalContext && { additionalContext }),
+      ...(additionalContext !== undefined && { additionalContext }),
       ...(updatedMCPToolOutput !== undefined && { updatedMCPToolOutput }),
       ...(updatedToolOutput !== undefined && { updatedToolOutput }),
     },
   }),
 
-  /** Build PostToolUseFailure feedback for Claude after a tool failure. */
+  /**
+   * Build PostToolUse non-block context and/or tool-output replacement.
+   *
+   * Emits only `hookSpecificOutput` (no top-level `decision`/`reason`). Use
+   * {@link HookOutputBuilder.feedback} when Claude should receive block feedback.
+   */
+  postToolUseContext: (options: {
+    additionalContext?: string;
+    updatedMCPToolOutput?: unknown;
+    updatedToolOutput?: unknown;
+  }): PostToolUseOutput => ({
+    hookSpecificOutput: {
+      hookEventName: 'PostToolUse',
+      ...(options.additionalContext !== undefined && {
+        additionalContext: options.additionalContext,
+      }),
+      ...(options.updatedMCPToolOutput !== undefined && {
+        updatedMCPToolOutput: options.updatedMCPToolOutput,
+      }),
+      ...(options.updatedToolOutput !== undefined && {
+        updatedToolOutput: options.updatedToolOutput,
+      }),
+    },
+  }),
+
+  /**
+   * Build PostToolUseFailure block feedback for Claude after a tool failure.
+   *
+   * Always sets `decision: "block"` and `reason`. For context-only failure
+   * output, use {@link HookOutputBuilder.failureContext}.
+   */
   failureFeedback: (
     reason: string,
     additionalContext?: string
@@ -130,7 +166,21 @@ export const HookOutputBuilder = {
     reason,
     hookSpecificOutput: {
       hookEventName: 'PostToolUseFailure',
-      ...(additionalContext && { additionalContext }),
+      ...(additionalContext !== undefined && { additionalContext }),
+    },
+  }),
+
+  /**
+   * Build PostToolUseFailure non-block context injection.
+   *
+   * Emits only `hookSpecificOutput.additionalContext` (no top-level
+   * `decision`/`reason`). Use {@link HookOutputBuilder.failureFeedback} for
+   * block feedback after a failed tool call.
+   */
+  failureContext: (additionalContext: string): PostToolUseFailureOutput => ({
+    hookSpecificOutput: {
+      hookEventName: 'PostToolUseFailure',
+      additionalContext,
     },
   }),
 

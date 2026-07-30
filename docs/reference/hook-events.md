@@ -54,9 +54,9 @@ The older top-level `decision: 'approve' | 'block'` and `reason` fields remain c
 
 **Input:** `tool_name`, `tool_input`, `tool_response`, `tool_use_id`, optional `duration_ms`.
 
-**Output:** top-level `decision?: 'block'` and `reason?`, plus optional PostToolUse `additionalContext`, `updatedMCPToolOutput`, and `updatedToolOutput`.
+**Output:** optional top-level `decision?: 'block'` and `reason?`, and/or PostToolUse `hookSpecificOutput` with `additionalContext`, `updatedMCPToolOutput`, and `updatedToolOutput`.
 
-Use `HookOutputBuilder.feedback()`. Output replacement accepts any value, including primitives, `null`, and falsy values.
+Use `HookOutputBuilder.feedback()` for block feedback (optionally with replacements). Use `HookOutputBuilder.postToolUseContext()` for replace/context-only output without a block decision. Output replacement accepts any value, including primitives, `null`, and falsy values.
 
 ### PostToolUseFailure
 
@@ -64,9 +64,9 @@ Use `HookOutputBuilder.feedback()`. Output replacement accepts any value, includ
 
 **Input:** `tool_name`, `tool_input`, `tool_use_id`, `error`, optional `is_interrupt` and `duration_ms`.
 
-**Output:** top-level block feedback plus optional `hookSpecificOutput.additionalContext` for `PostToolUseFailure`.
+**Output:** optional top-level block feedback and/or `hookSpecificOutput.additionalContext` for `PostToolUseFailure`.
 
-This is not the same output contract as PostToolUse: it has no `updatedMCPToolOutput` or `updatedToolOutput` because the tool failed. Use `HookOutputBuilder.failureFeedback()`.
+This is not the same output contract as PostToolUse: it has no `updatedMCPToolOutput` or `updatedToolOutput` because the tool failed. Use `HookOutputBuilder.failureFeedback()` for block feedback, or `HookOutputBuilder.failureContext()` for context-only output.
 
 ### PostToolBatch
 
@@ -358,7 +358,7 @@ No event-specific output; cleanup/observability only.
 
 **Input:** `trigger`, `custom_instructions`.
 
-**Output:** optional top-level block/reason or `PreCompact.additionalContext`.
+**Output:** optional top-level block/reason only. PreCompact does not accept `hookSpecificOutput` / `additionalContext`; re-inject context after compact via SessionStart with `source: "compact"`.
 
 ### PostCompact
 

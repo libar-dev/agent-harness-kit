@@ -56,9 +56,23 @@ feedback(
 ): PostToolUseOutput
 ```
 
-Builds top-level `decision: 'block'` feedback plus `hookSpecificOutput`. Both replacement arguments preserve any value other than `undefined`, including `false`, `0`, `''`, and `null`.
+Builds top-level `decision: 'block'` feedback plus optional `hookSpecificOutput`. Both replacement arguments preserve any value other than `undefined`, including `false`, `0`, `''`, and `null`. Empty-string `additionalContext` is preserved when provided.
 
 `updatedMCPToolOutput` is the compatibility field for MCP outputs. `updatedToolOutput` is the general tool-output replacement field.
+
+Use this when Claude should receive block feedback. For replace/context-only output without a block decision, use `postToolUseContext`.
+
+### `postToolUseContext(options)`
+
+```typescript
+postToolUseContext(options: {
+  additionalContext?: string;
+  updatedMCPToolOutput?: unknown;
+  updatedToolOutput?: unknown;
+}): PostToolUseOutput
+```
+
+Builds non-block PostToolUse output: only `hookSpecificOutput` with optional context and tool-output replacements. Does not set top-level `decision` or `reason`. All provided values other than `undefined` are preserved, including falsy replacements and empty strings.
 
 ### `failureFeedback(reason, additionalContext?)`
 
@@ -69,7 +83,17 @@ failureFeedback(
 ): PostToolUseFailureOutput
 ```
 
-Builds feedback after a failed tool execution. It deliberately does not accept `updatedMCPToolOutput` or `updatedToolOutput`: there is no successful tool result to replace.
+Builds top-level `decision: 'block'` feedback after a failed tool execution. It deliberately does not accept `updatedMCPToolOutput` or `updatedToolOutput`: there is no successful tool result to replace. Empty-string `additionalContext` is preserved when provided.
+
+Use this for block feedback. For context-only failure output, use `failureContext`.
+
+### `failureContext(additionalContext)`
+
+```typescript
+failureContext(additionalContext: string): PostToolUseFailureOutput
+```
+
+Builds non-block PostToolUseFailure output: only `hookSpecificOutput.additionalContext`, with no top-level `decision` or `reason`.
 
 ## PermissionRequest and PermissionDenied
 
@@ -136,11 +160,11 @@ Returns HTTP-style `WorktreeCreate` JSON with `hookSpecificOutput.worktreePath`.
 
 ### `taskBlock(reason, hookEventName?)`
 
-Sets `continue: false`, `stopReason`, and an event marker for `TaskCreated` or `TaskCompleted`. The default event is `TaskCompleted`.
+Sets universal stop output `{ continue: false, stopReason }` for `TaskCreated` or `TaskCompleted`. The optional `hookEventName` argument is accepted for source compatibility but ignored; official task control does not use an event marker in JSON output.
 
 ### `teammateStop(reason)`
 
-Sets `continue: false` for `TeammateIdle`.
+Sets universal stop output `{ continue: false, stopReason }` for `TeammateIdle`.
 
 ### `batchBlock(reason)`
 

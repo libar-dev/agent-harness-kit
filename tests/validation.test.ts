@@ -102,6 +102,7 @@ import {
   multiEditToolInputSchema,
   agentToolInputSchema,
   askUserQuestionToolInputSchema,
+  exitPlanModeToolInputSchema,
   todoWriteToolInputSchema,
   commandHookHandlerSchema,
   httpHookHandlerSchema,
@@ -1645,7 +1646,7 @@ describe('Additional Event Output Schemas', () => {
     expect(result.success).toBe(true);
   });
 
-  it('accepts PreCompact block output and rejects context injection', () => {
+  it('accepts PreCompact block and universal output and rejects context injection', () => {
     expect(
       preCompactOutputSchema.safeParse({
         decision: 'block',
@@ -1653,13 +1654,32 @@ describe('Additional Event Output Schemas', () => {
       }).success
     ).toBe(true);
 
-    // PreCompact decision control is block-only; additionalContext is not a
-    // documented PreCompact channel. Stripped unknown keys still parse as
-    // universal output, so assert the documented block shape instead.
     const allowed = preCompactOutputSchema.safeParse({
       systemMessage: 'Saved context for SessionStart re-injection',
     });
     expect(allowed.success).toBe(true);
+
+    // PreCompact decision control is block-only; additionalContext is not a
+    // documented PreCompact channel. Event-safe schema must reject injection.
+    expect(
+      preCompactOutputSchema.safeParse({
+        hookSpecificOutput: {
+          hookEventName: 'PreCompact',
+          additionalContext: 'not a PreCompact channel',
+        },
+      }).success
+    ).toBe(false);
+
+    expect(
+      preCompactOutputSchema.safeParse({
+        decision: 'block',
+        reason: 'blocked',
+        hookSpecificOutput: {
+          hookEventName: 'PreCompact',
+          additionalContext: 'still invalid',
+        },
+      }).success
+    ).toBe(false);
   });
 
   it('accepts ConfigChange block output', () => {
@@ -1984,6 +2004,22 @@ describe('Additional Tool Input Validators', () => {
     const result = validateExitPlanModeToolInput(hookInput);
     expect(result.planFilePath).toBe('/tmp/plan.md');
     expect(result.allowedPrompts?.[0]?.tool).toBe('Bash');
+  });
+
+  it('strips unknown ExitPlanMode tool_input keys like other tool schemas', () => {
+    const result = exitPlanModeToolInputSchema.safeParse({
+      plan: '## Plan',
+      planFilePath: '/tmp/plan.md',
+      unexpectedStatus: 'complete',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({
+        plan: '## Plan',
+        planFilePath: '/tmp/plan.md',
+      });
+      expect(Object.keys(result.data).sort()).toEqual(['plan', 'planFilePath']);
+    }
   });
 
   it('rejects ExitPlanMode input missing injected fields', () => {

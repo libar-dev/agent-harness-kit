@@ -23,6 +23,10 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 - Added `UserPromptSubmitOutput.suppressOriginalPrompt` and
   `blockPrompt(reason, options?)` support for omitting the original prompt from
   block messages.
+- Added `HookOutputBuilder.postToolUseContext()` for non-block PostToolUse
+  context and tool-output replacement.
+- Added `HookOutputBuilder.failureContext()` for non-block PostToolUseFailure
+  context injection.
 
 ### Changed
 
@@ -37,6 +41,14 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 - Project-authored hook documentation was audited against refreshed official
   mirrors on 2026-07-12, including matcher semantics, handler support,
   timeout overrides, root restrictions, tool inputs, and environment defaults.
+- `HookOutputBuilder.feedback()` and `failureFeedback()` are documented as the
+  block-feedback paths; non-block replace/context helpers are separate.
+- `preCompactOutputSchema` / `PreCompactOutput` reject PreCompact
+  `hookSpecificOutput` injection (block or universal fields only).
+- `exitPlanModeToolInputSchema` strips unknown keys like other tool-input
+  schemas instead of using `.strict()`.
+- `sessionStartContext(options)` preserves empty strings and empty `watchPaths`
+  via presence checks rather than truthiness.
 
 ### Fixed
 

@@ -101,8 +101,8 @@ All event inputs extend `BaseHookInput`.
 | `PreToolUseOutput` | Structured allow/deny/ask/defer decision with required reason and optional updated input/context |
 | `PermissionRequestOutput` | Nested allow/deny decision; allow may include `updatedInput` and `updatedPermissions` |
 | `PermissionDeniedOutput` | Optional `hookSpecificOutput.retry` |
-| `PostToolUseOutput` | Feedback plus optional `updatedMCPToolOutput` and `updatedToolOutput` |
-| `PostToolUseFailureOutput` | Failure feedback only; no output-replacement fields |
+| `PostToolUseOutput` | Optional top-level block feedback and/or `hookSpecificOutput` with context plus optional `updatedMCPToolOutput` / `updatedToolOutput` |
+| `PostToolUseFailureOutput` | Optional top-level block feedback and/or context-only `additionalContext`; no output-replacement fields |
 | `PostToolBatchOutput` | Optional block/context before the next model call |
 | `NotificationOutput` | Exactly the universal `BaseHookOutput` shape; no notification-specific output or `additionalContext` |
 | `MessageDisplayOutput` | Optional display-only `displayContent` replacement |
@@ -112,7 +112,7 @@ All event inputs extend `BaseHookInput`.
 | `UserPromptExpansionOutput` | Block with reason or inject context |
 | `StopOutput` | Universal output, blocking output, or non-error context output |
 | `SubagentStopOutput` | Universal output, blocking output, or non-error context output |
-| `PreCompactOutput` | Block or inject compaction context |
+| `PreCompactOutput` | Universal fields or top-level block/reason only; no PreCompact `hookSpecificOutput` / `additionalContext` |
 | `ConfigChangeOutput` | Optional block/reason |
 | `WatchPathsOutput` | Optional `watchPaths` |
 | `WorktreeCreateOutput` | Optional `worktreePath` |
@@ -135,8 +135,8 @@ For `StopBlockOutput` and `SubagentStopBlockOutput`, `decision: 'block'` require
 | `GrepToolInput` | search pattern and optional path/filter/output flags |
 | `WebFetchToolInput` | `url`, `prompt` |
 | `WebSearchToolInput` | `query`, optional allowed/blocked domains |
-| `AgentToolInput` | `prompt`, optional `description`, `subagent_type`, `model`, `run_in_background` |
-| `TaskToolInput` | Compatibility shape matching `AgentToolInput` |
+| `AgentToolInput` | `prompt`, optional `description`, `subagent_type`, `model`, `run_in_background`, `isolation` (`worktree` \| `remote`) |
+| `TaskToolInput` | Legacy compatibility subset of Agent core fields (`prompt`, optional `description`, `subagent_type`, `model`, `run_in_background`); does not include `isolation` |
 | `AskUserQuestionToolInput` | `questions[]`, optional `answers` |
 | `ExitPlanModeToolInput` | injected `plan`, `planFilePath`, optional deprecated `allowedPrompts[]` |
 | `TodoWriteToolInput` | `todos[]` |

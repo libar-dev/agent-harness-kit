@@ -667,18 +667,24 @@ export interface PreCompactInput extends BaseHookInput {
 }
 
 /**
- * PreCompact-specific output for compaction control
+ * PreCompact-specific output for compaction control.
+ *
+ * Official PreCompact control is top-level `decision: "block"` only.
+ * Context re-injection after compact uses SessionStart with `source: "compact"`,
+ * not PreCompact `hookSpecificOutput` / `additionalContext`.
  */
 export type PreCompactOutput =
   | (BaseHookOutput & {
       decision?: never;
       reason?: never;
+      hookSpecificOutput?: never;
     })
   | (BaseHookOutput & {
       /** Block compaction */
       decision: 'block';
       /** Explanation shown when compaction is blocked */
       reason: string;
+      hookSpecificOutput?: never;
     });
 
 /**
@@ -1146,7 +1152,12 @@ export interface TodoWriteToolInput {
 
 export type MCPToolInput = Record<string, unknown>;
 
-/** Input for the compatibility Task tool. */
+/**
+ * Input for the compatibility Task tool.
+ *
+ * Shares the core Agent fields but is a legacy subset: it does not model
+ * Agent's optional `isolation` field.
+ */
 export interface TaskToolInput {
   prompt: string;
   description?: string | undefined;
