@@ -323,17 +323,26 @@ async function sendDesktopNotification(
 
 /**
  * Expand legacy `{title}`, `{message}`, `{priority}`, and `{icon}` placeholders
- * in custom notification commands. Also exported for unit tests.
+ * in custom notification commands.
+ *
+ * Values are not interpolated into the shell source. Placeholders become
+ * double-quoted references to `CLAUDE_NOTIFICATION_*` env vars, which
+ * `sendCustomNotification` sets before `sh -c`. That keeps hostile titles or
+ * messages (e.g. `"; rm -rf /; #`) from becoming shell code while preserving
+ * placeholder-based configs.
+ *
+ * The second argument is accepted for call-site compatibility; values come
+ * from the process environment at shell execution time.
  */
 export function expandNotificationCommandPlaceholders(
   command: string,
-  notification: NotificationData
+  _notification?: NotificationData
 ): string {
   return command
-    .replace(/\{title\}/g, notification.title)
-    .replace(/\{message\}/g, notification.message)
-    .replace(/\{priority\}/g, notification.priority)
-    .replace(/\{icon\}/g, notification.icon);
+    .replace(/\{title\}/g, '"${CLAUDE_NOTIFICATION_TITLE}"')
+    .replace(/\{message\}/g, '"${CLAUDE_NOTIFICATION_MESSAGE}"')
+    .replace(/\{priority\}/g, '"${CLAUDE_NOTIFICATION_PRIORITY}"')
+    .replace(/\{icon\}/g, '"${CLAUDE_NOTIFICATION_ICON}"');
 }
 
 async function sendCustomNotification(
@@ -341,8 +350,7 @@ async function sendCustomNotification(
   command: string
 ): Promise<void> {
   try {
-    // Preserve placeholder expansion for existing CLAUDE_HOOK_NOTIFICATION_COMMAND
-    // configs, and still export CLAUDE_NOTIFICATION_* for env-based consumers.
+    // Map placeholders to env refs; never splice raw notification text into sh -c.
     const processedCommand = expandNotificationCommandPlaceholders(
       command,
       notification

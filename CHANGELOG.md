@@ -60,6 +60,8 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
   abbreviated systemMessage board; both are persisted in a single write.
 - Custom notification commands again expand `{title}`, `{message}`, `{priority}`,
   and `{icon}` placeholders while still exporting `CLAUDE_NOTIFICATION_*` env vars.
+- Notification placeholder expansion substitutes shell-safe env refs instead of
+  interpolating raw title/message text into `sh -c` (command-injection fix).
 
 ## [0.2.0] - 2026-07-12
 

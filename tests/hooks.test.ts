@@ -721,19 +721,43 @@ describe('Session C Handler Regressions', () => {
     expect(proc.stderr.output).toContain('Agent needs your input');
   });
 
-  test('custom notification commands expand legacy placeholders', () => {
+  test('custom notification commands expand placeholders to env refs (not raw text)', () => {
     const expanded = expandNotificationCommandPlaceholders(
       'notify --title {title} --body {message} --p {priority} {icon}',
       {
-        title: 'T',
-        message: 'M',
+        title: 'SAFE_TITLE_VALUE',
+        message: 'SAFE_MESSAGE_VALUE',
         priority: 'high',
         icon: '🔐',
       }
     );
-    expect(expanded).toBe('notify --title T --body M --p high 🔐');
+    expect(expanded).toBe(
+      'notify --title "${CLAUDE_NOTIFICATION_TITLE}" --body "${CLAUDE_NOTIFICATION_MESSAGE}" --p "${CLAUDE_NOTIFICATION_PRIORITY}" "${CLAUDE_NOTIFICATION_ICON}"'
+    );
     expect(expanded).not.toContain('{title}');
     expect(expanded).not.toContain('{message}');
+    // Notification values must not be spliced into the shell source string.
+    expect(expanded).not.toContain('SAFE_TITLE_VALUE');
+    expect(expanded).not.toContain('SAFE_MESSAGE_VALUE');
+  });
+
+  test('custom notification placeholder expansion cannot inject shell metacharacters', () => {
+    const hostile = '"; touch /tmp/pwned; #';
+    const expanded = expandNotificationCommandPlaceholders(
+      'echo {title} {message}',
+      {
+        title: hostile,
+        message: '$(evil)',
+        priority: 'high',
+        icon: 'x',
+      }
+    );
+    // Raw hostile payload must never appear in the sh -c source string.
+    expect(expanded).not.toContain(hostile);
+    expect(expanded).not.toContain('$(evil)');
+    expect(expanded).toBe(
+      'echo "${CLAUDE_NOTIFICATION_TITLE}" "${CLAUDE_NOTIFICATION_MESSAGE}"'
+    );
   });
 
   test('StopFailure logs without writing meaningful JSON stdout', async () => {
