@@ -1,0 +1,40 @@
+{
+  "repo": "https://github.com/xai-org/grok-build",
+  "head": "e5fd4816d43260c15ba785f103990c1ed6cea230",
+  "sourceRev": "ea094a8c369475f97c85540d01730baec0dce5d6",
+  "grokVersion": "1.0.3",
+  "pinnedAt": "2026-08-13",
+  "files": {
+    "event.rs": {
+      "upstreamPath": "crates/codegen/xai-grok-hooks/src/event.rs",
+      "sha256": "580101a5adeeefc3178d65383722d59a86f74501746d63c625e50dd112848fb9"
+    },
+    "result.rs": {
+      "upstreamPath": "crates/codegen/xai-grok-hooks/src/result.rs",
+      "sha256": "ae6b39dc6288ed567d3d6f738ba1ad28ab5c25036d0d0a929c6e78be7d65d404"
+    },
+    "runner-mod.rs": {
+      "upstreamPath": "crates/codegen/xai-grok-hooks/src/runner/mod.rs",
+      "sha256": "c1b29e958f4f6d0246b6b40d2375f500db7f4bd84b5660f9983ea273401352d7"
+    },
+    "session-events-types.rs": {
+      "upstreamPath": "crates/codegen/xai-grok-session-events/src/types.rs",
+      "sha256": "8e992a8ba5f25b67a03780f3769d9537f8c218c2c30c50fa047560e1e6b12929"
+    },
+    "plugins-types-lib.rs": {
+      "upstreamPath": "crates/codegen/xai-hooks-plugins-types/src/lib.rs",
+      "sha256": "ebecf17fbc9de4445cc54087c7b2ca88a2ca9d057a7b0b3ca484a8be5d2a3a89"
+    },
+    "session-update-enum.txt": {
+      "upstreamPath": "crates/codegen/xai-grok-shell/src/extensions/notification.rs",
+      "sha256": "8742e84ce71e23b9f18071419dc68f1f2dc4a6ac8b8cc06e8c35f7b991135998"
+    }
+  },
+  "fixtureRedump": "copy small redacted updates.jsonl/events.jsonl from ~/.grok/sessions/<encoded-cwd>/<id>/ into tests/fixtures/grok/",
+  "notes": [
+    "Hook-envelope fixtures are hand-authored field-by-field from vendored event.rs (the wire authority), since upstream serializes structs in code with no JSON literals.",
+    "Optional maintainer capture procedure: install a tee-all command hook under ~/.grok/hooks/, run any grok session, redact, and commit captures; not required for tests/CI.",
+    "The blake3 implementation decision for session discovery (@noble/hashes) is recorded separately during execution.",
+    "Session discovery (src/grok/processing/discovery.ts) uses @noble/hashes for BLAKE3 (audited, ESM, zero runtime dependencies) so >255-byte CWD directory names exactly match upstream encode_cwd_dirname; SHA-256 is not compatible."
+  ]
+}

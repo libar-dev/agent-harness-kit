@@ -1,0 +1,11 @@
+Grok Build upstream contract files
+
+The Rust contract files in this directory are copied from xAI's grok-build
+repository:
+
+  https://github.com/xai-org/grok-build
+
+Copyright 2023-2026 SpaceXAI. The upstream files are licensed under the Apache
+License, Version 2.0. See LICENSE-APACHE for the complete license text copied
+from the upstream repository. The pin manifest records the upstream revision
+and source paths.
