@@ -375,7 +375,10 @@ function reduceToolUpdate(
   const existing = state.blocks.get(useId);
   if (
     existing?.type === 'tool_use' &&
-    (update.title !== undefined || Object.hasOwn(update, 'rawInput'))
+    (update.title !== undefined ||
+      update.kind !== undefined ||
+      update.status !== undefined ||
+      Object.hasOwn(update, 'rawInput'))
   ) {
     upsertBlock(state, {
       ...existing,
@@ -386,7 +389,12 @@ function reduceToolUpdate(
       ...(update.status === undefined ? {} : { status: update.status }),
       ...(Object.hasOwn(update, 'rawInput') ? { input: update.rawInput } : {}),
     });
-  } else if (update.title !== undefined || Object.hasOwn(update, 'rawInput')) {
+  } else if (
+    update.title !== undefined ||
+    update.kind !== undefined ||
+    update.status !== undefined ||
+    Object.hasOwn(update, 'rawInput')
+  ) {
     upsertBlock(state, {
       id: useId,
       type: 'tool_use',

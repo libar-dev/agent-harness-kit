@@ -252,6 +252,137 @@ describe('reduceGrokRecords', () => {
     });
   });
 
+  it('merges a terminal status-only update and emits its result', () => {
+    const result = reduceGrokRecords([
+      updateRecord(
+        {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'tool-1',
+          title: 'Search',
+          kind: 'search',
+          status: 'in_progress',
+        },
+        1
+      ),
+      updateRecord(
+        {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'tool-1',
+          status: 'completed',
+        },
+        2
+      ),
+    ]);
+    const blocks = foldGrokBlockChanges(result.changes);
+
+    expect(blocks).toEqual([
+      expect.objectContaining({
+        id: 'session-1:tool_use:tool-1',
+        type: 'tool_use',
+        toolUseId: 'tool-1',
+        title: 'Search',
+        kind: 'search',
+        status: 'completed',
+      }),
+      expect.objectContaining({
+        id: 'session-1:tool_result:tool-1',
+        type: 'tool_result',
+        toolUseId: 'tool-1',
+        status: 'completed',
+      }),
+    ]);
+  });
+
+  it('merges a kind-only update while preserving tool status', () => {
+    const result = reduceGrokRecords([
+      updateRecord(
+        {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'tool-1',
+          title: 'Inspect',
+          status: 'in_progress',
+        },
+        1
+      ),
+      updateRecord(
+        {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'tool-1',
+          kind: 'read',
+        },
+        2
+      ),
+    ]);
+
+    expect(foldGrokBlockChanges(result.changes)).toEqual([
+      expect.objectContaining({
+        type: 'tool_use',
+        title: 'Inspect',
+        kind: 'read',
+        status: 'in_progress',
+      }),
+    ]);
+  });
+
+  it('leaves a tool block unchanged for an empty non-terminal update', () => {
+    const toolCall = updateRecord(
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tool-1',
+        title: 'Inspect',
+        kind: 'read',
+        status: 'in_progress',
+        rawInput: { path: 'one' },
+      },
+      1
+    );
+    const before = reduceGrokRecords([toolCall]);
+    const after = reduceGrokRecords([
+      toolCall,
+      updateRecord(
+        { sessionUpdate: 'tool_call_update', toolCallId: 'tool-1' },
+        2
+      ),
+    ]);
+
+    expect(after.changes).toEqual(before.changes);
+  });
+
+  it('preserves title and input merge behavior', () => {
+    const result = reduceGrokRecords([
+      updateRecord(
+        {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'tool-1',
+          title: 'Search',
+          kind: 'search',
+          status: 'in_progress',
+          rawInput: { query: 'one' },
+        },
+        1
+      ),
+      updateRecord(
+        {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'tool-1',
+          title: 'Search files',
+          rawInput: { query: 'two' },
+        },
+        2
+      ),
+    ]);
+
+    expect(foldGrokBlockChanges(result.changes)).toEqual([
+      expect.objectContaining({
+        type: 'tool_use',
+        title: 'Search files',
+        kind: 'search',
+        status: 'in_progress',
+        input: { query: 'two' },
+      }),
+    ]);
+  });
+
   it('makes duplicate tool updates idempotent', () => {
     const toolCall = updateRecord(
       {
