@@ -223,3 +223,38 @@ export const grokHookInputSchema = z.discriminatedUnion('hookEventName', [
 export function validateGrokHookInput(input: unknown): GrokHookInput {
   return grokHookInputSchema.parse(input);
 }
+
+/**
+ * Schema for Grok `pre_tool_use` gate hook output parsed from stdout JSON.
+ * Mirrors the upstream GateHookJson struct: `decision` is required, `reason`
+ * is optional, and unknown fields are ignored. An unknown decision value is a
+ * hard error upstream, so the enum is exhaustive. A blank `reason` validates
+ * here but is filtered upstream in favor of the first stderr line or a
+ * default `denied by hook '<name>'` message.
+ */
+export const grokGateOutputSchema = z.looseObject({
+  decision: z.enum(['allow', 'deny']),
+  reason: z.string().optional(),
+});
+
+/** Schema for the stop-gate hookSpecificOutput payload. */
+export const grokStopHookSpecificOutputSchema = z.looseObject({
+  additionalContext: z.string().optional(),
+});
+
+/**
+ * Schema for Grok stop-family (`stop`, `subagent_stop`, `subagent_end`) gate
+ * hook output parsed from stdout JSON. Mirrors the upstream StopHookJson
+ * struct: every field is optional and one output may combine a block
+ * decision, a `continue: false` force-stop, and context injection. Unknown
+ * decision values are a hard error upstream. Blank `reason` and
+ * `additionalContext` values validate here but are filtered upstream;
+ * `stopReason` is kept verbatim.
+ */
+export const grokStopOutputSchema = z.looseObject({
+  decision: z.enum(['block', 'approve']).optional(),
+  reason: z.string().optional(),
+  continue: z.boolean().optional(),
+  stopReason: z.string().optional(),
+  hookSpecificOutput: grokStopHookSpecificOutputSchema.optional(),
+});
