@@ -58,11 +58,65 @@ export const instructionLoadReasonSchema = z.enum([
 
 export const fileChangedEventSchema = z.enum(['change', 'add', 'unlink']);
 
-export const permissionUpdateEntrySchema = z
-  .object({
-    type: z.string().min(1),
-  })
-  .passthrough();
+/** Schema for permission update destinations. */
+export const permissionUpdateDestinationSchema = z.enum([
+  'session',
+  'localSettings',
+  'projectSettings',
+  'userSettings',
+]);
+
+/** Schema for permission rule behaviors. */
+export const permissionRuleBehaviorSchema = z.enum(['allow', 'deny', 'ask']);
+
+/** Schema for tool permission rules. */
+export const permissionRuleSchema = z.object({
+  toolName: z.string().min(1),
+  ruleContent: z.string().optional(),
+});
+
+/** Schema for permission modes accepted by setMode updates. */
+export const permissionUpdateModeSchema = z.enum([
+  ...permissionModeSchema.options,
+  'manual',
+]);
+
+const permissionRulesUpdateFields = {
+  rules: z.array(permissionRuleSchema),
+  behavior: permissionRuleBehaviorSchema,
+  destination: permissionUpdateDestinationSchema,
+};
+
+/** Schema for documented PermissionRequest permission updates. */
+export const permissionUpdateEntrySchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('addRules'),
+    ...permissionRulesUpdateFields,
+  }),
+  z.object({
+    type: z.literal('replaceRules'),
+    ...permissionRulesUpdateFields,
+  }),
+  z.object({
+    type: z.literal('removeRules'),
+    ...permissionRulesUpdateFields,
+  }),
+  z.object({
+    type: z.literal('setMode'),
+    mode: permissionUpdateModeSchema,
+    destination: permissionUpdateDestinationSchema,
+  }),
+  z.object({
+    type: z.literal('addDirectories'),
+    directories: z.array(z.string().min(1)),
+    destination: permissionUpdateDestinationSchema,
+  }),
+  z.object({
+    type: z.literal('removeDirectories'),
+    directories: z.array(z.string().min(1)),
+    destination: permissionUpdateDestinationSchema,
+  }),
+]);
 
 const taskLifecycleFields = {
   task_id: z.string().min(1),
@@ -84,6 +138,8 @@ export const baseHookInputSchema = z.object({
   cwd: z.string().min(1),
   /** The specific hook event that triggered this execution */
   hook_event_name: z.string().min(1),
+  /** UUID identifying the user prompt currently being processed */
+  prompt_id: z.string().uuid().optional(),
   /** Current permission mode */
   permission_mode: permissionModeSchema.optional(),
   /** Unique identifier for a subagent context, when present */
@@ -240,6 +296,8 @@ export const notificationInputSchema = baseHookInputSchema.extend({
     'elicitation_dialog',
     'elicitation_complete',
     'elicitation_response',
+    'agent_needs_input',
+    'agent_completed',
   ]),
 });
 
@@ -273,6 +331,27 @@ export const messageDisplayOutputSchema = baseHookOutputSchema.extend({
     .optional(),
 });
 
+/** In-flight background task entry with forward-compatible metadata. */
+export const backgroundTaskEntrySchema = z.looseObject({
+  id: z.string().min(1),
+  type: z.string().min(1),
+  status: z.string().min(1),
+  description: z.string(),
+  command: z.string().optional(),
+  agent_type: z.string().optional(),
+  server: z.string().optional(),
+  tool: z.string().optional(),
+  name: z.string().optional(),
+});
+
+/** Session-scoped cron entry with forward-compatible metadata. */
+export const sessionCronEntrySchema = z.looseObject({
+  id: z.string().min(1),
+  schedule: z.string().min(1),
+  recurring: z.boolean(),
+  prompt: z.string(),
+});
+
 /**
  * Schema for Stop hook inputs
  */
@@ -282,6 +361,10 @@ export const stopInputSchema = baseHookInputSchema.extend({
   stop_hook_active: z.boolean(),
   /** Text content of Claude's final response */
   last_assistant_message: z.string().optional(),
+  /** In-flight tasks registered for the session */
+  background_tasks: z.array(backgroundTaskEntrySchema).optional(),
+  /** Session-scoped scheduled wakeups */
+  session_crons: z.array(sessionCronEntrySchema).optional(),
 });
 
 /**
@@ -299,6 +382,10 @@ export const subagentStopInputSchema = baseHookInputSchema.extend({
   agent_transcript_path: z.string(),
   /** Text content of the subagent's final response */
   last_assistant_message: z.string().optional(),
+  /** Parent-session in-flight tasks */
+  background_tasks: z.array(backgroundTaskEntrySchema).optional(),
+  /** Parent-session scheduled wakeups */
+  session_crons: z.array(sessionCronEntrySchema).optional(),
 });
 
 /**
@@ -624,6 +711,11 @@ export const userPromptSubmitOutputSchema = baseHookOutputSchema.extend({
   decision: z.enum(['block']).optional(),
   /** Reason shown to user (not added to context) */
   reason: z.string().optional(),
+  /**
+   * When `decision` is `"block"` and this is `true`, omits the original prompt
+   * text from the block message shown to the user.
+   */
+  suppressOriginalPrompt: z.boolean().optional(),
   /** Add context if not blocked */
   hookSpecificOutput: z
     .object({
@@ -653,15 +745,48 @@ export const userPromptExpansionOutputSchema = baseHookOutputSchema.extend({
     .optional(),
 });
 
-/**
- * Schema for Stop/SubagentStop hook outputs - controls continuation
- */
-export const stopOutputSchema = baseHookOutputSchema.extend({
-  /** Block Claude from stopping - must provide reason for how to proceed */
-  decision: z.enum(['block']).optional(),
-  /** Must be provided when decision is 'block' - tells Claude how to proceed */
-  reason: z.string().optional(),
-});
+const stopBlockOutputSchema = baseHookOutputSchema
+  .extend({
+    decision: z.literal('block'),
+    // Required when decision is block; empty string is allowed to match public
+    // string contracts and builders (upstream requires presence, not non-empty).
+    reason: z.string(),
+  })
+  .strict();
+
+const stopContextOutputSchema = baseHookOutputSchema
+  .extend({
+    hookSpecificOutput: z.object({
+      hookEventName: z.literal('Stop'),
+      additionalContext: z.string(),
+    }),
+  })
+  .strict();
+
+const subagentStopContextOutputSchema = baseHookOutputSchema
+  .extend({
+    hookSpecificOutput: z.object({
+      hookEventName: z.literal('SubagentStop'),
+      additionalContext: z.string(),
+    }),
+  })
+  .strict();
+
+const universalStopOutputSchema = baseHookOutputSchema.strict();
+
+/** Event-safe output schema for Stop hooks. */
+export const stopOutputSchema = z.union([
+  stopBlockOutputSchema,
+  stopContextOutputSchema,
+  universalStopOutputSchema,
+]);
+
+/** Event-safe output schema for SubagentStop hooks. */
+export const subagentStopOutputSchema = z.union([
+  stopBlockOutputSchema,
+  subagentStopContextOutputSchema,
+  universalStopOutputSchema,
+]);
 
 /**
  * Schema for SessionStart hook outputs - context injection
@@ -684,18 +809,8 @@ export const sessionStartOutputSchema = baseHookOutputSchema.extend({
     .optional(),
 });
 
-/**
- * Schema for Notification hook outputs
- */
-export const notificationOutputSchema = baseHookOutputSchema.extend({
-  hookSpecificOutput: z
-    .object({
-      hookEventName: z.literal('Notification'),
-      /** Additional context for the notification handling */
-      additionalContext: z.string().optional(),
-    })
-    .optional(),
-});
+/** Notification hooks return only universal hook output fields. */
+export const notificationOutputSchema = baseHookOutputSchema.strict();
 
 /**
  * Schema for outputs that can block and inject additional context
@@ -793,9 +908,26 @@ export const subagentStartOutputSchema = baseHookOutputSchema.extend({
 });
 
 /**
- * Schema for PreCompact hook outputs
+ * Schema for PreCompact hook outputs.
+ *
+ * Event-safe: universal fields only, or top-level block/reason.
+ * Rejects PreCompact hookSpecificOutput / additionalContext injection;
+ * post-compact re-injection uses SessionStart with source "compact".
  */
-export const preCompactOutputSchema = blockContextOutputSchema('PreCompact');
+export const preCompactOutputSchema = z.union([
+  baseHookOutputSchema
+    .extend({
+      decision: z.never().optional(),
+      reason: z.never().optional(),
+    })
+    .strict(),
+  baseHookOutputSchema
+    .extend({
+      decision: z.literal('block'),
+      reason: z.string(),
+    })
+    .strict(),
+]);
 
 /**
  * Schema for ConfigChange hook outputs
@@ -862,6 +994,8 @@ export const bashToolInputSchema = z.object({
   timeout: z.number().positive().optional(),
   /** Whether to run in background */
   run_in_background: z.boolean().optional(),
+  /** Whether to bypass command sandboxing */
+  dangerouslyDisableSandbox: z.boolean().optional(),
 });
 
 /**
@@ -898,6 +1032,17 @@ export const readToolInputSchema = z.object({
   offset: z.number().nonnegative().optional(),
   /** Number of lines to read */
   limit: z.number().positive().optional(),
+  /** PDF page range with at most 20 pages */
+  pages: z
+    .string()
+    .regex(/^\d+(?:-\d+)?$/)
+    .refine(value => {
+      const [startRaw, endRaw] = value.split('-');
+      const start = Number(startRaw);
+      const end = endRaw === undefined ? start : Number(endRaw);
+      return start >= 1 && end >= start && end - start + 1 <= 20;
+    }, 'PDF page range must contain 1 to 20 ascending pages')
+    .optional(),
 });
 
 /**
@@ -923,54 +1068,65 @@ export const webSearchToolInputSchema = z.object({
 });
 
 /**
- * Schema for Task tool inputs (spawns a subagent)
+ * Schema for Task tool inputs (compatibility subagent tool).
  */
 export const taskToolInputSchema = z.object({
-  /** The task for the agent to perform */
   prompt: z.string().min(1),
-  /** Short description of the task */
   description: z.string().optional(),
-  /** Type of specialized agent to use */
   subagent_type: z.string().optional(),
-  /** Optional model alias to override the default */
   model: z.string().optional(),
+  run_in_background: z.boolean().optional(),
 });
 
-/**
- * Schema for Agent tool inputs (official name for subagent spawning).
- */
-export const agentToolInputSchema = taskToolInputSchema;
+/** Schema for Agent tool inputs. */
+export const agentToolInputSchema = z.object({
+  prompt: z.string().min(1),
+  description: z.string().min(1).optional(),
+  subagent_type: z.string().optional(),
+  model: z.string().optional(),
+  run_in_background: z.boolean().optional(),
+  isolation: z.enum(['worktree', 'remote']).optional(),
+});
 
 const askUserQuestionOptionSchema = z.object({
-  /** Option label shown to the user */
   label: z.string().min(1),
+  description: z.string().optional(),
+  preview: z.string().optional(),
 });
 
 const askUserQuestionQuestionSchema = z.object({
-  /** Question text shown to the user */
   question: z.string().min(1),
-  /** Short UI header */
-  header: z.string().min(1),
-  /** Selectable answers */
-  options: z.array(askUserQuestionOptionSchema).min(1),
-  /** Whether multiple options may be selected */
+  header: z.string().min(1).max(12),
+  // Official examples use label-only options; require at least one choice.
+  options: z.array(askUserQuestionOptionSchema).min(1).max(4),
   multiSelect: z.boolean().optional(),
 });
 
-/**
- * Schema for AskUserQuestion tool inputs.
- */
-export const askUserQuestionToolInputSchema = z.object({
-  /** Questions to present to the user */
-  questions: z.array(askUserQuestionQuestionSchema).min(1).max(4),
-  /** Programmatic answers keyed by question text */
-  answers: z.record(z.string(), z.string()).optional(),
+const askUserQuestionAnnotationSchema = z.object({
+  preview: z.string().optional(),
+  notes: z.string().optional(),
 });
 
-/**
- * Schema for ExitPlanMode tool inputs.
- */
-export const exitPlanModeToolInputSchema = z.object({}).strict();
+/** Schema for AskUserQuestion tool inputs. */
+export const askUserQuestionToolInputSchema = z.object({
+  questions: z.array(askUserQuestionQuestionSchema).min(1).max(4),
+  answers: z.record(z.string(), z.string()).optional(),
+  annotations: z.record(z.string(), askUserQuestionAnnotationSchema).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const exitPlanModeAllowedPromptSchema = z.object({
+  tool: z.string().min(1),
+  prompt: z.string(),
+});
+
+/** Schema for ExitPlanMode tool inputs after plan injection. */
+export const exitPlanModeToolInputSchema = z.object({
+  plan: z.string(),
+  planFilePath: z.string().min(1),
+  /** Deprecated prompt-based permissions accepted but ignored by Claude Code */
+  allowedPrompts: z.array(exitPlanModeAllowedPromptSchema).optional(),
+});
 
 /**
  * Schema for TodoWrite tool inputs.
@@ -1100,7 +1256,7 @@ export const hookOutputSchemas = {
   Notification: notificationOutputSchema,
   MessageDisplay: messageDisplayOutputSchema,
   SubagentStart: subagentStartOutputSchema,
-  SubagentStop: stopOutputSchema,
+  SubagentStop: subagentStopOutputSchema,
   TaskCreated: baseHookOutputSchema,
   TaskCompleted: baseHookOutputSchema,
   Stop: stopOutputSchema,
@@ -1209,6 +1365,8 @@ export const promptHookHandlerSchema = z.object({
   prompt: z.string().min(1),
   /** Model to use for evaluation. Defaults to a fast model */
   model: z.string().optional(),
+  /** Continue the turn after a negative decision where the event permits it */
+  continueOnBlock: z.boolean().optional(),
   ...hookHandlerCommonFields,
 });
 
@@ -1221,6 +1379,8 @@ export const agentHookHandlerSchema = z.object({
   prompt: z.string().min(1),
   /** Model to use for the agent. Defaults to a fast model */
   model: z.string().optional(),
+  /** Continue the turn after a negative decision where the event permits it */
+  continueOnBlock: z.boolean().optional(),
   ...hookHandlerCommonFields,
 });
 
@@ -1235,15 +1395,47 @@ export const hookHandlerSchema = z.discriminatedUnion('type', [
   agentHookHandlerSchema,
 ]);
 
-/**
- * Schema for a matcher group — a matcher pattern plus the handlers to run
- */
-export const matcherGroupSchema = z.object({
-  /** Regex pattern to filter when hooks fire. Omit or use "*" / "" to match all */
-  matcher: z.string().optional(),
-  /** Array of hook handlers to execute when the matcher matches */
-  hooks: z.array(hookHandlerSchema).min(1),
-});
+/** Schema for handlers accepted by decision-capable hook events. */
+export const decisionHookHandlerSchema = hookHandlerSchema;
+
+/** Schema for handlers accepted by external hook events. */
+export const externalHookHandlerSchema = z.discriminatedUnion('type', [
+  commandHookHandlerSchema,
+  httpHookHandlerSchema,
+  mcpToolHookHandlerSchema,
+]);
+
+/** Schema for handlers accepted by SessionStart and Setup. */
+export const startupHookHandlerSchema = z.discriminatedUnion('type', [
+  commandHookHandlerSchema,
+  mcpToolHookHandlerSchema,
+]);
+
+const matcherGroupFor = <T extends z.ZodType>(handlerSchema: T) =>
+  z.object({
+    /** Regex pattern to filter when hooks fire. Omit or use "*" / "" to match all */
+    matcher: z.string().optional(),
+    /** Array of hook handlers to execute when the matcher matches */
+    hooks: z.array(handlerSchema).min(1),
+  });
+
+/** Generic matcher-group schema retained for event-independent validation. */
+export const matcherGroupSchema = matcherGroupFor(hookHandlerSchema);
+
+/** Matcher-group schema for decision-capable hook events. */
+export const decisionMatcherGroupSchema = matcherGroupFor(
+  decisionHookHandlerSchema
+);
+
+/** Matcher-group schema for command, HTTP, and MCP-tool events. */
+export const externalMatcherGroupSchema = matcherGroupFor(
+  externalHookHandlerSchema
+);
+
+/** Matcher-group schema for SessionStart and Setup. */
+export const startupMatcherGroupSchema = matcherGroupFor(
+  startupHookHandlerSchema
+);
 
 /**
  * All supported hook event names as a Zod enum
@@ -1281,19 +1473,55 @@ export const hookEventNameSchema = z.enum([
   'SessionEnd',
 ]);
 
-/**
- * Schema for the hooks map — partial record where each key is a hook event name.
- * Uses z.object with all keys optional instead of z.record to allow partial configs.
- */
-const hookEventEntries = Object.fromEntries(
-  hookEventNameSchema.options.map((name: string) => [
-    name,
-    z.array(matcherGroupSchema).optional(),
-  ])
-);
+const decisionHookEventEntries = {
+  PermissionDenied: z.array(decisionMatcherGroupSchema).optional(),
+  PermissionRequest: z.array(decisionMatcherGroupSchema).optional(),
+  PostToolBatch: z.array(decisionMatcherGroupSchema).optional(),
+  PostToolUse: z.array(decisionMatcherGroupSchema).optional(),
+  PostToolUseFailure: z.array(decisionMatcherGroupSchema).optional(),
+  PreToolUse: z.array(decisionMatcherGroupSchema).optional(),
+  Stop: z.array(decisionMatcherGroupSchema).optional(),
+  SubagentStop: z.array(decisionMatcherGroupSchema).optional(),
+  TaskCompleted: z.array(decisionMatcherGroupSchema).optional(),
+  TaskCreated: z.array(decisionMatcherGroupSchema).optional(),
+  TeammateIdle: z.array(decisionMatcherGroupSchema).optional(),
+  UserPromptExpansion: z.array(decisionMatcherGroupSchema).optional(),
+  UserPromptSubmit: z.array(decisionMatcherGroupSchema).optional(),
+} as const;
+
+const externalHookEventEntries = {
+  ConfigChange: z.array(externalMatcherGroupSchema).optional(),
+  CwdChanged: z.array(externalMatcherGroupSchema).optional(),
+  Elicitation: z.array(externalMatcherGroupSchema).optional(),
+  ElicitationResult: z.array(externalMatcherGroupSchema).optional(),
+  FileChanged: z.array(externalMatcherGroupSchema).optional(),
+  InstructionsLoaded: z.array(externalMatcherGroupSchema).optional(),
+  Notification: z.array(externalMatcherGroupSchema).optional(),
+  PostCompact: z.array(externalMatcherGroupSchema).optional(),
+  PreCompact: z.array(externalMatcherGroupSchema).optional(),
+  SessionEnd: z.array(externalMatcherGroupSchema).optional(),
+  StopFailure: z.array(externalMatcherGroupSchema).optional(),
+  SubagentStart: z.array(externalMatcherGroupSchema).optional(),
+  WorktreeCreate: z.array(externalMatcherGroupSchema).optional(),
+  WorktreeRemove: z.array(externalMatcherGroupSchema).optional(),
+} as const;
+
+const startupHookEventEntries = {
+  SessionStart: z.array(startupMatcherGroupSchema).optional(),
+  Setup: z.array(startupMatcherGroupSchema).optional(),
+} as const;
+
+const hookEventEntries = {
+  ...decisionHookEventEntries,
+  ...externalHookEventEntries,
+  ...startupHookEventEntries,
+  /** MessageDisplay remains generic; its matcher is accepted but optional. */
+  MessageDisplay: z.array(matcherGroupSchema).optional(),
+};
 
 export const hooksConfigSchema = z.object({
-  hooks: z.object(hookEventEntries).optional(),
+  hooks: z.object(hookEventEntries).strict().optional(),
+  disableAllHooks: z.boolean().optional(),
   allowManagedHooksOnly: z.boolean().optional(),
   allowedHttpHookUrls: z.array(z.string()).optional(),
   httpHookAllowedEnvVars: z.array(z.string()).optional(),
@@ -1473,10 +1701,27 @@ export type MessageDisplayInputSchema = z.infer<
   typeof messageDisplayInputSchema
 >;
 export type StopInputSchema = z.infer<typeof stopInputSchema>;
+export type BackgroundTaskEntrySchema = z.infer<
+  typeof backgroundTaskEntrySchema
+>;
+export type SessionCronEntrySchema = z.infer<typeof sessionCronEntrySchema>;
 export type StopFailureInputSchema = z.infer<typeof stopFailureInputSchema>;
 export type SubagentStopInputSchema = z.infer<typeof subagentStopInputSchema>;
 export type PreCompactInputSchema = z.infer<typeof preCompactInputSchema>;
 export type PostCompactInputSchema = z.infer<typeof postCompactInputSchema>;
+export type PermissionUpdateDestinationSchema = z.infer<
+  typeof permissionUpdateDestinationSchema
+>;
+export type PermissionRuleBehaviorSchema = z.infer<
+  typeof permissionRuleBehaviorSchema
+>;
+export type PermissionRuleSchema = z.infer<typeof permissionRuleSchema>;
+export type PermissionUpdateModeSchema = z.infer<
+  typeof permissionUpdateModeSchema
+>;
+export type PermissionUpdateEntrySchema = z.infer<
+  typeof permissionUpdateEntrySchema
+>;
 export type PermissionRequestInputSchema = z.infer<
   typeof permissionRequestInputSchema
 >;
@@ -1519,6 +1764,7 @@ export type UserPromptExpansionOutputSchema = z.infer<
   typeof userPromptExpansionOutputSchema
 >;
 export type StopOutputSchema = z.infer<typeof stopOutputSchema>;
+export type SubagentStopOutputSchema = z.infer<typeof subagentStopOutputSchema>;
 export type SessionStartOutputSchema = z.infer<typeof sessionStartOutputSchema>;
 export type NotificationOutputSchema = z.infer<typeof notificationOutputSchema>;
 export type MessageDisplayOutputSchema = z.infer<
@@ -1676,6 +1922,22 @@ export type McpToolHookHandlerSchema = z.infer<typeof mcpToolHookHandlerSchema>;
 export type PromptHookHandlerSchema = z.infer<typeof promptHookHandlerSchema>;
 export type AgentHookHandlerSchema = z.infer<typeof agentHookHandlerSchema>;
 export type HookHandlerSchema = z.infer<typeof hookHandlerSchema>;
+export type DecisionHookHandlerSchema = z.infer<
+  typeof decisionHookHandlerSchema
+>;
+export type ExternalHookHandlerSchema = z.infer<
+  typeof externalHookHandlerSchema
+>;
+export type StartupHookHandlerSchema = z.infer<typeof startupHookHandlerSchema>;
 export type MatcherGroupSchema = z.infer<typeof matcherGroupSchema>;
+export type DecisionMatcherGroupSchema = z.infer<
+  typeof decisionMatcherGroupSchema
+>;
+export type ExternalMatcherGroupSchema = z.infer<
+  typeof externalMatcherGroupSchema
+>;
+export type StartupMatcherGroupSchema = z.infer<
+  typeof startupMatcherGroupSchema
+>;
 export type HookEventNameSchema = z.infer<typeof hookEventNameSchema>;
 export type HooksConfigSchema = z.infer<typeof hooksConfigSchema>;

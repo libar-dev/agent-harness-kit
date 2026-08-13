@@ -13,6 +13,8 @@ export interface BaseHookInput {
   cwd: string;
   /** The specific hook event that triggered this execution */
   hook_event_name: string;
+  /** UUID identifying the user prompt currently being processed */
+  prompt_id?: string | undefined;
   /** Current permission mode */
   permission_mode?: PermissionMode | undefined;
   /** Unique identifier for a subagent context, when present */
@@ -44,15 +46,15 @@ export type PermissionMode =
  */
 export interface BaseHookOutput {
   /** Whether Claude should continue after hook execution (default: true) */
-  continue?: boolean;
+  continue?: boolean | undefined;
   /** Message shown to user when continue is false */
-  stopReason?: string;
+  stopReason?: string | undefined;
   /** Hide stdout from transcript mode (default: false) */
-  suppressOutput?: boolean;
+  suppressOutput?: boolean | undefined;
   /** Optional warning message shown to the user */
-  systemMessage?: string;
+  systemMessage?: string | undefined;
   /** ANSI escape sequences or similar terminal control output */
-  terminalSequence?: string;
+  terminalSequence?: string | undefined;
 }
 
 /**
@@ -199,15 +201,80 @@ export interface PostToolUseFailureOutput extends BaseHookOutput {
   };
 }
 
-/**
- * Permission update entries used by PermissionRequest input/output.
- * The official schema is discriminated by `type`; this type keeps the
- * required discriminator while allowing the event-specific payload fields.
- */
-export interface PermissionUpdateEntry {
-  type: string;
-  [key: string]: unknown;
+/** Settings destination for a permission update. */
+export type PermissionUpdateDestination =
+  | 'session'
+  | 'localSettings'
+  | 'projectSettings'
+  | 'userSettings';
+
+/** Behavior applied by a permission rule update. */
+export type PermissionRuleBehavior = 'allow' | 'deny' | 'ask';
+
+/** Tool permission rule used by rule-based permission updates. */
+export interface PermissionRule {
+  /** Tool name to match */
+  toolName: string;
+  /** Optional rule content; omit to match the whole tool */
+  ruleContent?: string | undefined;
 }
+
+/** Permission mode accepted by `setMode` updates, including the manual alias. */
+export type PermissionUpdateMode = PermissionMode | 'manual';
+
+/** Add permission rules at a settings destination. */
+export interface AddPermissionRulesUpdate {
+  type: 'addRules';
+  rules: PermissionRule[];
+  behavior: PermissionRuleBehavior;
+  destination: PermissionUpdateDestination;
+}
+
+/** Replace permission rules at a settings destination. */
+export interface ReplacePermissionRulesUpdate {
+  type: 'replaceRules';
+  rules: PermissionRule[];
+  behavior: PermissionRuleBehavior;
+  destination: PermissionUpdateDestination;
+}
+
+/** Remove permission rules from a settings destination. */
+export interface RemovePermissionRulesUpdate {
+  type: 'removeRules';
+  rules: PermissionRule[];
+  behavior: PermissionRuleBehavior;
+  destination: PermissionUpdateDestination;
+}
+
+/** Change the active permission mode at a settings destination. */
+export interface SetPermissionModeUpdate {
+  type: 'setMode';
+  mode: PermissionUpdateMode;
+  destination: PermissionUpdateDestination;
+}
+
+/** Add working directories at a settings destination. */
+export interface AddPermissionDirectoriesUpdate {
+  type: 'addDirectories';
+  directories: string[];
+  destination: PermissionUpdateDestination;
+}
+
+/** Remove working directories from a settings destination. */
+export interface RemovePermissionDirectoriesUpdate {
+  type: 'removeDirectories';
+  directories: string[];
+  destination: PermissionUpdateDestination;
+}
+
+/** Documented permission update entries used by PermissionRequest input/output. */
+export type PermissionUpdateEntry =
+  | AddPermissionRulesUpdate
+  | ReplacePermissionRulesUpdate
+  | RemovePermissionRulesUpdate
+  | SetPermissionModeUpdate
+  | AddPermissionDirectoriesUpdate
+  | RemovePermissionDirectoriesUpdate;
 
 /**
  * Input for PermissionDenied hooks - runs when auto mode denies a tool call
@@ -355,6 +422,11 @@ export interface UserPromptSubmitOutput extends BaseHookOutput {
   decision?: 'block';
   /** Reason shown to user (not added to context) */
   reason?: string;
+  /**
+   * When `decision` is `"block"` and this is `true`, omits the original prompt
+   * text from the block message shown to the user.
+   */
+  suppressOriginalPrompt?: boolean;
   /** Add context if not blocked */
   hookSpecificOutput?: {
     hookEventName: 'UserPromptSubmit';
@@ -413,7 +485,9 @@ export interface NotificationInput extends BaseHookInput {
     | 'auth_success'
     | 'elicitation_dialog'
     | 'elicitation_complete'
-    | 'elicitation_response';
+    | 'elicitation_response'
+    | 'agent_needs_input'
+    | 'agent_completed';
 }
 
 /**
@@ -444,15 +518,45 @@ export interface MessageDisplayOutput extends BaseHookOutput {
   };
 }
 
-/**
- * Notification-specific output for context injection
- */
-export interface NotificationOutput extends BaseHookOutput {
-  hookSpecificOutput?: {
-    hookEventName: 'Notification';
-    /** Additional context for the notification handling */
-    additionalContext?: string;
-  };
+/** Notification hooks return only universal hook output fields. */
+export type NotificationOutput = BaseHookOutput;
+
+/** In-flight background task reported to Stop and SubagentStop hooks. */
+export interface BackgroundTaskEntry {
+  /** Task identifier */
+  id: string;
+  /** Friendly task-type label */
+  type: string;
+  /** Current task status */
+  status: string;
+  /** Free-text task description */
+  description: string;
+  /** Shell command for shell tasks */
+  command?: string | undefined;
+  /** Subagent type for subagent tasks */
+  agent_type?: string | undefined;
+  /** MCP server for monitor and MCP tasks */
+  server?: string | undefined;
+  /** MCP tool for monitor and MCP tasks */
+  tool?: string | undefined;
+  /** Workflow name for workflow tasks */
+  name?: string | undefined;
+  /** Additional task metadata supplied by future Claude Code versions */
+  [key: string]: unknown;
+}
+
+/** Session-scoped scheduled wakeup reported to Stop and SubagentStop hooks. */
+export interface SessionCronEntry {
+  /** Cron task identifier */
+  id: string;
+  /** Cron expression */
+  schedule: string;
+  /** Whether the cron fires on every match */
+  recurring: boolean;
+  /** Prompt submitted when the cron fires */
+  prompt: string;
+  /** Additional cron metadata supplied by future Claude Code versions */
+  [key: string]: unknown;
 }
 
 /**
@@ -464,6 +568,10 @@ export interface StopInput extends BaseHookInput {
   stop_hook_active: boolean;
   /** Text content of Claude's final response */
   last_assistant_message?: string | undefined;
+  /** In-flight tasks registered for the session */
+  background_tasks?: BackgroundTaskEntry[] | undefined;
+  /** Session-scoped scheduled wakeups */
+  session_crons?: SessionCronEntry[] | undefined;
 }
 
 /**
@@ -481,17 +589,71 @@ export interface SubagentStopInput extends BaseHookInput {
   agent_transcript_path: string;
   /** Text content of the subagent's final response */
   last_assistant_message?: string | undefined;
+  /** Parent-session in-flight tasks */
+  background_tasks?: BackgroundTaskEntry[] | undefined;
+  /** Parent-session scheduled wakeups */
+  session_crons?: SessionCronEntry[] | undefined;
 }
 
-/**
- * Stop/SubagentStop-specific output for continuation control
- */
-export interface StopOutput extends BaseHookOutput {
-  /** Block Claude from stopping - must provide reason for how to proceed */
-  decision?: 'block';
-  /** Must be provided when decision is 'block' - tells Claude how to proceed */
-  reason?: string;
-}
+/** Universal output accepted by Stop hooks. */
+export type StopUniversalOutput = BaseHookOutput & {
+  decision?: never;
+  reason?: never;
+  hookSpecificOutput?: never;
+};
+
+/** Blocking Stop output that keeps the main session running. */
+export type StopBlockOutput = BaseHookOutput & {
+  decision: 'block';
+  reason: string;
+  hookSpecificOutput?: never;
+};
+
+/** Non-error Stop feedback that keeps the main session running. */
+export type StopContextOutput = BaseHookOutput & {
+  decision?: never;
+  reason?: never;
+  hookSpecificOutput: {
+    hookEventName: 'Stop';
+    additionalContext: string;
+  };
+};
+
+/** Event-safe output union for Stop hooks. */
+export type StopOutput =
+  | StopUniversalOutput
+  | StopBlockOutput
+  | StopContextOutput;
+
+/** Universal output accepted by SubagentStop hooks. */
+export type SubagentStopUniversalOutput = BaseHookOutput & {
+  decision?: never;
+  reason?: never;
+  hookSpecificOutput?: never;
+};
+
+/** Blocking SubagentStop output that keeps the subagent running. */
+export type SubagentStopBlockOutput = BaseHookOutput & {
+  decision: 'block';
+  reason: string;
+  hookSpecificOutput?: never;
+};
+
+/** Non-error SubagentStop feedback that keeps the subagent running. */
+export type SubagentStopContextOutput = BaseHookOutput & {
+  decision?: never;
+  reason?: never;
+  hookSpecificOutput: {
+    hookEventName: 'SubagentStop';
+    additionalContext: string;
+  };
+};
+
+/** Event-safe output union for SubagentStop hooks. */
+export type SubagentStopOutput =
+  | SubagentStopUniversalOutput
+  | SubagentStopBlockOutput
+  | SubagentStopContextOutput;
 
 /**
  * Input for PreCompact hooks - runs before compact operations
@@ -505,19 +667,25 @@ export interface PreCompactInput extends BaseHookInput {
 }
 
 /**
- * PreCompact-specific output for compaction control
+ * PreCompact-specific output for compaction control.
+ *
+ * Official PreCompact control is top-level `decision: "block"` only.
+ * Context re-injection after compact uses SessionStart with `source: "compact"`,
+ * not PreCompact `hookSpecificOutput` / `additionalContext`.
  */
-export interface PreCompactOutput extends BaseHookOutput {
-  /** Block compaction */
-  decision?: 'block';
-  /** Explanation shown when compaction is blocked */
-  reason?: string;
-  hookSpecificOutput?: {
-    hookEventName: 'PreCompact';
-    /** String injected into compaction */
-    additionalContext?: string;
-  };
-}
+export type PreCompactOutput =
+  | (BaseHookOutput & {
+      decision?: never;
+      reason?: never;
+      hookSpecificOutput?: never;
+    })
+  | (BaseHookOutput & {
+      /** Block compaction */
+      decision: 'block';
+      /** Explanation shown when compaction is blocked */
+      reason: string;
+      hookSpecificOutput?: never;
+    });
 
 /**
  * Input for SessionStart hooks - runs when Claude Code session starts
@@ -835,6 +1003,7 @@ export type HookOutput =
   | UserPromptSubmitOutput
   | UserPromptExpansionOutput
   | StopOutput
+  | SubagentStopOutput
   | PreCompactOutput
   | SessionStartOutput
   | ConfigChangeOutput
@@ -848,9 +1017,10 @@ export type HookOutput =
  */
 export interface BashToolInput {
   command: string;
-  description?: string;
-  timeout?: number;
-  run_in_background?: boolean;
+  description?: string | undefined;
+  timeout?: number | undefined;
+  run_in_background?: boolean | undefined;
+  dangerouslyDisableSandbox?: boolean | undefined;
 }
 
 export interface WriteToolInput {
@@ -862,7 +1032,7 @@ export interface EditToolInput {
   file_path: string;
   old_string: string;
   new_string: string;
-  replace_all?: boolean;
+  replace_all?: boolean | undefined;
 }
 
 export interface MultiEditToolInput {
@@ -870,33 +1040,34 @@ export interface MultiEditToolInput {
   edits: Array<{
     old_string: string;
     new_string: string;
-    replace_all?: boolean;
+    replace_all?: boolean | undefined;
   }>;
 }
 
 export interface ReadToolInput {
   file_path: string;
-  offset?: number;
-  limit?: number;
+  offset?: number | undefined;
+  limit?: number | undefined;
+  pages?: string | undefined;
 }
 
 export interface GrepToolInput {
   pattern: string;
-  path?: string;
-  glob?: string;
-  type?: string;
-  output_mode?: 'content' | 'files_with_matches' | 'count';
-  multiline?: boolean;
-  '-i'?: boolean; // case insensitive
-  '-n'?: boolean; // show line numbers
-  '-A'?: number; // lines after
-  '-B'?: number; // lines before
-  '-C'?: number; // lines before and after
+  path?: string | undefined;
+  glob?: string | undefined;
+  type?: string | undefined;
+  output_mode?: 'content' | 'files_with_matches' | 'count' | undefined;
+  multiline?: boolean | undefined;
+  '-i'?: boolean | undefined; // case insensitive
+  '-n'?: boolean | undefined; // show line numbers
+  '-A'?: number | undefined; // lines after
+  '-B'?: number | undefined; // lines before
+  '-C'?: number | undefined; // lines before and after
 }
 
 export interface GlobToolInput {
   pattern: string;
-  path?: string;
+  path?: string | undefined;
 }
 
 export interface WebFetchToolInput {
@@ -910,27 +1081,65 @@ export interface WebSearchToolInput {
   blocked_domains?: string[];
 }
 
+/** Input for the Agent tool. */
 export interface AgentToolInput {
+  /** Task for the agent to perform */
   prompt: string;
-  description?: string;
-  subagent_type?: string;
-  model?: string;
+  /** Short description shown while the agent runs */
+  description?: string | undefined;
+  subagent_type?: string | undefined;
+  model?: string | undefined;
+  run_in_background?: boolean | undefined;
+  isolation?: 'worktree' | 'remote' | undefined;
 }
 
+/** Selectable option shown by AskUserQuestion. */
+export interface AskUserQuestionOption {
+  label: string;
+  description?: string | undefined;
+  preview?: string | undefined;
+}
+
+/** One question presented by AskUserQuestion. */
+export interface AskUserQuestionEntry {
+  question: string;
+  header: string;
+  options: AskUserQuestionOption[];
+  multiSelect?: boolean | undefined;
+}
+
+/** Input for the AskUserQuestion tool. */
 export interface AskUserQuestionToolInput {
-  questions: Array<{
-    question: string;
-    header: string;
-    options: Array<{
-      label: string;
-    }>;
-    multiSelect?: boolean;
-  }>;
-  answers?: Record<string, string>;
+  questions: AskUserQuestionEntry[];
+  answers?: Record<string, string> | undefined;
+  annotations?:
+    | Record<
+        string,
+        {
+          preview?: string | undefined;
+          notes?: string | undefined;
+        }
+      >
+    | undefined;
+  metadata?: Record<string, unknown> | undefined;
 }
 
+/** Deprecated prompt-based permission request accepted by ExitPlanMode. */
+export interface ExitPlanModeAllowedPrompt {
+  /** Tool the prompt permission applied to */
+  tool: string;
+  /** Prompt-based permission description */
+  prompt: string;
+}
+
+/** Input for ExitPlanMode after Claude Code injects the saved plan. */
 export interface ExitPlanModeToolInput {
-  [key: string]: never;
+  /** Plan content in Markdown */
+  plan: string;
+  /** Path to the plan file */
+  planFilePath: string;
+  /** Deprecated prompt-based permissions accepted but ignored by Claude Code */
+  allowedPrompts?: ExitPlanModeAllowedPrompt[] | undefined;
 }
 
 export interface TodoWriteToolInput {
@@ -943,11 +1152,18 @@ export interface TodoWriteToolInput {
 
 export type MCPToolInput = Record<string, unknown>;
 
+/**
+ * Input for the compatibility Task tool.
+ *
+ * Shares the core Agent fields but is a legacy subset: it does not model
+ * Agent's optional `isolation` field.
+ */
 export interface TaskToolInput {
   prompt: string;
-  description?: string;
-  subagent_type?: string;
-  model?: string;
+  description?: string | undefined;
+  subagent_type?: string | undefined;
+  model?: string | undefined;
+  run_in_background?: boolean | undefined;
 }
 
 /**
@@ -989,14 +1205,18 @@ export type HookEventName =
  * Common fields shared by all hook handler types
  */
 interface HookHandlerBase {
-  /** Seconds before canceling. Defaults: 60 (command/HTTP), 30 (prompt), 60 (agent) */
-  timeout?: number;
+  /**
+   * Seconds before canceling. Defaults: 600 for `command`, `http`, and
+   * `mcp_tool`; 30 for `prompt`; 60 for `agent`. UserPromptSubmit lowers the
+   * command/http/mcp_tool default to 30; MessageDisplay lowers it to 10.
+   */
+  timeout?: number | undefined;
   /** Custom spinner message displayed while the hook runs */
-  statusMessage?: string;
+  statusMessage?: string | undefined;
   /** If true, runs only once per session then is removed. Skills only, not agents */
-  once?: boolean;
+  once?: boolean | undefined;
   /** Permission-rule syntax filter for tool events */
-  if?: string;
+  if?: string | undefined;
 }
 
 /**
@@ -1006,13 +1226,13 @@ export interface CommandHookHandler extends HookHandlerBase {
   type: 'command';
   /** Shell command to execute */
   command: string;
-  args?: string[];
+  args?: string[] | undefined;
   /** If true, runs in the background without blocking. Only for command hooks */
-  async?: boolean;
+  async?: boolean | undefined;
   /** If true, runs in the background and wakes Claude on exit code 2 */
-  asyncRewake?: boolean;
+  asyncRewake?: boolean | undefined;
   /** Shell to use for this hook */
-  shell?: 'bash' | 'powershell';
+  shell?: 'bash' | 'powershell' | undefined;
 }
 
 /**
@@ -1023,9 +1243,9 @@ export interface HttpHookHandler extends HookHandlerBase {
   /** URL to send the POST request to */
   url: string;
   /** Additional HTTP headers */
-  headers?: Record<string, string>;
+  headers?: Record<string, string> | undefined;
   /** Environment variables allowed for header interpolation */
-  allowedEnvVars?: string[];
+  allowedEnvVars?: string[] | undefined;
 }
 
 /**
@@ -1038,7 +1258,7 @@ export interface McpToolHookHandler extends HookHandlerBase {
   /** Name of the tool to call on that server */
   tool: string;
   /** Arguments passed to the MCP tool */
-  input?: Record<string, unknown>;
+  input?: Record<string, unknown> | undefined;
 }
 
 /**
@@ -1049,7 +1269,9 @@ export interface PromptHookHandler extends HookHandlerBase {
   /** Prompt text. Use $ARGUMENTS as placeholder for hook input JSON */
   prompt: string;
   /** Model to use. Defaults to a fast model */
-  model?: string;
+  model?: string | undefined;
+  /** Continue the turn after a negative prompt decision where the event permits it */
+  continueOnBlock?: boolean | undefined;
 }
 
 /**
@@ -1060,7 +1282,9 @@ export interface AgentHookHandler extends HookHandlerBase {
   /** Prompt text. Use $ARGUMENTS as placeholder for hook input JSON */
   prompt: string;
   /** Model to use. Defaults to a fast model */
-  model?: string;
+  model?: string | undefined;
+  /** Continue the turn after a negative agent decision where the event permits it */
+  continueOnBlock?: boolean | undefined;
 }
 
 /**
@@ -1073,27 +1297,79 @@ export type HookHandler =
   | PromptHookHandler
   | AgentHookHandler;
 
-/**
- * A matcher group: an optional regex filter and the handlers to run when matched
- */
-export interface MatcherGroup {
+/** Hook events that accept command, HTTP, MCP tool, prompt, and agent handlers. */
+export type DecisionHookEventName =
+  | 'PermissionDenied'
+  | 'PermissionRequest'
+  | 'PostToolBatch'
+  | 'PostToolUse'
+  | 'PostToolUseFailure'
+  | 'PreToolUse'
+  | 'Stop'
+  | 'SubagentStop'
+  | 'TaskCompleted'
+  | 'TaskCreated'
+  | 'TeammateIdle'
+  | 'UserPromptExpansion'
+  | 'UserPromptSubmit';
+
+/** Hook events that accept command, HTTP, and MCP tool handlers. */
+export type ExternalHookEventName =
+  | 'ConfigChange'
+  | 'CwdChanged'
+  | 'Elicitation'
+  | 'ElicitationResult'
+  | 'FileChanged'
+  | 'InstructionsLoaded'
+  | 'Notification'
+  | 'PostCompact'
+  | 'PreCompact'
+  | 'SessionEnd'
+  | 'StopFailure'
+  | 'SubagentStart'
+  | 'WorktreeCreate'
+  | 'WorktreeRemove';
+
+/** Hook events that accept only command and MCP tool handlers. */
+export type StartupHookEventName = 'SessionStart' | 'Setup';
+
+/** Handler union accepted for a specific hook event. */
+export type HookHandlerFor<E extends HookEventName> =
+  E extends DecisionHookEventName
+    ? HookHandler
+    : E extends ExternalHookEventName
+      ? CommandHookHandler | HttpHookHandler | McpToolHookHandler
+      : E extends StartupHookEventName
+        ? CommandHookHandler | McpToolHookHandler
+        : HookHandler;
+
+/** A matcher group for a specific hook event. */
+export interface MatcherGroupFor<E extends HookEventName = HookEventName> {
   /** Regex pattern to filter when hooks fire. Omit or use "*" / "" to match all */
-  matcher?: string;
-  /** Array of hook handlers to execute */
-  hooks: HookHandler[];
+  matcher?: string | undefined;
+  /** Array of handlers accepted by the event */
+  hooks: HookHandlerFor<E>[];
 }
 
-/**
- * Full hooks configuration block from settings.json
- */
+/** Backward-compatible generic matcher group. */
+export type MatcherGroup = MatcherGroupFor;
+
+/** Event-aware hooks map from settings.json. */
+export type HooksMap = {
+  [E in HookEventName]?: MatcherGroupFor<E>[] | undefined;
+};
+
+/** Full hooks configuration block from settings.json. */
 export interface HooksConfig {
-  hooks?: Partial<Record<HookEventName, MatcherGroup[]>>;
+  hooks?: HooksMap | undefined;
+  /** Disable hooks at this settings layer, subject to managed-settings precedence */
+  disableAllHooks?: boolean | undefined;
   /** Managed settings flag that restricts hooks to managed and force-enabled plugin hooks */
-  allowManagedHooksOnly?: boolean;
+  allowManagedHooksOnly?: boolean | undefined;
   /** URL patterns that HTTP hooks may target */
-  allowedHttpHookUrls?: string[];
+  allowedHttpHookUrls?: string[] | undefined;
   /** Environment variable names HTTP hooks may interpolate */
-  httpHookAllowedEnvVars?: string[];
+  httpHookAllowedEnvVars?: string[] | undefined;
 }
 
 /**
@@ -1116,7 +1392,11 @@ export { HookOutputBuilder } from '../utils/output-builder.js';
  * Not all variables are available for all event types.
  */
 export interface HookEnvironmentVars {
-  /** Current working directory (same as `cwd` in hook input JSON) */
+  /** Set to `"1"` in Claude Code child processes. */
+  CLAUDECODE?: '1' | undefined;
+  /** Set to `"1"` when a hook runs inside a child Claude Code session. */
+  CLAUDE_CODE_CHILD_SESSION?: '1' | undefined;
+  /** Project root used for hook path placeholders; distinct from the current `cwd` */
   CLAUDE_PROJECT_DIR: string;
   /**
    * Set to `"true"` in remote web environments (e.g., Claude.ai web).
@@ -1124,12 +1404,12 @@ export interface HookEnvironmentVars {
    * Useful for hooks that need to detect execution context.
    */
   CLAUDE_CODE_REMOTE?: string;
+  /** Remote Control session ID while the local session has an active bridge */
+  CLAUDE_CODE_BRIDGE_SESSION_ID?: string;
   /**
-   * Path to a file where SessionStart hooks can persist environment variables.
-   * Write `export VAR=value` lines (using `>>` to append) to make variables
-   * available in all subsequent Bash commands during the session.
-   *
-   * Only available in SessionStart hooks. Other hook types do not receive this variable.
+   * Path to a file where SessionStart, Setup, CwdChanged, and FileChanged hooks
+   * can persist environment variables for subsequent Bash commands.
+   * Write `export VAR=value` lines and append when preserving prior hook output.
    *
    * @example
    * ```bash
@@ -1139,11 +1419,15 @@ export interface HookEnvironmentVars {
    * ```
    */
   CLAUDE_ENV_FILE?: string;
+  /** Active effort level exported for hook commands and the Bash tool */
+  CLAUDE_EFFORT?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /**
    * Plugin root directory. Set when hook is defined in a plugin's `hooks/hooks.json`.
    * Use to reference scripts bundled with the plugin.
    */
   CLAUDE_PLUGIN_ROOT?: string;
+  /** Plugin persistent data directory for dependencies and state across updates */
+  CLAUDE_PLUGIN_DATA?: string;
   /**
    * Overrides the total SessionEnd hooks timeout budget in milliseconds.
    * Values above 60000 are capped by Claude Code.

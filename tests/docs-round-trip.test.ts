@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import {
+  hookEventNameSchema,
+  hookOutputSchemas,
   validateHookInput,
   validateHooksConfig,
 } from '../src/validation/index.js';
@@ -10,6 +12,8 @@ const DOC_FILES = [
   'docs/upstream/hooks-reference.md',
   'docs/upstream/hooks-guide.md',
 ] as const;
+
+const SETTINGS_DOC = 'docs/upstream/settings.md';
 
 interface SkipRule {
   description: string;
@@ -32,13 +36,26 @@ const EXPECTED_PARSE_SKIPS: SkipRule[] = [
   },
 ];
 
-const EXPECTED_VALIDATION_SKIPS: SkipRule[] = [
+const EXPECTED_INPUT_VALIDATION_SKIPS: SkipRule[] = [
   {
     description:
       'Generic PreToolUse example omits tool_use_id, while the PreToolUse section documents it as required.',
     matches: source =>
       source.includes('"hook_event_name": "PreToolUse"') &&
       !source.includes('"tool_use_id"'),
+  },
+];
+
+const EXPECTED_SETTINGS_VALIDATION_SKIPS: SkipRule[] = [
+  {
+    description:
+      'Bare settings snippets only list HTTP restriction fields without a hooks map.',
+    matches: source =>
+      !source.includes('"hooks"') &&
+      (source.includes('"allowedHttpHookUrls"') ||
+        source.includes('"httpHookAllowedEnvVars"') ||
+        source.includes('"allowManagedHooksOnly"') ||
+        source.includes('"disableAllHooks"')),
   },
 ];
 
@@ -72,14 +89,14 @@ function classifyBlock(
   return rules.find(rule => rule.matches(source))?.description;
 }
 
-function collectJsonBlocks(): {
+function collectJsonBlocks(files: readonly string[]): {
   parsedBlocks: ParsedJsonBlock[];
   parseSkips: JsonBlock[];
 } {
   const parsedBlocks: ParsedJsonBlock[] = [];
   const parseSkips: JsonBlock[] = [];
 
-  for (const filePath of DOC_FILES) {
+  for (const filePath of files) {
     const markdown = readFileSync(filePath, 'utf8');
     const jsonBlocks = extractJsonBlocks(markdown);
 
@@ -101,11 +118,55 @@ function collectJsonBlocks(): {
   return { parsedBlocks, parseSkips };
 }
 
-const { parsedBlocks, parseSkips } = collectJsonBlocks();
+function extractLifecycleEvents(markdown: string): string[] {
+  const sectionMatch = markdown.match(
+    /## Hook lifecycle[\s\S]*?(?=## |\n---\n)/
+  );
+  if (!sectionMatch) {
+    return [];
+  }
+
+  return [
+    ...sectionMatch[0].matchAll(/^\| `([A-Za-z][A-Za-z0-9]+)`\s*\|/gm),
+  ].map(match => match[1] ?? '');
+}
+
+function extractHookSpecificOutputExamples(
+  blocks: readonly ParsedJsonBlock[]
+): ParsedJsonBlock[] {
+  return blocks.filter(block => {
+    if (!isRecord(block.value)) {
+      return false;
+    }
+
+    const specific = block.value['hookSpecificOutput'];
+    return isRecord(specific) && typeof specific['hookEventName'] === 'string';
+  });
+}
+
+function extractHookRelatedSettings(
+  blocks: readonly ParsedJsonBlock[]
+): ParsedJsonBlock[] {
+  return blocks.filter(block => {
+    if (!isRecord(block.value)) {
+      return false;
+    }
+
+    return (
+      'hooks' in block.value ||
+      'disableAllHooks' in block.value ||
+      'allowManagedHooksOnly' in block.value ||
+      'allowedHttpHookUrls' in block.value ||
+      'httpHookAllowedEnvVars' in block.value
+    );
+  });
+}
+
+const { parsedBlocks, parseSkips } = collectJsonBlocks(DOC_FILES);
+const settingsCollection = collectJsonBlocks([SETTINGS_DOC]);
 
 const classifiedParseSkips = parseSkips.flatMap(block => {
   const description = classifyBlock(block.source, EXPECTED_PARSE_SKIPS);
-
   return description ? [{ ...block, description }] : [];
 });
 
@@ -113,26 +174,54 @@ const unexpectedParseSkips = parseSkips.filter(
   block => !classifyBlock(block.source, EXPECTED_PARSE_SKIPS)
 );
 
-const validationCandidates = parsedBlocks.filter(
-  (block): block is ParsedJsonBlock & { value: Record<string, unknown> } => {
-    if (!isRecord(block.value)) {
-      return false;
-    }
+const inputCandidates = parsedBlocks.filter(
+  (block): block is ParsedJsonBlock & { value: Record<string, unknown> } =>
+    isRecord(block.value) && 'hook_event_name' in block.value
+);
 
-    return 'hook_event_name' in block.value || 'hooks' in block.value;
+const configCandidates = parsedBlocks.filter(
+  (block): block is ParsedJsonBlock & { value: Record<string, unknown> } =>
+    isRecord(block.value) && 'hooks' in block.value
+);
+
+const classifiedInputSkips: ClassifiedJsonBlock[] = inputCandidates.flatMap(
+  block => {
+    const description = classifyBlock(
+      block.source,
+      EXPECTED_INPUT_VALIDATION_SKIPS
+    );
+    return description ? [{ ...block, description }] : [];
   }
 );
 
-const classifiedValidationSkips: ClassifiedJsonBlock[] =
-  validationCandidates.flatMap(block => {
-    const description = classifyBlock(block.source, EXPECTED_VALIDATION_SKIPS);
+const inputBlocks = inputCandidates.filter(
+  block => !classifyBlock(block.source, EXPECTED_INPUT_VALIDATION_SKIPS)
+);
 
+const outputBlocks = extractHookSpecificOutputExamples(parsedBlocks);
+
+const settingsCandidates = extractHookRelatedSettings(
+  settingsCollection.parsedBlocks
+);
+
+const classifiedSettingsSkips: ClassifiedJsonBlock[] =
+  settingsCandidates.flatMap(block => {
+    const description = classifyBlock(
+      block.source,
+      EXPECTED_SETTINGS_VALIDATION_SKIPS
+    );
     return description ? [{ ...block, description }] : [];
   });
 
-const validationBlocks = validationCandidates.filter(
-  block => !classifyBlock(block.source, EXPECTED_VALIDATION_SKIPS)
+const settingsBlocks = settingsCandidates.filter(
+  block => !classifyBlock(block.source, EXPECTED_SETTINGS_VALIDATION_SKIPS)
 );
+
+const referenceMarkdown = readFileSync(
+  'docs/upstream/hooks-reference.md',
+  'utf8'
+);
+const lifecycleEvents = extractLifecycleEvents(referenceMarkdown);
 
 describe('official docs JSON examples', () => {
   it('only skips known non-JSON documentation snippets', () => {
@@ -142,21 +231,67 @@ describe('official docs JSON examples', () => {
     );
   });
 
-  it('only skips known schema-inconsistent snippets', () => {
-    expect(
-      classifiedValidationSkips.map(block => block.description).sort()
-    ).toEqual(EXPECTED_VALIDATION_SKIPS.map(rule => rule.description).sort());
+  it('only skips known schema-inconsistent input snippets', () => {
+    expect(classifiedInputSkips.map(block => block.description).sort()).toEqual(
+      EXPECTED_INPUT_VALIDATION_SKIPS.map(rule => rule.description).sort()
+    );
   });
 
-  it.each(validationBlocks)(
-    'validates hook input or config example $key',
+  it('covers the official lifecycle event inventory', () => {
+    expect(lifecycleEvents.length).toBeGreaterThan(0);
+    expect([...lifecycleEvents].sort()).toEqual(
+      [...hookEventNameSchema.options].sort()
+    );
+  });
+
+  it.each(inputBlocks)('validates hook input example $key', block => {
+    expect(() => validateHookInput(block.value)).not.toThrow();
+  });
+
+  it.each(configCandidates)('validates hooks config example $key', block => {
+    expect(() => validateHooksConfig(block.value)).not.toThrow();
+  });
+
+  it.each(outputBlocks)(
+    'validates hook-specific output example $key',
     block => {
-      if ('hook_event_name' in block.value) {
-        expect(() => validateHookInput(block.value)).not.toThrow();
-        return;
+      if (!isRecord(block.value)) {
+        throw new Error(`Expected object output for ${block.key}`);
       }
 
-      expect(() => validateHooksConfig(block.value)).not.toThrow();
+      const specific = block.value['hookSpecificOutput'];
+      if (
+        !isRecord(specific) ||
+        typeof specific['hookEventName'] !== 'string'
+      ) {
+        throw new Error(`Missing hookEventName for ${block.key}`);
+      }
+
+      const eventName = specific['hookEventName'];
+      const schemaEntry = Object.entries(hookOutputSchemas).find(
+        ([name]) => name === eventName
+      );
+      if (!schemaEntry) {
+        throw new Error(`No output schema registered for ${eventName}`);
+      }
+      const [, schema] = schemaEntry;
+      expect(schema.safeParse(block.value).success).toBe(true);
     }
   );
+
+  it('classifies bare hook-related settings snippets as intentional skips', () => {
+    const usedSkipDescriptions = [
+      ...new Set(classifiedSettingsSkips.map(block => block.description)),
+    ].sort();
+    expect(usedSkipDescriptions).toEqual(
+      EXPECTED_SETTINGS_VALIDATION_SKIPS.map(rule => rule.description).sort()
+    );
+    expect(classifiedSettingsSkips.length).toBeGreaterThan(0);
+  });
+
+  it('validates remaining hook-related settings examples when present', () => {
+    for (const block of settingsBlocks) {
+      expect(() => validateHooksConfig(block.value)).not.toThrow();
+    }
+  });
 });

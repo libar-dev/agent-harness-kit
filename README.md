@@ -74,9 +74,9 @@ echo '{"hook_event_name":"PreToolUse","session_id":"s1","transcript_path":"/tmp/
 
 | Module | Contents |
 |--------|----------|
-| `@libar-dev/agent-harness-kit/types` | TypeScript types for all 30 events + `HookOutputBuilder` |
+| `@libar-dev/agent-harness-kit/types` | TypeScript types for all 30 events, event-aware settings types, and `HookOutputBuilder` |
 | `@libar-dev/agent-harness-kit/utils` | `executeHook`, `outputJson`, `isProtectedFile`, `isDangerousCommand`, logging |
-| `@libar-dev/agent-harness-kit/validation` | Zod schemas, per-event validators, 15 tool-input validators, `validateHooksConfig` |
+| `@libar-dev/agent-harness-kit/validation` | Zod schemas for all 30 events, tool-input validators, output schemas, and event-aware `validateHooksConfig` |
 | `@libar-dev/agent-harness-kit/pre-tool-use` | Reference handlers: bash validator, file protector, ESLint-disable blocker |
 | `@libar-dev/agent-harness-kit/post-tool-use` | Reference handlers: Prettier formatter, TypeScript checker |
 | `@libar-dev/agent-harness-kit/lifecycle` | Reference handlers: setup, session start/end, notifications, message display, stop, subagents, elicitation |
@@ -86,12 +86,12 @@ echo '{"hook_event_name":"PreToolUse","session_id":"s1","transcript_path":"/tmp/
 
 - **[Getting Started](docs/guides/getting-started.md)** — install, sub-path imports, 5-minute walkthrough
 - **[Writing Your First Hook](docs/guides/writing-your-first-hook.md)** — `executeHook` skeleton, validators, `permission()`, testing
-- **[Configuring settings.json](docs/guides/configuring-settings-json.md)** — 5 handler types, matcher syntax, `if`/`timeout`/`async`
+- **[Configuring settings.json](docs/guides/configuring-settings-json.md)** — handler matrix, matcher semantics, accepted/inert fields, timeouts, and root restrictions
 - **[Cookbook](docs/guides/cookbook.md)** — 10 copy-pasteable recipes
-- **[Hook Events Reference](docs/reference/hook-events.md)** — all 30 events with input/output shapes
-- **[HookOutputBuilder Reference](docs/reference/output-builder.md)** — every method with examples
-- **[Validators Reference](docs/reference/validators.md)** — tool-input validators, type guards, config validators
-- **[Environment Variables](docs/reference/environment-variables.md)** — all `CLAUDE_HOOK_*` vars
+- **[Hook Events Reference](docs/reference/hook-events.md)** — all 30 events with exact implemented input/output contracts
+- **[HookOutputBuilder Reference](docs/reference/output-builder.md)** — every implemented method, including distinct Stop/SubagentStop feedback modes
+- **[Validators Reference](docs/reference/validators.md)** — input/output schemas, tool routing, type guards, and event-aware config validation
+- **[Environment Variables](docs/reference/environment-variables.md)** — `getConfig()`, Claude Code process vars, and direct reference-handler configuration
 - **[Session tailing](docs/internal/tail-session.md)** — CLI and public library APIs for live transcript ingestion
 - **[Full docs index](docs/README.md)**
 

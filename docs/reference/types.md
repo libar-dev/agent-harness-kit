@@ -1,181 +1,167 @@
 # Types Reference
 
-Public TypeScript types exported by `@libar-dev/agent-harness-kit/types`.
+Public TypeScript contracts exported by `@libar-dev/agent-harness-kit/types`.
 
 **Source:** [`src/types/index.ts`](../../src/types/index.ts)
 
-## Base Types
+## Base contracts
 
-| Type | Description |
-|------|-------------|
-| `BaseHookInput` | Common fields in every hook input (`session_id`, `transcript_path`, `cwd`, `hook_event_name`, `permission_mode`, `agent_id`, `agent_type`, `effort`) |
-| `BaseHookOutput` | Common output fields (`continue`, `stopReason`, `suppressOutput`, `systemMessage`, `terminalSequence`) |
-| `HookInput` | Union of all 30 per-event input types |
-| `HookOutput` | Union of all per-event output types |
-| `PermissionMode` | `'default' \| 'plan' \| 'acceptEdits' \| 'auto' \| 'dontAsk' \| 'bypassPermissions'` |
-| `PermissionUpdateEntry` | `{ type: string; [key: string]: unknown }` — used in permission update arrays |
-| `ElicitationAction` | `'accept' \| 'decline' \| 'cancel'` |
-| `ElicitationMode` | `'form' \| 'url'` |
+| Type | Contract |
+|---|---|
+| `BaseHookInput` | `session_id`, `transcript_path`, `cwd`, `hook_event_name`, optional `prompt_id`, `permission_mode`, `agent_id`, `agent_type`, and `effort` |
+| `BaseHookOutput` | Optional `continue`, `stopReason`, `suppressOutput`, `systemMessage`, and `terminalSequence` |
+| `HookInput` | Union of all 30 event inputs |
+| `HookOutput` | Union of event-specific and universal outputs |
+| `HookEventName` | Union of all 30 event strings |
+| `PermissionMode` | `'default' | 'plan' | 'acceptEdits' | 'auto' | 'dontAsk' | 'bypassPermissions'` |
 
-## Per-Event Input Types
+`prompt_id` is an optional UUID that identifies the user prompt being processed. It is absent before the first user input. `effort`, when present, is `{ level: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }`.
 
-All extend `BaseHookInput`.
+## Event input types
 
-### Tool Lifecycle
+All event inputs extend `BaseHookInput`.
 
-| Type | Key additional fields |
-|------|----------------------|
-| `PreToolUseInput` | `tool_name`, `tool_input`, `tool_use_id` |
-| `PostToolUseInput` | `tool_name`, `tool_input`, `tool_response`, `tool_use_id`, `duration_ms?` |
-| `PostToolUseFailureInput` | `tool_name`, `tool_input`, `tool_use_id`, `error`, `is_interrupt?`, `duration_ms?` |
-| `PostToolBatchInput` | `tool_calls: PostToolBatchCall[]` |
-
-`PostToolBatchCall`: `{ tool_name, tool_input, tool_use_id, tool_response }`.
-
-### Permissions
-
-| Type | Key additional fields |
-|------|----------------------|
-| `PermissionRequestInput` | `tool_name`, `tool_input`, `permission_suggestions?` (no `tool_use_id`) |
-| `PermissionDeniedInput` | `tool_name`, `tool_input`, `tool_use_id`, `reason` |
-
-### User Interaction
-
-| Type | Key additional fields |
-|------|----------------------|
+| Type | Event-specific fields |
+|---|---|
+| `SetupInput` | `trigger: 'init' | 'maintenance'` |
+| `SessionStartInput` | `source`, optional `model`, `session_title`, `agent_type` |
 | `UserPromptSubmitInput` | `prompt` |
 | `UserPromptExpansionInput` | `expansion_type`, `command_name`, `command_args`, `command_source`, `prompt` |
-| `NotificationInput` | `message`, `title?`, `notification_type` |
-| `MessageDisplayInput` | `turn_id`, `message_id`, `index`, `final`, `delta` |
-| `ElicitationInput` | `mcp_server_name`, `message`, `mode?`, `requested_schema?`, `url?`, `elicitation_id?` |
-| `ElicitationResultInput` | `mcp_server_name`, `action`, `content?`, `mode?`, `elicitation_id?` |
-
-### Subagents & Teams
-
-| Type | Key additional fields |
-|------|----------------------|
+| `PreToolUseInput` | `tool_name`, `tool_input`, `tool_use_id` |
+| `PermissionRequestInput` | `tool_name`, `tool_input`, optional `permission_suggestions`; no `tool_use_id` |
+| `PermissionDeniedInput` | `tool_name`, `tool_input`, `tool_use_id`, `reason` |
+| `PostToolUseInput` | `tool_name`, `tool_input`, `tool_response`, `tool_use_id`, optional `duration_ms` |
+| `PostToolUseFailureInput` | `tool_name`, `tool_input`, `tool_use_id`, `error`, optional `is_interrupt`, `duration_ms` |
+| `PostToolBatchInput` | `tool_calls: PostToolBatchCall[]` |
+| `NotificationInput` | `message`, optional `title`, `notification_type` |
+| `MessageDisplayInput` | UUID `turn_id`, UUID `message_id`, non-negative `index`, `final`, `delta` |
 | `SubagentStartInput` | `agent_id`, `agent_type` |
-| `SubagentStopInput` | `stop_hook_active`, `agent_id`, `agent_type`, `agent_transcript_path`, `last_assistant_message?` |
+| `SubagentStopInput` | `stop_hook_active`, `agent_id`, `agent_type`, `agent_transcript_path`, optional final message and registries |
+| `TaskCreatedInput`, `TaskCompletedInput` | `task_id`, `task_subject`, optional `task_description`, `teammate_name`, `team_name` |
+| `StopInput` | `stop_hook_active`, optional `last_assistant_message`, `background_tasks`, `session_crons` |
+| `StopFailureInput` | `error`, optional `error_details`, `last_assistant_message` |
 | `TeammateIdleInput` | `teammate_name`, `team_name` |
-| `TaskCreatedInput` | `task_id`, `task_subject`, `task_description?`, `teammate_name?`, `team_name?` |
-| `TaskCompletedInput` | `task_id`, `task_subject`, `task_description?`, `teammate_name?`, `team_name?` |
-
-### Session Lifecycle
-
-| Type | Key additional fields |
-|------|----------------------|
-| `SetupInput` | `trigger` |
-| `SessionStartInput` | `source`, `model`, `agent_type?` |
-| `SessionEndInput` | `reason` |
-| `StopInput` | `stop_hook_active`, `last_assistant_message?` |
-| `StopFailureInput` | `error` (enum), `error_details?`, `last_assistant_message?` |
-
-### Instructions & Config
-
-| Type | Key additional fields |
-|------|----------------------|
-| `InstructionsLoadedInput` | `file_path`, `memory_type`, `load_reason`, `globs?`, `trigger_file_path?`, `parent_file_path?` |
-| `ConfigChangeInput` | `source`, `file_path?` |
-
-### File System
-
-| Type | Key additional fields |
-|------|----------------------|
+| `InstructionsLoadedInput` | `file_path`, `memory_type`, `load_reason`, optional `globs`, `trigger_file_path`, `parent_file_path` |
+| `ConfigChangeInput` | `source`, optional `file_path` |
 | `CwdChangedInput` | `old_cwd`, `new_cwd` |
 | `FileChangedInput` | `file_path`, `event` |
 | `WorktreeCreateInput` | `name` |
 | `WorktreeRemoveInput` | `worktree_path` |
-
-### Compaction
-
-| Type | Key additional fields |
-|------|----------------------|
 | `PreCompactInput` | `trigger`, `custom_instructions` |
 | `PostCompactInput` | `trigger`, `compact_summary` |
+| `ElicitationInput` | `mcp_server_name`, `message`, optional `mode`, `requested_schema`, `url`, `elicitation_id` |
+| `ElicitationResultInput` | `mcp_server_name`, `action`, optional `content`, `mode`, `elicitation_id` |
+| `SessionEndInput` | `reason` |
 
-## Per-Event Output Types
+### Notification types
 
-All extend `BaseHookOutput`.
+`NotificationInput.notification_type` is one of:
 
-| Type | Description |
-|------|-------------|
-| `PreToolUseOutput` | Permission decision via `hookSpecificOutput` |
-| `PostToolUseOutput` | Feedback to Claude via `decision: 'block'` + `reason` |
-| `PostToolUseFailureOutput` | Same shape as `PostToolUseOutput` |
-| `PostToolBatchOutput` | Block the loop before the next model call |
-| `PermissionRequestOutput` | Allow/deny decision via `hookSpecificOutput.decision` |
-| `PermissionDeniedOutput` | Retry guidance via `hookSpecificOutput.retry` |
-| `UserPromptSubmitOutput` | Block prompt or add context/title |
-| `UserPromptExpansionOutput` | Block expansion or add context |
-| `NotificationOutput` | Add `additionalContext` |
-| `MessageDisplayOutput` | Override the currently rendered message chunk |
-| `SubagentStartOutput` | Add `additionalContext` to subagent's system prompt |
-| `SetupOutput` | Add `additionalContext` during setup |
-| `SessionStartOutput` | Add `additionalContext` to session |
-| `StopOutput` | Block stopping via `decision: 'block'` + `reason` |
-| `PreCompactOutput` | Block compaction or inject `additionalContext` |
-| `ConfigChangeOutput` | Block config change via `decision: 'block'` |
-| `WatchPathsOutput` | Update watched paths via `watchPaths: string[]` |
-| `WorktreeCreateOutput` | Return custom `worktreePath` via `hookSpecificOutput` |
-| `ElicitationOutput` | Programmatic response via `hookSpecificOutput.action` |
+- `permission_prompt`
+- `idle_prompt`
+- `auth_success`
+- `elicitation_dialog`
+- `elicitation_complete`
+- `elicitation_response`
+- `agent_needs_input`
+- `agent_completed`
 
-## Tool Input Types
+### Stop registries
+
+`StopInput` and `SubagentStopInput` can carry parent-session registries:
+
+- `background_tasks?: BackgroundTaskEntry[]` with required `id`, `type`, `status`, `description` and optional `command`, `agent_type`, `server`, `tool`, `name`. The type permits additional metadata for forward compatibility.
+- `session_crons?: SessionCronEntry[]` with `id`, `schedule`, `recurring`, `prompt`, plus additional metadata.
+
+### StopFailure errors
+
+`StopFailureInput.error` is `'rate_limit' | 'overloaded' | 'authentication_failed' | 'oauth_org_not_allowed' | 'billing_error' | 'invalid_request' | 'model_not_found' | 'server_error' | 'max_output_tokens' | 'unknown'`.
+
+## Permission update types
+
+`PermissionUpdateEntry` is a discriminated union, not an open record.
+
+| Variant | Fields |
+|---|---|
+| `AddPermissionRulesUpdate` | `{ type: 'addRules', rules, behavior, destination }` |
+| `ReplacePermissionRulesUpdate` | `{ type: 'replaceRules', rules, behavior, destination }` |
+| `RemovePermissionRulesUpdate` | `{ type: 'removeRules', rules, behavior, destination }` |
+| `SetPermissionModeUpdate` | `{ type: 'setMode', mode, destination }` |
+| `AddPermissionDirectoriesUpdate` | `{ type: 'addDirectories', directories, destination }` |
+| `RemovePermissionDirectoriesUpdate` | `{ type: 'removeDirectories', directories, destination }` |
+
+`PermissionRule` is `{ toolName: string; ruleContent?: string }`. Rule behavior is `allow`, `deny`, or `ask`. Destination is `session`, `localSettings`, `projectSettings`, or `userSettings`.
+
+`PermissionUpdateMode` accepts every `PermissionMode` plus the output-only alias `manual`. Hook input `permission_mode` still reports Manual mode as `default`, never `manual`.
+
+## Output types
+
+| Type | Contract |
+|---|---|
+| `PreToolUseOutput` | Structured allow/deny/ask/defer decision with required reason and optional updated input/context |
+| `PermissionRequestOutput` | Nested allow/deny decision; allow may include `updatedInput` and `updatedPermissions` |
+| `PermissionDeniedOutput` | Optional `hookSpecificOutput.retry` |
+| `PostToolUseOutput` | Optional top-level block feedback and/or `hookSpecificOutput` with context plus optional `updatedMCPToolOutput` / `updatedToolOutput` |
+| `PostToolUseFailureOutput` | Optional top-level block feedback and/or context-only `additionalContext`; no output-replacement fields |
+| `PostToolBatchOutput` | Optional block/context before the next model call |
+| `NotificationOutput` | Exactly the universal `BaseHookOutput` shape; no notification-specific output or `additionalContext` |
+| `MessageDisplayOutput` | Optional display-only `displayContent` replacement |
+| `SubagentStartOutput`, `SetupOutput` | Optional `additionalContext` |
+| `SessionStartOutput` | Optional context, initial user message, title, watch paths, and skill reload |
+| `UserPromptSubmitOutput` | Block with reason and optional `suppressOriginalPrompt`, or inject context/title |
+| `UserPromptExpansionOutput` | Block with reason or inject context |
+| `StopOutput` | Universal output, blocking output, or non-error context output |
+| `SubagentStopOutput` | Universal output, blocking output, or non-error context output |
+| `PreCompactOutput` | Universal fields or top-level block/reason only; no PreCompact `hookSpecificOutput` / `additionalContext` |
+| `ConfigChangeOutput` | Optional block/reason |
+| `WatchPathsOutput` | Optional `watchPaths` |
+| `WorktreeCreateOutput` | Optional `worktreePath` |
+| `ElicitationOutput` | Accept/decline/cancel with optional content |
+
+For `StopBlockOutput` and `SubagentStopBlockOutput`, `decision: 'block'` requires a `reason` string (presence required; empty string is accepted). Non-error feedback uses `hookSpecificOutput.additionalContext` without a top-level decision. These are distinct modes and may not be combined in the strict event schemas.
+
+`StopFailure` is side-effect-only in Claude Code: output and exit code are ignored. It therefore has no dedicated output type beyond the universal compatibility union.
+
+## Tool input types
 
 | Type | Fields |
-|------|--------|
-| `BashToolInput` | `command: string`, `description?`, `timeout?`, `run_in_background?` |
-| `WriteToolInput` | `file_path: string`, `content: string` |
-| `EditToolInput` | `file_path: string`, `old_string: string`, `new_string: string`, `replace_all?` |
-| `MultiEditToolInput` | `file_path: string`, `edits: Array<{ old_string, new_string, replace_all? }>` |
-| `ReadToolInput` | `file_path: string`, `offset?`, `limit?` |
-| `GlobToolInput` | `pattern: string`, `path?` |
-| `GrepToolInput` | `pattern: string`, `path?`, `glob?`, `type?`, `output_mode?`, `multiline?`, `-i?`, `-n?`, `-A?`, `-B?`, `-C?` |
-| `WebFetchToolInput` | `url: string`, `prompt: string` |
-| `WebSearchToolInput` | `query: string`, `allowed_domains?`, `blocked_domains?` |
-| `AgentToolInput` | `prompt: string`, `description?`, `subagent_type?`, `model?` |
-| `AskUserQuestionToolInput` | `questions: Array<{ question, header, options, multiSelect? }>`, `answers?` |
-| `ExitPlanModeToolInput` | `{}` (empty) |
-| `TodoWriteToolInput` | `todos: Array<{ content, status, activeForm }>` |
+|---|---|
+| `BashToolInput` | `command`, optional `description`, `timeout`, `run_in_background` |
+| `WriteToolInput` | `file_path`, `content` |
+| `EditToolInput` | `file_path`, `old_string`, `new_string`, optional `replace_all` |
+| `MultiEditToolInput` | `file_path`, `edits[]` |
+| `ReadToolInput` | `file_path`, optional `offset`, `limit` |
+| `GlobToolInput` | `pattern`, optional `path` |
+| `GrepToolInput` | search pattern and optional path/filter/output flags |
+| `WebFetchToolInput` | `url`, `prompt` |
+| `WebSearchToolInput` | `query`, optional allowed/blocked domains |
+| `AgentToolInput` | `prompt`, optional `description`, `subagent_type`, `model`, `run_in_background`, `isolation` (`worktree` \| `remote`) |
+| `TaskToolInput` | Legacy compatibility subset of Agent core fields (`prompt`, optional `description`, `subagent_type`, `model`, `run_in_background`); does not include `isolation` |
+| `AskUserQuestionToolInput` | `questions[]`, optional `answers` |
+| `ExitPlanModeToolInput` | injected `plan`, `planFilePath`, optional deprecated `allowedPrompts[]` |
+| `TodoWriteToolInput` | `todos[]` |
 | `MCPToolInput` | `Record<string, unknown>` |
-| `TaskToolInput` | `prompt: string`, `description?`, `subagent_type?`, `model?` |
 
-## Hook Handler Types (settings.json)
+`ExitPlanModeAllowedPrompt` is `{ tool, prompt }`; Claude Code accepts it for compatibility but ignores prompt-based permission grants.
 
-| Type | Key fields |
-|------|-----------|
-| `CommandHookHandler` | `type: 'command'`, `command: string`, `args?: string[]`, `async?`, `asyncRewake?`, `shell?` |
-| `HttpHookHandler` | `type: 'http'`, `url: string`, `headers?`, `allowedEnvVars?` |
-| `McpToolHookHandler` | `type: 'mcp_tool'`, `server: string`, `tool: string`, `input?` |
-| `PromptHookHandler` | `type: 'prompt'`, `prompt: string`, `model?` |
-| `AgentHookHandler` | `type: 'agent'`, `prompt: string`, `model?` |
-| `HookHandler` | Union of the five handler types (discriminated on `type`) |
-| `MatcherGroup` | `{ matcher?: string; hooks: HookHandler[] }` |
-| `HooksConfig` | `{ hooks?: Partial<Record<HookEventName, MatcherGroup[]>>; allowManagedHooksOnly?; allowedHttpHookUrls?; httpHookAllowedEnvVars? }` |
-| `HookEventName` | Union of all 30 event name strings |
+## Settings types
 
-All handler types share base fields: `timeout?`, `statusMessage?`, `once?`, `if?`.
+Five handler variants share `timeout?`, `statusMessage?`, `once?`, and `if?`:
 
-## Environment and Config Types
+| Type | Additional fields |
+|---|---|
+| `CommandHookHandler` | `command`, optional `args`, `async`, `asyncRewake`, `shell` |
+| `HttpHookHandler` | `url`, optional `headers`, `allowedEnvVars` |
+| `McpToolHookHandler` | `server`, `tool`, optional `input` |
+| `PromptHookHandler` | `prompt`, optional `model`, `continueOnBlock` |
+| `AgentHookHandler` | `prompt`, optional `model`, `continueOnBlock` |
 
-| Type | Description |
-|------|-------------|
-| `HookEnvironmentVars` | Environment variables set by Claude Code in the hook process |
-| `HookConfig` | Parsed configuration from `getConfig()` |
+`HookHandlerFor<E>` and `MatcherGroupFor<E>` encode the event-specific handler support matrix. `HooksMap` maps all 30 events to their event-aware groups. `MatcherGroup` remains the generic compatibility alias.
 
-`HookEnvironmentVars` key fields: `CLAUDE_PROJECT_DIR`, `CLAUDE_CODE_REMOTE?`, `CLAUDE_ENV_FILE?` (SessionStart only), `CLAUDE_PLUGIN_ROOT?`, `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS?`, `CLAUDE_CODE_DEBUG_LOG_LEVEL?`.
+`HooksConfig` contains optional `hooks`, `disableAllHooks`, `allowManagedHooksOnly`, `allowedHttpHookUrls`, and `httpHookAllowedEnvVars`.
 
-## Utility
+## Environment and library configuration
 
-### `isHookType(input, eventName)`
+`HookEnvironmentVars` describes variables Claude Code supplies to hook processes: `CLAUDE_PROJECT_DIR`, optional `CLAUDE_CODE_REMOTE`, `CLAUDE_CODE_BRIDGE_SESSION_ID`, `CLAUDE_ENV_FILE`, `CLAUDE_EFFORT`, `CLAUDE_PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`, `CLAUDE_CODE_DEBUG_LOG_LEVEL`, and `CLAUDE_CODE_SYNC_PLUGIN_INSTALL`.
 
-```typescript
-isHookType<T extends HookInput>(input: HookInput, eventName: T['hook_event_name']): input is T
-```
-
-Type guard that narrows `HookInput` to a specific event type.
-
-```typescript
-if (isHookType<PreToolUseInput>(input, 'PreToolUse')) {
-  // input is PreToolUseInput
-}
-```
+`HookConfig` is the much smaller result of this library's `getConfig()`: debug flag, default library timeout, SessionEnd budget, plugin-install synchronization, and protection/format rule arrays.

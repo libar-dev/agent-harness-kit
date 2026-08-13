@@ -1,17 +1,15 @@
 # Configuring settings.json
 
-Hooks are registered in `.claude/settings.json` (project-level) or `~/.claude/settings.json` (user-level). The `hooks` block maps event names to arrays of **matcher groups**, each containing an array of **handlers**.
-
-## Structure Overview
+Hooks are registered in `.claude/settings.json`, `.claude/settings.local.json`, `~/.claude/settings.json`, managed settings, plugins, skills, or agent frontmatter. The `hooks` map contains event names, matcher groups, and handler arrays.
 
 ```json
 {
   "hooks": {
-    "<EventName>": [
+    "PreToolUse": [
       {
-        "matcher": "<regex or *>",
+        "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "..." }
+          { "type": "command", "command": "tsx .claude/hooks/bash-guard.ts" }
         ]
       }
     ]
@@ -19,35 +17,65 @@ Hooks are registered in `.claude/settings.json` (project-level) or `~/.claude/se
 }
 ```
 
-## The 28 Event Names
+## Event names
 
-`SessionStart`, `UserPromptSubmit`, `UserPromptExpansion`, `PreToolUse`, `PermissionRequest`, `PermissionDenied`, `PostToolUse`, `PostToolUseFailure`, `PostToolBatch`, `Notification`, `SubagentStart`, `SubagentStop`, `TaskCreated`, `TaskCompleted`, `Stop`, `StopFailure`, `TeammateIdle`, `InstructionsLoaded`, `ConfigChange`, `CwdChanged`, `FileChanged`, `WorktreeCreate`, `WorktreeRemove`, `PreCompact`, `PostCompact`, `Elicitation`, `ElicitationResult`, `SessionEnd`.
+The library validates all 30 events:
 
-## Matcher Groups
+`Setup`, `SessionStart`, `UserPromptSubmit`, `UserPromptExpansion`, `PreToolUse`, `PermissionRequest`, `PermissionDenied`, `PostToolUse`, `PostToolUseFailure`, `PostToolBatch`, `Notification`, `MessageDisplay`, `SubagentStart`, `SubagentStop`, `TaskCreated`, `TaskCompleted`, `Stop`, `StopFailure`, `TeammateIdle`, `InstructionsLoaded`, `ConfigChange`, `CwdChanged`, `FileChanged`, `WorktreeCreate`, `WorktreeRemove`, `PreCompact`, `PostCompact`, `Elicitation`, `ElicitationResult`, and `SessionEnd`.
 
-A matcher group fires its handlers when the event's primary identifier matches the `matcher` regex.
+## Matcher semantics
 
-For tool events (`PreToolUse`, `PostToolUse`, etc.), the matcher applies to `tool_name`. For `SubagentStart`/`SubagentStop`, it applies to `agent_type`. For `Notification`, it applies to `notification_type`.
+A matcher filters one event-specific input field. `"*"`, `""`, or an omitted matcher matches every occurrence.
 
-```json
-{
-  "matcher": "Bash",          // matches tool_name === "Bash" exactly
-  "matcher": "Write|Edit",    // matches Write or Edit
-  "matcher": ".*",            // matches anything
-  "matcher": ""               // also matches anything (same as omitting matcher)
-}
-```
+Matcher strings containing only letters, digits, `_`, `-`, spaces, `,`, and `|` use exact matching. `|` and `,` separate exact alternatives. A matcher containing another character is an unanchored JavaScript regular expression; use `^...$` when a whole-string regex match is required.
 
-Omitting `matcher` (or using `"*"` / `""`) matches all events of that type.
+`FileChanged` and `StopFailure` have a narrower exact-match character set: letters, digits, `_`, and `|`. `FileChanged` also uses its matcher as a literal filename watch list rather than as a normal runtime filter.
 
-## The Five Handler Types
+| Events | Matcher target |
+|---|---|
+| `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `PermissionDenied` | `tool_name` |
+| `SessionStart` | `source` |
+| `Setup` | `trigger` |
+| `SessionEnd` | `reason` |
+| `Notification` | `notification_type` |
+| `SubagentStart`, `SubagentStop` | `agent_type` |
+| `PreCompact`, `PostCompact` | `trigger` |
+| `ConfigChange` | `source` |
+| `StopFailure` | `error` |
+| `InstructionsLoaded` | `load_reason` |
+| `UserPromptExpansion` | `command_name` |
+| `Elicitation`, `ElicitationResult` | `mcp_server_name` |
+| `FileChanged` | literal filenames to watch |
+| `CwdChanged`, `UserPromptSubmit`, `PostToolBatch`, `Stop`, `TeammateIdle`, `TaskCreated`, `TaskCompleted`, `WorktreeCreate`, `WorktreeRemove`, `MessageDisplay` | no matcher support; any configured matcher is ignored |
 
-### `command` — Run a shell command
+### MCP tool names in tool-event matchers
+
+MCP calls appear in tool events as `mcp__<server>__<tool>`, for example `mcp__memory__create_entities`. Plugin-bundled tools use `mcp__plugin_<plugin-name>_<server-name>__<tool>`. Match every tool from a server with a regex such as `mcp__memory__.*`.
+
+This name is different from an `mcp_tool` hook handler's `server` field, described below.
+
+## Handler support matrix
+
+`validateHooksConfig()` enforces this matrix:
+
+| Events | Accepted handler types |
+|---|---|
+| `PermissionDenied`, `PermissionRequest`, `PostToolBatch`, `PostToolUse`, `PostToolUseFailure`, `PreToolUse`, `Stop`, `SubagentStop`, `TaskCompleted`, `TaskCreated`, `TeammateIdle`, `UserPromptExpansion`, `UserPromptSubmit` | `command`, `http`, `mcp_tool`, `prompt`, `agent` |
+| `ConfigChange`, `CwdChanged`, `Elicitation`, `ElicitationResult`, `FileChanged`, `InstructionsLoaded`, `Notification`, `PostCompact`, `PreCompact`, `SessionEnd`, `StopFailure`, `SubagentStart`, `WorktreeCreate`, `WorktreeRemove` | `command`, `http`, `mcp_tool` |
+| `SessionStart`, `Setup` | `command`, `mcp_tool` |
+| `MessageDisplay` | all five types in this library's compatibility schema |
+
+The refreshed upstream matrix does not classify `MessageDisplay` by handler type. The library therefore keeps its generic five-handler compatibility behavior. Claude Code does explicitly ignore `MessageDisplay.matcher` and applies a 10-second default timeout.
+
+## Handler types
+
+### `command`
 
 ```json
 {
   "type": "command",
-  "command": "tsx .claude/hooks/my-hook.ts",
+  "command": "node",
+  "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/check.mjs"],
   "timeout": 30,
   "async": false,
   "asyncRewake": false,
@@ -55,34 +83,23 @@ Omitting `matcher` (or using `"*"` / `""`) matches all events of that type.
 }
 ```
 
-Claude Code pipes the hook input JSON to the command's stdin and reads JSON from stdout.
+When `args` is present, `command` is an executable and Claude Code spawns it directly without a shell. Without `args`, `command` is shell form. `shell` is ignored in exec form. `asyncRewake` implies background execution; asynchronous handlers cannot control an action that has already continued.
 
-`command`-specific fields:
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `args` | `string[]?` | none | Additional arguments passed to the shell command |
-| `async` | boolean | `false` | Run in background without blocking Claude |
-| `asyncRewake` | boolean | `false` | Background run; exit code 2 wakes Claude |
-| `shell` | `"bash"` \| `"powershell"` | system default | Shell to use |
-
-### `http` — POST to an HTTP endpoint
+### `http`
 
 ```json
 {
   "type": "http",
-  "url": "http://localhost:8080/hooks/pre-tool-use",
+  "url": "https://hooks.example.com/pre-tool-use",
   "headers": { "Authorization": "Bearer $MY_TOKEN" },
   "allowedEnvVars": ["MY_TOKEN"],
-  "timeout": 60
+  "timeout": 30
 }
 ```
 
-Claude Code sends a POST with the hook input JSON as the body. The response body is treated as hook output JSON.
+Claude Code posts the event JSON. A non-2xx response, connection failure, or timeout is non-blocking. Blocking requires a 2xx response whose JSON body contains the event's decision fields.
 
-`allowedEnvVars` whitelists which environment variables are interpolated into `headers` values.
-
-### `mcp_tool` — Call a tool on a connected MCP server
+### `mcp_tool`
 
 ```json
 {
@@ -93,149 +110,66 @@ Claude Code sends a POST with the hook input JSON as the body. The response body
 }
 ```
 
-The `input` object supports `${...}` template interpolation from the hook input JSON. The MCP tool's return value is treated as hook output.
+`server` is the configured MCP server name. For a plugin-bundled server it must be `plugin:<plugin-name>:<server-name>`, not the `mcp__...` tool-event name. `tool` is the bare server tool name. The server must already be connected; `SessionStart` and `Setup` commonly run before that connection exists.
 
-### `prompt` — Single-turn LLM evaluation
+### `prompt`
 
 ```json
 {
   "type": "prompt",
-  "prompt": "Review this bash command for safety issues: $ARGUMENTS",
+  "prompt": "Evaluate this event: $ARGUMENTS",
   "model": "claude-haiku-4-5-20251001",
+  "continueOnBlock": true,
   "timeout": 30
 }
 ```
 
-`$ARGUMENTS` is replaced with the hook input JSON. The model response is treated as hook output. No tool access.
+The model returns `{ "ok": true }` or `{ "ok": false, "reason": "..." }`. A reason is required for a negative result. `continueOnBlock` is meaningful where Claude Code permits a negative prompt decision to continue, notably `PostToolUse` and `TeammateIdle`; some events always end or continue regardless of this field, and `PermissionRequest`/`PermissionDenied` discard negative prompt or agent decisions.
 
-### `agent` — Subagent with tool access
+### `agent`
 
 ```json
 {
   "type": "agent",
-  "prompt": "Review the following code change and check for security issues: $ARGUMENTS",
+  "prompt": "Inspect the repository and evaluate: $ARGUMENTS",
   "model": "claude-sonnet-4-6",
+  "continueOnBlock": true,
   "timeout": 120
 }
 ```
 
-Same as `prompt` but the spawned agent has access to tools. Use for hooks that need to read files or run commands.
+Agent handlers use the same decision format and `continueOnBlock` semantics as prompt handlers, but can use tools while evaluating.
 
-## Common Fields (all handler types)
+## Common fields and runtime semantics
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `timeout` | number | 60 (command/http), 30 (prompt), 60 (agent) | Seconds before the handler is cancelled |
-| `statusMessage` | string | — | Custom spinner text shown while the hook runs |
-| `once` | boolean | `false` | Run only once per session, then remove (skills only, not agents) |
-| `if` | string | — | Permission-rule syntax filter; hook only runs when the condition matches |
+| Field | Validation | Runtime behavior |
+|---|---|---|
+| `timeout` | Positive number on every handler | Default 600 seconds for `command`, `http`, and `mcp_tool`; 30 for `prompt`; 60 for `agent`. `UserPromptSubmit` lowers external-handler defaults to 30. `MessageDisplay` defaults to 10. An explicit value overrides the event/type default. |
+| `statusMessage` | Accepted on every handler | Custom spinner text while the handler runs. |
+| `once` | Accepted on every handler | Honored only in skill frontmatter; inert in settings files and agent frontmatter. |
+| `if` | Non-empty string accepted on every handler | Evaluated only for tool events. On other events a handler with `if` never runs. It contains one permission rule, not boolean expression syntax. |
+| `continueOnBlock` | Accepted only on `prompt` and `agent` | Event-dependent as described above. |
+| `async`, `asyncRewake`, `shell`, `args` | Accepted only on `command` | Other handler variants reject these fields through their object schemas. |
 
-### The `if` field
+`CLAUDE_HOOK_TIMEOUT` is the default used by this library's `getConfig()`/reference-hook runner. It does not change Claude Code's settings-level handler defaults listed above.
 
-`if` uses permission-rule syntax for conditional execution:
+## Root restriction fields
 
-```json
-{ "type": "command", "command": "...", "if": "Bash(git *)" }
-```
+These fields are siblings of `hooks` in the settings object:
 
-This runs only when the tool is `Bash` and the command matches `git *`.
+| Field | Semantics |
+|---|---|
+| `disableAllHooks` | Temporarily disables hooks and custom status line at that settings layer. User/project/local values cannot disable managed hooks; only managed `disableAllHooks` disables managed hooks. |
+| `allowManagedHooksOnly` | Managed-settings-only policy. Loads managed hooks, SDK hooks, and hooks from plugins force-enabled by full `plugin@marketplace` ID; blocks user, project, and all other plugin hooks. |
+| `allowedHttpHookUrls` | URL wildcard allowlist. Undefined means unrestricted; an empty array blocks every HTTP hook. Arrays merge across settings sources. Non-matching hooks are silently blocked. |
+| `httpHookAllowedEnvVars` | Global allowlist for HTTP header interpolation. A handler's effective variables are the intersection of this list and its own `allowedEnvVars`. Undefined means no global restriction. Arrays merge across sources. |
 
-## Settings-Root Restriction Fields
-
-These fields live at the root of the settings object (not inside `hooks`):
-
-| Field | Description |
-|-------|-------------|
-| `allowManagedHooksOnly` | Restricts hooks to managed and force-enabled plugin hooks |
-| `allowedHttpHookUrls` | URL patterns that HTTP hooks may target |
-| `httpHookAllowedEnvVars` | Environment variable names HTTP hooks may interpolate globally |
-
-## Full Example
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "tsx .claude/hooks/bash-validator.ts",
-            "timeout": 10,
-            "statusMessage": "Checking command safety..."
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "tsx .claude/hooks/file-protector.ts",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "tsx .claude/hooks/format-code.ts",
-            "timeout": 30,
-            "async": true
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "tsx .claude/hooks/session-start.ts",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "tsx .claude/hooks/notify.ts",
-            "async": true
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-## Starter and Example Configurations
-
-The `examples/` directory contains ready-to-use settings files:
-
-| File | Description |
-|------|-------------|
-| `settings.starter.json` | Minimal setup: bash validator, code formatter, notification |
-| `settings.comprehensive.json` | All hook event types configured |
-| `settings.example.json` | Annotated minimal example |
-| `settings.direct-typescript.json` | Running `.ts` hooks directly via `tsx` |
-| `http-hook-settings.json` | HTTP handler configuration |
-
-## Type-Checking Your Configuration
-
-Use `validateHooksConfig` to validate a parsed settings object at runtime:
+## Validate configuration
 
 ```typescript
 import { validateHooksConfig } from '@libar-dev/agent-harness-kit/validation';
 
-const config = JSON.parse(fs.readFileSync('.claude/settings.json', 'utf8'));
-const validated = validateHooksConfig(config); // throws if invalid
+const validated = validateHooksConfig(JSON.parse(settingsText));
 ```
+
+The validator accepts the complete settings-shaped object represented by `HooksConfig`: optional `hooks` plus the four root fields above. Unknown hook event keys are rejected.

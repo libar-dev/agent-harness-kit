@@ -25,8 +25,6 @@ interface SubagentStopConfig {
   checkForErrors: boolean;
   /** Log subagent performance metrics */
   logPerformanceMetrics: boolean;
-  /** Maximum retry attempts for failed subagent tasks */
-  maxRetryAttempts: number;
 }
 
 /**
@@ -40,10 +38,6 @@ function getSubagentStopConfig(): SubagentStopConfig {
       process.env['CLAUDE_HOOK_CHECK_SUBAGENT_ERRORS'] !== 'false',
     logPerformanceMetrics:
       process.env['CLAUDE_HOOK_LOG_SUBAGENT_METRICS'] === 'true',
-    maxRetryAttempts: parseInt(
-      process.env['CLAUDE_HOOK_SUBAGENT_MAX_RETRIES'] ?? '2',
-      10
-    ),
   };
 }
 
@@ -65,11 +59,17 @@ interface SubagentTaskResult {
  */
 async function handleSubagentStop(input: SubagentStopInput): Promise<void> {
   const config = getSubagentStopConfig();
-  const { session_id, stop_hook_active, last_assistant_message } = input;
+  const {
+    session_id,
+    stop_hook_active,
+    last_assistant_message,
+    agent_transcript_path,
+  } = input;
 
   logInfo(
     `SubagentStop hook triggered (session: ${session_id.substring(0, 8)}...)`
   );
+  logDebug('Subagent transcript path', { agent_transcript_path });
   if (last_assistant_message) {
     logDebug('Subagent final assistant message', {
       length: last_assistant_message.length,
@@ -118,28 +118,16 @@ async function handleSubagentStop(input: SubagentStopInput): Promise<void> {
 
   // If issues found, block stopping and provide feedback
   if (issues.length > 0) {
-    const retryCount = await getSubagentRetryCount(session_id);
+    const blockMessage = [
+      'Subagent task needs attention before completion:',
+      '',
+      ...issues.map(issue => `• ${issue}`),
+      '',
+      'Please review and address these issues.',
+    ].join('\n');
 
-    if (retryCount < config.maxRetryAttempts) {
-      await incrementSubagentRetryCount(session_id);
-
-      const blockMessage = [
-        'Subagent task needs attention before completion:',
-        '',
-        ...issues.map(issue => `• ${issue}`),
-        '',
-        'Please review and address these issues.',
-        `(Retry ${retryCount + 1}/${config.maxRetryAttempts})`,
-      ].join('\n');
-
-      outputJson(HookOutputBuilder.subagentStopContext(blockMessage));
-
-      return;
-    } else {
-      logWarning(
-        `Maximum subagent retries (${config.maxRetryAttempts}) reached - allowing stop with errors`
-      );
-    }
+    outputJson(HookOutputBuilder.subagentStopBlock(blockMessage));
+    return;
   }
 
   // No critical issues - allow subagent to stop
@@ -160,7 +148,11 @@ async function handleSubagentStop(input: SubagentStopInput): Promise<void> {
 }
 
 /**
- * Analyze subagent task from transcript
+ * Analyze subagent task from transcript and final assistant message.
+ *
+ * Blank transcript content is treated as unavailable so parent fallback and
+ * `last_assistant_message` still participate. Transcript files may lag the
+ * in-memory conversation; the final message is the authoritative completion text.
  */
 async function analyzeSubagentTask(
   input: SubagentStopInput
@@ -175,21 +167,46 @@ async function analyzeSubagentTask(
   };
 
   try {
-    // Read and parse transcript to understand what the subagent did
-    const transcript = await readTranscript(input.transcript_path);
+    // Prefer the subagent's own transcript; fall back to the parent transcript path.
+    // Existing-but-empty files return "" from readTranscript and must not short-circuit fallback.
+    const agentTranscript = await readTranscript(input.agent_transcript_path);
+    const parentTranscript =
+      agentTranscript !== null && agentTranscript.trim().length > 0
+        ? null
+        : await readTranscript(input.transcript_path);
+    const transcript = firstNonBlankTranscript(
+      agentTranscript,
+      parentTranscript
+    );
+    const finalMessage = input.last_assistant_message?.trim() ?? '';
 
     if (transcript) {
       result.taskType = inferTaskType(transcript);
       result.toolsUsed = extractToolsUsed(transcript);
       result.outputSize = transcript.length;
-      result.errors = extractErrors(transcript);
+      result.errors = extractStructuredErrors(transcript);
       result.warnings = extractWarnings(transcript);
-      result.success = result.errors.length === 0;
       const duration = extractDuration(transcript);
       if (duration !== undefined) {
         result.duration = duration;
       }
     }
+
+    // Final assistant prose is authoritative when the transcript lags or is blank.
+    // Score prose error markers into the failure state (CHANGELOG parity claim).
+    if (finalMessage.length > 0) {
+      result.outputSize = Math.max(result.outputSize, finalMessage.length);
+      result.errors = mergeUnique(
+        result.errors,
+        extractProseErrors(finalMessage)
+      );
+      result.warnings = mergeUnique(
+        result.warnings,
+        extractWarnings(finalMessage)
+      );
+    }
+
+    result.success = result.errors.length === 0;
   } catch (error) {
     logDebug('Could not analyze subagent task:', error);
     result.errors.push('Failed to analyze task transcript');
@@ -197,6 +214,35 @@ async function analyzeSubagentTask(
   }
 
   return result;
+}
+
+/**
+ * Return the first transcript string with non-whitespace content, else null.
+ */
+function firstNonBlankTranscript(
+  ...candidates: Array<string | null>
+): string | null {
+  for (const candidate of candidates) {
+    if (candidate !== null && candidate.trim().length > 0) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * Append unique string values while preserving first-seen order.
+ */
+function mergeUnique(primary: string[], secondary: string[]): string[] {
+  const seen = new Set(primary);
+  const merged = [...primary];
+  for (const value of secondary) {
+    if (!seen.has(value)) {
+      seen.add(value);
+      merged.push(value);
+    }
+  }
+  return merged;
 }
 
 /**
@@ -229,32 +275,76 @@ function inferTaskType(transcript: string): string {
   return 'general-task';
 }
 
-/**
- * Extract errors from transcript
- */
-function extractErrors(transcript: string): string[] {
+/** Extract structured error records from transcript JSONL. */
+function extractStructuredErrors(transcript: string): string[] {
   const errors: string[] = [];
+  for (const line of transcript.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      collectStructuredErrors(parsed, errors);
+    } catch {
+      // Transcript readers may receive partial trailing lines; ignore them.
+    }
+  }
+  return errors;
+}
 
-  // Look for error indicators in the transcript
-  const errorPatterns = [
-    /Error:/g,
-    /Failed to/g,
-    /Cannot/g,
-    /Permission denied/g,
-    /File not found/g,
-    /Command not found/g,
+/**
+ * Extract prose error markers from free-form assistant text.
+ * Used for `last_assistant_message` and non-JSONL completion text.
+ */
+function extractProseErrors(text: string): string[] {
+  const errors: string[] = [];
+  const patterns = [
+    /Error:.+/gi,
+    /Failed to.+/gi,
+    /Cannot .+/gi,
+    /Permission denied.+/gi,
+    /File not found.+/gi,
+    /Command not found.+/gi,
   ];
 
-  for (const pattern of errorPatterns) {
-    const matches = transcript.match(pattern);
-    if (matches) {
-      errors.push(
-        `Found ${matches.length} instances of '${pattern.source.replace(/\\\//g, '/')}'`
-      );
+  for (const pattern of patterns) {
+    const matches = text.match(pattern);
+    if (!matches) continue;
+    for (const match of matches) {
+      const trimmed = match.trim();
+      if (trimmed.length > 0) {
+        errors.push(trimmed);
+      }
     }
   }
 
   return errors;
+}
+
+function collectStructuredErrors(value: unknown, errors: string[]): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectStructuredErrors(item, errors);
+    return;
+  }
+  if (typeof value !== 'object' || value === null) return;
+  const record = value as Record<string, unknown>;
+  if (record['is_error'] === true) {
+    errors.push(extractStructuredErrorMessage(record));
+  }
+  if (record['type'] === 'error' || record['type'] === 'tool_error') {
+    errors.push(extractStructuredErrorMessage(record));
+  }
+  for (const nested of Object.values(record)) {
+    collectStructuredErrors(nested, errors);
+  }
+}
+
+function extractStructuredErrorMessage(
+  record: Record<string, unknown>
+): string {
+  for (const key of ['message', 'error', 'content']) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return 'Structured subagent error';
 }
 
 /**
@@ -379,42 +469,6 @@ async function logSubagentMetrics(
     await appendFile(metricsFile, JSON.stringify(metrics) + '\n', 'utf-8');
   } catch (error) {
     logDebug('Could not write metrics file:', error);
-  }
-}
-
-/**
- * Get subagent retry count for session
- */
-async function getSubagentRetryCount(sessionId: string): Promise<number> {
-  try {
-    const { readFile } = await import('node:fs/promises');
-    const countFile = `/tmp/claude-subagent-retries-${sessionId}`;
-
-    try {
-      const content = await readFile(countFile, 'utf-8');
-      const parsed = parseInt(content.trim(), 10);
-      return Number.isNaN(parsed) ? 0 : parsed;
-    } catch {
-      return 0; // File doesn't exist, first attempt
-    }
-  } catch (error) {
-    logDebug('Could not read subagent retry count:', error);
-    return 0;
-  }
-}
-
-/**
- * Increment subagent retry count for session
- */
-async function incrementSubagentRetryCount(sessionId: string): Promise<void> {
-  try {
-    const { writeFile } = await import('node:fs/promises');
-    const countFile = `/tmp/claude-subagent-retries-${sessionId}`;
-
-    const currentCount = await getSubagentRetryCount(sessionId);
-    await writeFile(countFile, (currentCount + 1).toString(), 'utf-8');
-  } catch (error) {
-    logDebug('Could not increment subagent retry count:', error);
   }
 }
 

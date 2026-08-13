@@ -1,54 +1,23 @@
 # HookOutputBuilder Reference
 
-`HookOutputBuilder` is a static object that produces correctly-shaped JSON output for every hook event. Import it from `@libar-dev/agent-harness-kit/types`.
-
-**Source:** [`src/utils/output-builder.ts`](../../src/utils/output-builder.ts)
+`HookOutputBuilder` creates event-safe hook output objects. Import it from `@libar-dev/agent-harness-kit/types`.
 
 ```typescript
 import { HookOutputBuilder } from '@libar-dev/agent-harness-kit/types';
 import { outputJson } from '@libar-dev/agent-harness-kit/utils';
-
-outputJson(HookOutputBuilder.permission('allow', 'Approved'));
 ```
 
----
+**Source:** [`src/utils/output-builder.ts`](../../src/utils/output-builder.ts)
 
-## Universal Methods
-
-These methods work for any hook event.
+## Universal
 
 ### `success(message?)`
 
-```typescript
-success(message?: string): BaseHookOutput
-```
-
-Returns a clean success response. With no message, sets `suppressOutput: true` (stdout hidden from transcript). With a message, includes it as `systemMessage`.
-
-```typescript
-// Silent success (most common — just return without calling outputJson)
-outputJson(HookOutputBuilder.success());
-
-// Success with a visible message
-outputJson(HookOutputBuilder.success('Hook ran successfully'));
-```
-
----
+Returns `BaseHookOutput`. No message produces `{ suppressOutput: true }`; a message produces `{ suppressOutput: false, systemMessage: message }`.
 
 ### `error(reason, stopExecution?)`
 
-```typescript
-error(reason: string, stopExecution?: boolean): BaseHookOutput
-```
-
-Returns an error response. If `stopExecution` is `true`, sets `continue: false` and `stopReason`.
-
-```typescript
-outputJson(HookOutputBuilder.error('Something went wrong')); // non-blocking
-outputJson(HookOutputBuilder.error('Cannot proceed', true)); // stops Claude
-```
-
----
+Returns a visible `systemMessage`. With `stopExecution: true`, also sets `continue: false` and `stopReason`.
 
 ## PreToolUse
 
@@ -65,37 +34,14 @@ permission(
 ): PreToolUseOutput
 ```
 
-The primary PreToolUse method. Produces `hookSpecificOutput.permissionDecision`.
-
-| Decision | Effect |
-|----------|--------|
-| `'allow'` | Bypasses the permission system entirely — tool runs without user prompt |
-| `'deny'` | Blocks the tool call — reason shown to Claude |
-| `'ask'` | Prompts the user with your reason message |
-| `'defer'` | Falls through to normal permission handling |
+`allow` bypasses normal permission handling, `deny` blocks, `ask` prompts the user, and `defer` leaves the decision to normal permission handling.
 
 ```typescript
-// Allow
-outputJson(HookOutputBuilder.permission('allow', 'Safe command'));
-
-// Deny
-outputJson(HookOutputBuilder.permission('deny', 'rm -rf is not allowed here'));
-
-// Ask (prompts user)
-outputJson(HookOutputBuilder.permission('ask', 'This command looks risky. Proceed?'));
-
-// Allow with modified input
-outputJson(HookOutputBuilder.permission('allow', 'Redirected to safe path', {
-  updatedInput: { file_path: '/project/output/result.json' },
-}));
-
-// Allow with additional context for Claude
-outputJson(HookOutputBuilder.permission('allow', 'Approved', {
-  additionalContext: 'Note: this command may take a while',
+outputJson(HookOutputBuilder.permission('allow', 'Redirected', {
+  updatedInput: { file_path: '/safe/output.txt' },
+  additionalContext: 'The generated file belongs under /safe.'
 }));
 ```
-
----
 
 ## PostToolUse
 
@@ -110,20 +56,46 @@ feedback(
 ): PostToolUseOutput
 ```
 
-Sends feedback to Claude after a tool executes. Sets `decision: 'block'` internally so the reason is shown to Claude. Use for formatter output, type-check results, or any observation Claude should act on.
+Builds top-level `decision: 'block'` feedback plus optional `hookSpecificOutput`. Both replacement arguments preserve any value other than `undefined`, including `false`, `0`, `''`, and `null`. Empty-string `additionalContext` is preserved when provided.
 
-`updatedMCPToolOutput` replaces an MCP tool's return value. `updatedToolOutput` replaces general tool output when you need to return a different result body.
+`updatedMCPToolOutput` is the compatibility field for MCP outputs. `updatedToolOutput` is the general tool-output replacement field.
+
+Use this when Claude should receive block feedback. For replace/context-only output without a block decision, use `postToolUseContext`.
+
+### `postToolUseContext(options)`
 
 ```typescript
-outputJson(HookOutputBuilder.feedback('Formatted file with Prettier'));
-outputJson(HookOutputBuilder.feedback('TypeScript errors found', tscStderr));
-outputJson(HookOutputBuilder.feedback('MCP result overridden', undefined, { status: 'ok' }));
-outputJson(HookOutputBuilder.feedback('Tool output replaced', undefined, undefined, { summary: 'cleaned output' }));
+postToolUseContext(options: {
+  additionalContext?: string;
+  updatedMCPToolOutput?: unknown;
+  updatedToolOutput?: unknown;
+}): PostToolUseOutput
 ```
 
----
+Builds non-block PostToolUse output: only `hookSpecificOutput` with optional context and tool-output replacements. Does not set top-level `decision` or `reason`. All provided values other than `undefined` are preserved, including falsy replacements and empty strings.
 
-## PermissionRequest
+### `failureFeedback(reason, additionalContext?)`
+
+```typescript
+failureFeedback(
+  reason: string,
+  additionalContext?: string
+): PostToolUseFailureOutput
+```
+
+Builds top-level `decision: 'block'` feedback after a failed tool execution. It deliberately does not accept `updatedMCPToolOutput` or `updatedToolOutput`: there is no successful tool result to replace. Empty-string `additionalContext` is preserved when provided.
+
+Use this for block feedback. For context-only failure output, use `failureContext`.
+
+### `failureContext(additionalContext)`
+
+```typescript
+failureContext(additionalContext: string): PostToolUseFailureOutput
+```
+
+Builds non-block PostToolUseFailure output: only `hookSpecificOutput.additionalContext`, with no top-level `decision` or `reason`.
+
+## PermissionRequest and PermissionDenied
 
 ### `allowPermission(options?)`
 
@@ -134,16 +106,13 @@ allowPermission(options?: {
 }): PermissionRequestOutput
 ```
 
-Auto-approves a permission request. Pass `updatedPermissions` to apply "always allow" rules.
+Allows the request and may rewrite the input or apply one or more permission updates. `PermissionUpdateEntry` accepts:
 
-```typescript
-outputJson(HookOutputBuilder.allowPermission());
-outputJson(HookOutputBuilder.allowPermission({
-  updatedInput: { file_path: '/safe/path.txt' },
-}));
-```
+- `addRules`, `replaceRules`, `removeRules`
+- `setMode`
+- `addDirectories`, `removeDirectories`
 
----
+Rules use `{ toolName, ruleContent? }`, behavior `allow | deny | ask`, and destination `session | localSettings | projectSettings | userSettings`.
 
 ### `denyPermission(options?)`
 
@@ -154,267 +123,124 @@ denyPermission(options?: {
 }): PermissionRequestOutput
 ```
 
-Auto-denies a permission request. `message` is shown to Claude. `interrupt: true` stops Claude immediately.
-
-```typescript
-outputJson(HookOutputBuilder.denyPermission({ message: 'Not allowed outside /project' }));
-outputJson(HookOutputBuilder.denyPermission({ interrupt: true }));
-```
-
----
+Denies the request. `message` is returned to Claude; `interrupt: true` stops Claude.
 
 ### `permissionRequestSetMode(mode, destination?)`
 
 ```typescript
 permissionRequestSetMode(
-  mode: PermissionMode,
-  destination?: 'session' | 'localSettings' | 'projectSettings' | 'userSettings'
+  mode: PermissionUpdateMode,
+  destination?: PermissionUpdateDestination
 ): PermissionRequestOutput
 ```
 
-Changes the permission mode as part of allowing a request. Equivalent to the user selecting a mode in the permission dialog.
-
-```typescript
-outputJson(HookOutputBuilder.permissionRequestSetMode('auto', 'session'));
-outputJson(HookOutputBuilder.permissionRequestSetMode('acceptEdits', 'projectSettings'));
-```
-
-`PermissionMode` values: `'default'`, `'plan'`, `'acceptEdits'`, `'auto'`, `'dontAsk'`, `'bypassPermissions'`.
-
----
+Convenience wrapper around `allowPermission({ updatedPermissions: [...] })`. The destination defaults to `session`. `PermissionUpdateMode` accepts standard modes plus `manual`; input `permission_mode` still reports Manual as `default`.
 
 ### `permissionDeniedRetry(retry)`
 
-```typescript
-permissionDeniedRetry(retry: boolean): PermissionDeniedOutput
-```
-
-For `PermissionDenied` events — tells Claude whether it may retry the denied tool call.
-
-```typescript
-outputJson(HookOutputBuilder.permissionDeniedRetry(true));  // allow retry
-outputJson(HookOutputBuilder.permissionDeniedRetry(false)); // no retry
-```
-
----
-
-## UserPromptSubmit
-
-### `blockPrompt(reason)`
-
-```typescript
-blockPrompt(reason: string): UserPromptSubmitOutput
-```
-
-Blocks the prompt from reaching Claude. The `reason` is shown to the user but is **not** added to context.
-
-```typescript
-outputJson(HookOutputBuilder.blockPrompt('Prompt appears to contain an API key'));
-```
-
----
-
-### `addContext(context)`
-
-```typescript
-addContext(context: string): UserPromptSubmitOutput
-```
-
-Adds a string to Claude's context before the prompt is processed.
-
-```typescript
-outputJson(HookOutputBuilder.addContext(`Current date: ${new Date().toISOString().split('T')[0]}`));
-```
-
----
-
-### `sessionTitle(title)`
-
-```typescript
-sessionTitle(title: string): UserPromptSubmitOutput
-```
-
-Sets the session title visible in the Claude Code UI.
-
-```typescript
-outputJson(HookOutputBuilder.sessionTitle('Feature: user authentication'));
-```
-
----
-
-## SessionStart
-
-### `sessionStartContext(context)`
-
-```typescript
-sessionStartContext(context: string): SessionStartOutput
-```
-
-Injects a string into the session's system context at startup.
-
-```typescript
-const branch = execSync('git branch --show-current', { encoding: 'utf8' }).trim();
-outputJson(HookOutputBuilder.sessionStartContext(`Branch: ${branch}`));
-```
-
----
-
-## Subagent
-
-### `subagentContext(context)`
-
-```typescript
-subagentContext(context: string): SubagentStartOutput
-```
-
-Injects context into a subagent's system prompt when it starts.
-
-```typescript
-outputJson(HookOutputBuilder.subagentContext('This subagent operates in read-only mode'));
-```
-
----
-
-### `subagentStopContext(reason)`
-
-```typescript
-subagentStopContext(reason: string): StopOutput
-```
-
-Sets `decision: 'block'` with a reason. Used for `Stop` and `SubagentStop` hooks to prevent stopping and provide guidance.
-
-```typescript
-outputJson(HookOutputBuilder.subagentStopContext('Check the error log and fix the issue'));
-```
-
----
-
-## Lifecycle Stop
-
-### `taskBlock(reason, hookEventName?)`
-
-```typescript
-taskBlock(
-  reason: string,
-  hookEventName?: 'TaskCreated' | 'TaskCompleted'
-): LifecycleStopOutput
-```
-
-Blocks task creation or completion. Sets `continue: false` and `stopReason`.
-
-```typescript
-outputJson(HookOutputBuilder.taskBlock('Task subject is too vague', 'TaskCreated'));
-outputJson(HookOutputBuilder.taskBlock('Task was not completed correctly', 'TaskCompleted'));
-```
-
----
-
-### `teammateStop(reason)`
-
-```typescript
-teammateStop(reason: string): LifecycleStopOutput
-```
-
-Blocks a teammate from going idle (sets `continue: false` for `TeammateIdle`).
-
-```typescript
-outputJson(HookOutputBuilder.teammateStop('Teammate has pending work'));
-```
-
----
-
-## PostToolBatch
-
-### `batchBlock(reason)`
-
-```typescript
-batchBlock(reason: string): PostToolBatchOutput
-```
-
-Blocks the agentic loop before the next model call after a tool batch. Sets `decision: 'block'` and injects `reason` as `additionalContext`.
-
-```typescript
-outputJson(HookOutputBuilder.batchBlock('Batch produced unexpected file changes — review before continuing'));
-```
-
----
+Returns `hookSpecificOutput.retry` for `PermissionDenied`.
 
 ## Elicitation
 
 ### `elicitation(action, content?, hookEventName?)`
 
-```typescript
-elicitation(
-  action: ElicitationAction,
-  content?: Record<string, unknown>,
-  hookEventName?: 'Elicitation' | 'ElicitationResult'
-): ElicitationOutput
-```
+Builds an `Elicitation` or `ElicitationResult` response with action `accept`, `decline`, or `cancel`. The event name defaults to `Elicitation`.
 
-Programmatically responds to or overrides an MCP elicitation request.
-
-`action` values: `'accept'`, `'decline'`, `'cancel'`.
-
-```typescript
-// Auto-accept a form elicitation
-outputJson(HookOutputBuilder.elicitation('accept', { confirmed: true }));
-
-// Decline an elicitation
-outputJson(HookOutputBuilder.elicitation('decline'));
-
-// Override an ElicitationResult
-outputJson(HookOutputBuilder.elicitation('accept', { value: 'overridden' }, 'ElicitationResult'));
-```
-
----
-
-## CwdChanged / FileChanged
+## Watch paths and worktrees
 
 ### `watchPaths(paths)`
 
-```typescript
-watchPaths(paths: string[]): WatchPathsOutput
-```
-
-Returns a new set of absolute paths for the file watcher to monitor. Used in `CwdChanged` and `FileChanged` hooks.
-
-```typescript
-outputJson(HookOutputBuilder.watchPaths([
-  '/project/src',
-  '/project/config',
-]));
-```
-
----
-
-## WorktreeCreate
+Returns `{ watchPaths: paths }` for `CwdChanged` or `FileChanged`.
 
 ### `worktreePath(absolutePath)`
 
+Returns HTTP-style `WorktreeCreate` JSON with `hookSpecificOutput.worktreePath`. Command hooks normally print the path directly; any non-zero command exit fails creation.
+
+## Team and batch control
+
+### `taskBlock(reason, hookEventName?)`
+
+Sets universal stop output `{ continue: false, stopReason }` for `TaskCreated` or `TaskCompleted`. The optional `hookEventName` argument is accepted for source compatibility but ignored; official task control does not use an event marker in JSON output.
+
+### `teammateStop(reason)`
+
+Sets universal stop output `{ continue: false, stopReason }` for `TeammateIdle`.
+
+### `batchBlock(reason)`
+
+Returns `decision: 'block'` and repeats the reason as `PostToolBatch.additionalContext` before the next model call.
+
+## Setup and session start
+
+### `setupContext(context)`
+
+Injects Setup `additionalContext`.
+
+### `sessionStartContext(contextOrOptions)`
+
 ```typescript
-worktreePath(absolutePath: string): WorktreeCreateOutput
+sessionStartContext(context: string): SessionStartOutput
+sessionStartContext(options: {
+  context?: string;
+  initialUserMessage?: string;
+  sessionTitle?: string;
+  watchPaths?: string[];
+  reloadSkills?: boolean;
+}): SessionStartOutput
 ```
 
-Returns a custom absolute path for the new worktree. Any non-zero exit code overrides this and fails the creation.
+The string overload injects only context. The options overload exposes every implemented SessionStart output field.
 
-```typescript
-import * as path from 'path';
-import * as os from 'os';
-outputJson(HookOutputBuilder.worktreePath(path.join(os.homedir(), 'worktrees', input.name)));
-```
+## Message display
 
----
+### `messageDisplayContent(content)`
 
-## StopFailure
+Replaces only the currently displayed `MessageDisplay` delta. The transcript and Claude's context retain the original text.
+
+## UserPromptSubmit
+
+### `addContext(context)`
+
+Injects `additionalContext` alongside the prompt.
+
+### `sessionTitle(title)`
+
+Sets the session title.
+
+### `blockPrompt(reason, options?)`
+
+Returns `decision: 'block'` with a reason shown to the user. Pass
+`{ suppressOriginalPrompt: true }` to omit the original prompt text from the
+block message shown to the user.
+
+## Subagents and stopping
+
+### `subagentContext(context)`
+
+Injects context when a subagent starts.
+
+### `stopBlock(reason)`
+
+Returns `StopBlockOutput`. A block reason is required; the strict schema rejects `{ decision: 'block' }` without a `reason` field. Empty strings are accepted.
+
+### `stopContext(context)`
+
+Returns non-error Stop feedback through `hookSpecificOutput.additionalContext`. This continues the main conversation without a top-level block decision.
+
+### `subagentStopBlock(reason)`
+
+Returns `SubagentStopBlockOutput`. A reason string is required; empty strings are accepted.
+
+### `subagentStopAdditionalContext(context)`
+
+Returns non-error SubagentStop feedback through `hookSpecificOutput.additionalContext`, allowing the subagent to continue and act on factual feedback.
+
+### `subagentStopContext(reason)`
+
+Deprecated compatibility alias for `subagentStopBlock(reason)`. Despite its name, it emits the blocking mode, not the non-error additional-context mode.
+
+## StopFailure compatibility
 
 ### `stopFailureLog(systemMessage?)`
 
-```typescript
-stopFailureLog(systemMessage?: string): BaseHookOutput
-```
-
-Logs a system message for observability on API failures. Delegates to `success(systemMessage)`.
-
-```typescript
-outputJson(HookOutputBuilder.stopFailureLog(`API error: ${input.error}`));
-```
+Deprecated no-op shim that returns `{}`. Claude Code treats `StopFailure` as side-effect-only and ignores both output and exit code, so callers should log or notify directly rather than depend on hook JSON.

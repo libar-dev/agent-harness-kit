@@ -4,7 +4,7 @@
  * Notification Hook Handler — Delivers Claude Code notifications through configured sinks.
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
   executeHook,
@@ -17,6 +17,49 @@ import {
 import type { NotificationInput } from '../types/index.js';
 
 const execFileAsync = promisify(execFile);
+
+interface SpawnInputOptions {
+  input: string;
+  env?: NodeJS.ProcessEnv;
+  timeout?: number;
+}
+
+function spawnWithInput(
+  command: string,
+  args: string[],
+  options: SpawnInputOptions
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      env: options.env,
+      stdio: ['pipe', 'ignore', 'pipe'],
+    });
+    const stderr: Buffer[] = [];
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      reject(new Error(`${command} timed out`));
+    }, options.timeout ?? 10000);
+
+    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+    child.once('error', error => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once('close', code => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `${command} exited with code ${String(code)}: ${Buffer.concat(stderr).toString('utf-8')}`
+        )
+      );
+    });
+    child.stdin.end(options.input);
+  });
+}
 
 interface NotificationConfig {
   desktop: boolean;
@@ -67,7 +110,7 @@ function getNotificationConfig(): NotificationConfig {
 }
 
 async function handleNotification(input: NotificationInput): Promise<void> {
-  const { message, notification_type } = input;
+  const { message, notification_type, title } = input;
   const config = getNotificationConfig();
 
   logInfo(
@@ -81,7 +124,7 @@ async function handleNotification(input: NotificationInput): Promise<void> {
 
   const notificationType = classifyNotification(message, notification_type);
   const notification = {
-    title: getNotificationTitle(notificationType),
+    title: title?.trim() ? title : getNotificationTitle(notificationType),
     message: formatNotificationMessage(message, notificationType),
     priority: getNotificationPriority(notificationType),
     icon: getNotificationIcon(notificationType),
@@ -129,9 +172,11 @@ function classifyNotification(
     case 'idle_prompt':
     case 'elicitation_dialog':
     case 'elicitation_response':
+    case 'agent_needs_input':
       return 'waiting';
     case 'auth_success':
     case 'elicitation_complete':
+    case 'agent_completed':
       return 'info';
     case undefined:
       break;
@@ -236,7 +281,13 @@ async function sendDesktopNotification(
     if (platform === 'darwin') {
       await execFileAsync('osascript', [
         '-e',
-        `display notification "${notification.message}" with title "${notification.title}"`,
+        'on run argv',
+        '-e',
+        'display notification (item 2 of argv) with title (item 1 of argv)',
+        '-e',
+        'end run',
+        notification.title,
+        notification.message,
       ]);
     } else if (platform === 'linux') {
       await execFileAsync('notify-send', [
@@ -248,11 +299,20 @@ async function sendDesktopNotification(
         notification.message,
       ]);
     } else if (platform === 'win32') {
-      const psScript = `
-        Add-Type -AssemblyName System.Windows.Forms;
-        [System.Windows.Forms.MessageBox]::Show('${notification.message}', '${notification.title}', 'OK', 'Information');
-      `;
-      await execFileAsync('powershell', ['-Command', psScript]);
+      const psScript = [
+        'param([string]$Title, [string]$Message)',
+        'Add-Type -AssemblyName System.Windows.Forms',
+        '[void][System.Windows.Forms.MessageBox]::Show($Message, $Title, "OK", "Information")',
+      ].join('; ');
+      await execFileAsync('powershell', [
+        '-NoProfile',
+        '-Command',
+        psScript,
+        '-Title',
+        notification.title,
+        '-Message',
+        notification.message,
+      ]);
     } else {
       logDebug(`Desktop notifications not supported on platform: ${platform}`);
     }
@@ -261,18 +321,128 @@ async function sendDesktopNotification(
   }
 }
 
+/** Placeholder token → env var name used by custom notification commands. */
+const NOTIFICATION_PLACEHOLDER_ENV: ReadonlyArray<readonly [string, string]> = [
+  ['{title}', 'CLAUDE_NOTIFICATION_TITLE'],
+  ['{message}', 'CLAUDE_NOTIFICATION_MESSAGE'],
+  ['{priority}', 'CLAUDE_NOTIFICATION_PRIORITY'],
+  ['{icon}', 'CLAUDE_NOTIFICATION_ICON'],
+];
+
+/**
+ * Expand legacy `{title}`, `{message}`, `{priority}`, and `{icon}` placeholders
+ * in custom notification commands.
+ *
+ * Values are not interpolated into the shell source. Placeholders become
+ * references to `CLAUDE_NOTIFICATION_*` env vars, which
+ * `sendCustomNotification` sets before `sh -c`. That keeps hostile titles or
+ * messages (e.g. `"; rm -rf /; #`) from becoming shell code while preserving
+ * placeholder-based configs.
+ *
+ * Expansion is quote-aware so legacy single-quoted forms still expand:
+ * - unquoted `{title}` → `"${CLAUDE_NOTIFICATION_TITLE}"`
+ * - double-quoted `"{title}"` → `"${CLAUDE_NOTIFICATION_TITLE}"`
+ * - single-quoted `'{title}'` → `''"${CLAUDE_NOTIFICATION_TITLE}"''`
+ *   (close single quote, double-quoted env ref, reopen single quote)
+ *
+ * The second argument is accepted for call-site compatibility; values come
+ * from the process environment at shell execution time.
+ */
+export function expandNotificationCommandPlaceholders(
+  command: string,
+  _notification?: NotificationData
+): string {
+  let result = '';
+  let index = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+
+  while (index < command.length) {
+    const char = command[index];
+
+    if (escaped) {
+      result += char;
+      escaped = false;
+      index += 1;
+      continue;
+    }
+
+    // Backslash escapes the next character outside single quotes.
+    if (char === '\\' && !inSingle) {
+      result += char;
+      escaped = true;
+      index += 1;
+      continue;
+    }
+
+    if (char === "'" && !inDouble) {
+      inSingle = !inSingle;
+      result += char;
+      index += 1;
+      continue;
+    }
+
+    if (char === '"' && !inSingle) {
+      inDouble = !inDouble;
+      result += char;
+      index += 1;
+      continue;
+    }
+
+    let matchedPlaceholder = false;
+    for (const [token, envName] of NOTIFICATION_PLACEHOLDER_ENV) {
+      if (!command.startsWith(token, index)) {
+        continue;
+      }
+
+      if (inSingle) {
+        // Break out of single quotes so the env ref can expand.
+        result += `'"\${${envName}}"'`;
+      } else if (inDouble) {
+        // Already inside double quotes; inject bare parameter expansion.
+        result += `\${${envName}}`;
+      } else {
+        result += `"\${${envName}}"`;
+      }
+
+      index += token.length;
+      matchedPlaceholder = true;
+      break;
+    }
+
+    if (matchedPlaceholder) {
+      continue;
+    }
+
+    result += char;
+    index += 1;
+  }
+
+  return result;
+}
+
 async function sendCustomNotification(
   notification: NotificationData,
   command: string
 ): Promise<void> {
   try {
-    const processedCommand = command
-      .replace(/\{title\}/g, notification.title)
-      .replace(/\{message\}/g, notification.message)
-      .replace(/\{priority\}/g, notification.priority)
-      .replace(/\{icon\}/g, notification.icon);
+    // Map placeholders to env refs; never splice raw notification text into sh -c.
+    const processedCommand = expandNotificationCommandPlaceholders(
+      command,
+      notification
+    );
 
-    await execFileAsync('sh', ['-c', processedCommand], { timeout: 10000 });
+    await execFileAsync('sh', ['-c', processedCommand], {
+      timeout: 10000,
+      env: {
+        ...process.env,
+        CLAUDE_NOTIFICATION_TITLE: notification.title,
+        CLAUDE_NOTIFICATION_MESSAGE: notification.message,
+        CLAUDE_NOTIFICATION_PRIORITY: notification.priority,
+        CLAUDE_NOTIFICATION_ICON: notification.icon,
+      },
+    });
   } catch (error) {
     logError('Failed to send custom notification', toError(error));
   }
@@ -295,8 +465,15 @@ async function sendSlackNotification(
       ],
     };
 
-    const curlCommand = `curl -X POST -H 'Content-type: application/json' --data '${JSON.stringify(payload)}' '${webhookUrl}'`;
-    await execFileAsync('sh', ['-c', curlCommand], { timeout: 10000 });
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) {
+      throw new Error(`Slack webhook returned HTTP ${response.status}`);
+    }
   } catch (error) {
     logError('Failed to send Slack notification', toError(error));
   }
@@ -307,11 +484,20 @@ async function sendEmailNotification(
   emailConfig: NonNullable<NotificationConfig['email']>
 ): Promise<void> {
   try {
+    if (emailConfig.to.startsWith('-')) {
+      throw new Error('Email recipient must not start with a hyphen');
+    }
     const subject = notification.title.replace(/[🔐⏳❌🤖]/gu, '').trim();
     const body = `${notification.message}\n\n--\nSent by Claude Code Notification System`;
-
-    const mailCommand = `echo "${body}" | mail -s "${subject}" ${emailConfig.to}`;
-    await execFileAsync('sh', ['-c', mailCommand], { timeout: 10000 });
+    const args = ['-s', subject];
+    if (emailConfig.from) {
+      args.push('-r', emailConfig.from);
+    }
+    if (emailConfig.smtp) {
+      args.push('-S', `smtp=${emailConfig.smtp}`);
+    }
+    args.push('--', emailConfig.to);
+    await spawnWithInput('mail', args, { input: body, timeout: 10000 });
   } catch (error) {
     logError('Failed to send email notification', toError(error));
     logDebug('Make sure the "mail" command is available on your system');
@@ -330,5 +516,7 @@ export {
   getNotificationConfig,
   classifyNotification,
   sendDesktopNotification,
+  sendCustomNotification,
   sendSlackNotification,
+  sendEmailNotification,
 };

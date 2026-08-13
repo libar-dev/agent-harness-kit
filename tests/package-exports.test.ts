@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import * as rootExports from '../src/index.js';
 import * as lifecycleExports from '../src/lifecycle/index.js';
 import * as processingExports from '../src/processing/index.js';
+import * as validationExports from '../src/validation/index.js';
 
 const repoRoot = process.cwd();
 
@@ -294,6 +295,20 @@ describe('package export contract', () => {
     for (const exportName of expectedLifecycleHandlerExports) {
       expect(lifecycleExports).toHaveProperty(exportName);
       expect(typeof lifecycleExports[exportName]).toBe('function');
+    }
+  });
+
+  it('exports Setup and MessageDisplay named schemas from validation barrel', () => {
+    const expectedNamedSchemas = [
+      'setupInputSchema',
+      'setupOutputSchema',
+      'messageDisplayInputSchema',
+      'messageDisplayOutputSchema',
+    ] as const;
+
+    for (const exportName of expectedNamedSchemas) {
+      expect(validationExports).toHaveProperty(exportName);
+      expect(validationExports[exportName]).toBeDefined();
     }
   });
 

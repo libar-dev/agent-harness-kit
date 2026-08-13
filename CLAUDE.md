@@ -60,9 +60,12 @@ const bashInput = validateBashToolInput(input); // Returns typed BashToolInput
 ## HookOutputBuilder Methods
 
 - `permission(decision, reason, options?)` — PreToolUse allow/deny/ask/defer with optional `updatedInput`, `additionalContext`
-- `feedback(reason, additionalContext?, updatedMCPToolOutput?)` — PostToolUse feedback
+- `feedback(reason, additionalContext?, updatedMCPToolOutput?, updatedToolOutput?)` — PostToolUse block feedback with optional output replacement
+- `postToolUseContext(options)` — PostToolUse non-block context and/or tool-output replacement
+- `failureFeedback(reason, additionalContext?)` — PostToolUseFailure block feedback without output replacement
+- `failureContext(additionalContext)` — PostToolUseFailure non-block context injection
 - `allowPermission(options?)` / `denyPermission(options?)` — PermissionRequest decisions
-- `permissionRequestSetMode(mode, destination?)` — PermissionRequest mode update helper
+- `permissionRequestSetMode(mode, destination?)` — PermissionRequest mode update helper, including the `manual` output alias
 - `permissionDeniedRetry(retry)` — PermissionDenied retry guidance
 - `elicitation(action, content?, hookEventName?)` — Elicitation and ElicitationResult action output
 - `watchPaths(paths)` — CwdChanged/FileChanged watch list output
@@ -71,10 +74,13 @@ const bashInput = validateBashToolInput(input); // Returns typed BashToolInput
 - `teammateStop(reason)` — TeammateIdle stop output
 - `batchBlock(reason)` — PostToolBatch block output
 - `subagentContext(context)` — SubagentStart context injection
-- `subagentStopContext(reason)` — SubagentStop block/context helper
-- `sessionStartContext(context)` — SessionStart context injection
-- `addContext(context)` / `blockPrompt(reason)` / `sessionTitle(title)` — UserPromptSubmit helpers
-- `stopFailureLog(systemMessage?)` — StopFailure observability output
+- `stopBlock(reason)` / `stopContext(context)` — blocking and non-error Stop feedback modes
+- `subagentStopBlock(reason)` / `subagentStopAdditionalContext(context)` — blocking and non-error SubagentStop feedback modes
+- `subagentStopContext(reason)` — deprecated blocking compatibility alias
+- `setupContext(context)` / `messageDisplayContent(content)` — Setup and display-only output
+- `sessionStartContext(contextOrOptions)` — SessionStart context, initial message, title, watch paths, and skill reload
+- `addContext(context)` / `blockPrompt(reason, options?)` / `sessionTitle(title)` — UserPromptSubmit helpers (`options.suppressOriginalPrompt`)
+- `stopFailureLog(systemMessage?)` — deprecated no-op because StopFailure ignores output and exit code
 - `success(message?)` / `error(reason, stopExecution?)` — Universal helpers
 
 ## Hook Handler Types
@@ -181,7 +187,7 @@ import { validateHooksConfig } from '../validation/index.js';
 const config = validateHooksConfig(parsed); // validates full settings hooks structure
 ```
 
-Config supports common handler fields `if`, `timeout`, `statusMessage`, and `once`. Command handlers also support `async`, `asyncRewake`, and `shell`. Settings-root restriction fields include `allowManagedHooksOnly`, `allowedHttpHookUrls`, and `httpHookAllowedEnvVars`.
+Config supports common handler fields `if`, `timeout`, `statusMessage`, and `once`; prompt/agent handlers add `continueOnBlock`; command handlers add `args`, `async`, `asyncRewake`, and `shell`. Runtime semantics are narrower than validation: `if` only runs on tool events and `once` is honored only in skill frontmatter. Settings-root fields are `disableAllHooks`, `allowManagedHooksOnly`, `allowedHttpHookUrls`, and `httpHookAllowedEnvVars`. Event-aware schemas enforce the handler support matrix; MessageDisplay deliberately remains generic because upstream does not classify its handler types.
 
 ## Build System
 
@@ -208,15 +214,29 @@ Hook behavior is configurable through environment variables. The library reads:
 - TypeScript validation: `CLAUDE_HOOK_TS_FULL_CHECK`, `CLAUDE_HOOK_TS_BLOCK_ON_ERROR`, `CLAUDE_HOOK_TS_TIMEOUT`, `CLAUDE_HOOK_TS_STRICT_FILES`, `CLAUDE_HOOK_CONVEX_VALIDATION`
 - Notifications: `CLAUDE_HOOK_DESKTOP_NOTIFICATIONS`, `CLAUDE_HOOK_CONSOLE_NOTIFICATIONS`, `CLAUDE_HOOK_NOTIFICATIONS_IN_CI`, `CLAUDE_HOOK_NOTIFICATION_COMMAND`, `CLAUDE_HOOK_SLACK_WEBHOOK`, `CLAUDE_HOOK_EMAIL_TO`, `CLAUDE_HOOK_EMAIL_FROM`, `CLAUDE_HOOK_SMTP_SERVER`
 - Session context/end: `CLAUDE_HOOK_SESSION_GIT`, `CLAUDE_HOOK_SESSION_DEPS`, `CLAUDE_HOOK_SESSION_CHANGES`, `CLAUDE_HOOK_SESSION_DEV_STATUS`, `CLAUDE_HOOK_SESSION_MAX_COMMITS`, `CLAUDE_HOOK_SESSION_MAX_CHANGES`, `CLAUDE_HOOK_CONTEXT_FILES`, `CLAUDE_HOOK_CLEANUP_TEMP`, `CLAUDE_HOOK_SAVE_STATS`, `CLAUDE_HOOK_GENERATE_SUMMARY`, `CLAUDE_HOOK_ARCHIVE_TRANSCRIPT`, `CLAUDE_HOOK_SEND_NOTIFICATIONS`, `CLAUDE_HOOK_MAX_TEMP_AGE`
-- Prompt/stop/subagent/pre-compact: `CLAUDE_HOOK_CHECK_SECRETS`, `CLAUDE_HOOK_ADD_CONTEXT`, `CLAUDE_HOOK_VALIDATE_STRUCTURE`, `CLAUDE_HOOK_CHECK_INJECTION`, `CLAUDE_HOOK_MAX_PROMPT_LENGTH`, `CLAUDE_HOOK_BLOCK_INJECTION`, `CLAUDE_HOOK_CHECK_TASKS`, `CLAUDE_HOOK_CHECK_GIT`, `CLAUDE_HOOK_CHECK_TESTS`, `CLAUDE_HOOK_MAX_CONTINUATIONS`, `CLAUDE_HOOK_VALIDATE_SUBAGENT`, `CLAUDE_HOOK_CHECK_SUBAGENT_ERRORS`, `CLAUDE_HOOK_LOG_SUBAGENT_METRICS`, `CLAUDE_HOOK_SUBAGENT_MAX_RETRIES`, `CLAUDE_HOOK_SAVE_CONTEXT`, `CLAUDE_HOOK_EXTRACT_DECISIONS`, `CLAUDE_HOOK_CREATE_BACKUP`, `CLAUDE_HOOK_MAX_CONTEXT_SIZE`
+- Prompt/stop/subagent/pre-compact: `CLAUDE_HOOK_CHECK_SECRETS`, `CLAUDE_HOOK_ADD_CONTEXT`, `CLAUDE_HOOK_VALIDATE_STRUCTURE`, `CLAUDE_HOOK_CHECK_INJECTION`, `CLAUDE_HOOK_MAX_PROMPT_LENGTH`, `CLAUDE_HOOK_BLOCK_INJECTION`, `CLAUDE_HOOK_CHECK_TASKS`, `CLAUDE_HOOK_CHECK_GIT`, `CLAUDE_HOOK_CHECK_TESTS`, `CLAUDE_HOOK_VALIDATE_SUBAGENT`, `CLAUDE_HOOK_CHECK_SUBAGENT_ERRORS`, `CLAUDE_HOOK_LOG_SUBAGENT_METRICS`, `CLAUDE_HOOK_SAVE_CONTEXT`, `CLAUDE_HOOK_EXTRACT_DECISIONS`, `CLAUDE_HOOK_CREATE_BACKUP`, `CLAUDE_HOOK_MAX_CONTEXT_SIZE`
 
-Processing CLIs have a small separate env surface that is not loaded through
-`getConfig()`. Today that includes `CLAUDE_TAIL_MARKER_ROOTS` for
-`claude-session-tail --marker-dir`. Keep hook env-var docs and processing CLI
-docs separate. Library consumers of the tail APIs should pass the per-call
-`allowedMarkerRoots` option instead of relying on that env var.
+Processing CLIs have a separate env surface that is not loaded through `getConfig()`, including `CLAUDE_TAIL_MARKER_ROOTS` for `claude-session-tail --marker-dir`. Keep hook env-var docs and processing CLI docs separate. Library consumers of the tail APIs should pass the per-call `allowedMarkerRoots` option instead of relying on that env var.
 
-Set `CLAUDE_HOOK_DEBUG=true` or `CLAUDE_CODE_DEBUG_LOG_LEVEL=verbose` for verbose logging. The default hook timeout is 60 seconds. `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` defaults to 1500 ms and is capped at 60000 ms.
+Set `CLAUDE_HOOK_DEBUG=true` or `CLAUDE_CODE_DEBUG_LOG_LEVEL=verbose` for verbose library logging. `CLAUDE_HOOK_TIMEOUT` defaults this library's runner to 60 seconds; Claude Code settings handlers instead default to 600 seconds for command/HTTP/MCP, 30 for prompt, and 60 for agent, with 30-second UserPromptSubmit and 10-second MessageDisplay overrides. `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` defaults to 1500 ms and is capped at 60000 ms.
+
+## Code review (Greptile)
+
+This is a public OSS repo. **Greptile is available here permanently** (OSS free forever) for PR bot review and local CLI review. Prefer it as the primary automated reviewer for this repository.
+
+**Local (pre-push):** Commit first, then review committed work against the base branch. Agents should use structured output.
+
+```bash
+greptile whoami                    # must be signed in (check text; exit 0 even when signed out)
+greptile review -b main --json     # or omit -b for the repo default base
+greptile review status --json      # whether HEAD already has a completed review
+```
+
+- Findings still exit `0`; non-zero means the review did not finish.
+- Triage `securityIssue: true`, then `P0` / `P1` / `P2`. Aim for confidence `5` with zero comments when polishing a branch (`greploop` skill if iterating).
+- PR bot comments are fetched with `gh` (`gh api repos/.../pulls/<n>/comments`), not with the Greptile CLI.
+
+**Do not** treat CodeRabbit (or other review bots) as the source of truth on this repo when Greptile is configured.
 
 ## Public Repository Hygiene
 
@@ -232,4 +252,4 @@ Planning and context files created for agent workflows are ephemeral and must no
 
 ## Compatibility Notes
 
-`PermissionRequest` now uses nested `hookSpecificOutput.decision` with `behavior: "allow" | "deny"` and optional permission updates. The old top-level allow/deny style should not be used for new code.
+`PermissionRequest` uses nested `hookSpecificOutput.decision` with `behavior: "allow" | "deny"` and the six documented permission-update variants. Stop and SubagentStop have separate block and non-error additional-context modes; block output requires a reason. Notification accepts only universal output. StopFailure is side-effect-only. The old top-level PermissionRequest allow/deny style should not be used.

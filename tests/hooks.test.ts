@@ -42,6 +42,8 @@ import {
   createElicitationResultInput,
   createSessionStartInput,
   createPreCompactInput,
+  createNotificationInput,
+  createSubagentStopInput,
 } from './test-utils.js';
 import {
   validateBashToolInput,
@@ -67,8 +69,20 @@ import { handlePostCompact } from '../src/lifecycle/post-compact.js';
 import { handleElicitation } from '../src/lifecycle/elicitation.js';
 import { handleElicitationResult } from '../src/lifecycle/elicitation-result.js';
 import { handleSessionStart } from '../src/lifecycle/session-start.js';
-import { classifyNotification } from '../src/lifecycle/notification-handler.js';
-import { handlePreCompact } from '../src/lifecycle/pre-compact.js';
+import {
+  classifyNotification,
+  expandNotificationCommandPlaceholders,
+  handleNotification,
+} from '../src/lifecycle/notification-handler.js';
+import { handleSubagentStop } from '../src/lifecycle/subagent-stop.js';
+import {
+  formatDetailedContextSummary,
+  handlePreCompact,
+} from '../src/lifecycle/pre-compact.js';
+import {
+  consumePreCompactContext,
+  savePreCompactContext,
+} from '../src/lifecycle/pre-compact-context.js';
 
 /**
  * Typed mock interfaces for process streams
@@ -147,6 +161,12 @@ async function resetMockProcess(): Promise<MockProcess> {
   clearEnv(proc.env);
   resetConfigCache();
   return proc;
+}
+
+function captureConsoleErrorToStderr(proc: MockProcess): void {
+  vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+    proc.stderr.output += args.map(String).join(' ');
+  });
 }
 
 // Mock process with factory function
@@ -671,9 +691,170 @@ describe('Session C Handler Regressions', () => {
     expect(
       classifyNotification('Server needs input', 'elicitation_dialog')
     ).toBe('waiting');
+    expect(
+      classifyNotification('Background agent paused', 'agent_needs_input')
+    ).toBe('waiting');
+    expect(
+      classifyNotification('Background agent finished', 'agent_completed')
+    ).toBe('info');
   });
 
-  test('PreCompact emits hookSpecificOutput additionalContext', async () => {
+  test('Notification honors optional title from input', async () => {
+    const proc = await resetMockProcess();
+    captureConsoleErrorToStderr(proc);
+    const originalEnv = { ...process.env };
+    process.env['CLAUDE_HOOK_DESKTOP_NOTIFICATIONS'] = 'false';
+    process.env['CLAUDE_HOOK_CONSOLE_NOTIFICATIONS'] = 'true';
+    process.env['CLAUDE_HOOK_NOTIFICATIONS_IN_CI'] = 'true';
+
+    try {
+      await handleNotification(
+        createNotificationInput('Agent needs your input', 'agent_needs_input', {
+          title: 'Custom agent title',
+        })
+      );
+    } finally {
+      process.env = originalEnv;
+    }
+
+    expect(proc.stderr.output).toContain('Custom agent title');
+    expect(proc.stderr.output).toContain('Agent needs your input');
+  });
+
+  test('custom notification commands expand placeholders to env refs (not raw text)', () => {
+    const expanded = expandNotificationCommandPlaceholders(
+      'notify --title {title} --body {message} --p {priority} {icon}',
+      {
+        title: 'SAFE_TITLE_VALUE',
+        message: 'SAFE_MESSAGE_VALUE',
+        priority: 'high',
+        icon: '🔐',
+      }
+    );
+    expect(expanded).toBe(
+      'notify --title "${CLAUDE_NOTIFICATION_TITLE}" --body "${CLAUDE_NOTIFICATION_MESSAGE}" --p "${CLAUDE_NOTIFICATION_PRIORITY}" "${CLAUDE_NOTIFICATION_ICON}"'
+    );
+    expect(expanded).not.toContain('{title}');
+    expect(expanded).not.toContain('{message}');
+    // Notification values must not be spliced into the shell source string.
+    expect(expanded).not.toContain('SAFE_TITLE_VALUE');
+    expect(expanded).not.toContain('SAFE_MESSAGE_VALUE');
+  });
+
+  test('custom notification placeholders expand inside single-quoted shell words', () => {
+    // Legacy form Greptile flagged: printf '%s' '{title}'
+    expect(expandNotificationCommandPlaceholders(`printf '%s' '{title}'`)).toBe(
+      `printf '%s' ''"\${CLAUDE_NOTIFICATION_TITLE}"''`
+    );
+
+    // Placeholder embedded in a larger single-quoted string
+    expect(
+      expandNotificationCommandPlaceholders(`echo 'prefix {message} suffix'`)
+    ).toBe(`echo 'prefix '"\${CLAUDE_NOTIFICATION_MESSAGE}"' suffix'`);
+
+    // Double-quoted placeholders keep a single surrounding double-quoted word
+    expect(
+      expandNotificationCommandPlaceholders(`notify --title "{title}"`)
+    ).toBe(`notify --title "\${CLAUDE_NOTIFICATION_TITLE}"`);
+  });
+
+  test('custom notification placeholder expansion cannot inject shell metacharacters', () => {
+    const hostile = '"; touch /tmp/pwned; #';
+    const expanded = expandNotificationCommandPlaceholders(
+      'echo {title} {message}',
+      {
+        title: hostile,
+        message: '$(evil)',
+        priority: 'high',
+        icon: 'x',
+      }
+    );
+    // Raw hostile payload must never appear in the sh -c source string.
+    expect(expanded).not.toContain(hostile);
+    expect(expanded).not.toContain('$(evil)');
+    expect(expanded).toBe(
+      'echo "${CLAUDE_NOTIFICATION_TITLE}" "${CLAUDE_NOTIFICATION_MESSAGE}"'
+    );
+
+    const singleQuotedHostile = expandNotificationCommandPlaceholders(
+      `printf '%s' '{title}'`,
+      { title: hostile, message: 'm', priority: 'low', icon: 'i' }
+    );
+    expect(singleQuotedHostile).not.toContain(hostile);
+    expect(singleQuotedHostile).toContain('${CLAUDE_NOTIFICATION_TITLE}');
+  });
+
+  test('StopFailure logs without writing meaningful JSON stdout', async () => {
+    const proc = await resetMockProcess();
+
+    await handleStopFailure(
+      createStopFailureInput({
+        error: 'rate_limit',
+        error_details: '429 Too Many Requests',
+      })
+    );
+
+    expect(proc.stdout.output.trim()).toBe('');
+  });
+
+  test('SubagentStop reads agent_transcript_path for analysis', async () => {
+    const proc = await resetMockProcess();
+    const originalEnv = { ...process.env };
+    process.env['CLAUDE_HOOK_VALIDATE_SUBAGENT'] = 'true';
+    process.env['CLAUDE_HOOK_CHECK_SUBAGENT_ERRORS'] = 'false';
+    process.env['CLAUDE_HOOK_LOG_SUBAGENT_METRICS'] = 'false';
+
+    try {
+      await handleSubagentStop(
+        createSubagentStopInput({
+          agent_transcript_path: '/tmp/missing-agent-transcript.jsonl',
+          transcript_path: '/tmp/missing-parent-transcript.jsonl',
+          stop_hook_active: false,
+        })
+      );
+    } finally {
+      process.env = originalEnv;
+    }
+
+    // Missing transcripts complete without throwing when no error markers exist.
+    expect(typeof proc.stdout.output).toBe('string');
+  });
+
+  test('SubagentStop treats empty agent transcript plus error final message as failed', async () => {
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+
+    const proc = await resetMockProcess();
+    const originalEnv = { ...process.env };
+    process.env['CLAUDE_HOOK_VALIDATE_SUBAGENT'] = 'true';
+    process.env['CLAUDE_HOOK_CHECK_SUBAGENT_ERRORS'] = 'false';
+    process.env['CLAUDE_HOOK_LOG_SUBAGENT_METRICS'] = 'false';
+
+    const dir = await mkdtemp(join(tmpdir(), 'subagent-stop-'));
+    const emptyAgentTranscript = join(dir, 'agent.jsonl');
+    await writeFile(emptyAgentTranscript, '', 'utf-8');
+
+    try {
+      await handleSubagentStop(
+        createSubagentStopInput({
+          agent_transcript_path: emptyAgentTranscript,
+          transcript_path: join(dir, 'missing-parent.jsonl'),
+          stop_hook_active: false,
+          last_assistant_message: 'Error: task failed',
+        })
+      );
+    } finally {
+      process.env = originalEnv;
+      await rm(dir, { recursive: true, force: true });
+    }
+
+    const output = parseJsonObject(proc.stdout.output);
+    expect(getString(output, 'decision')).toBe('block');
+    expect(getString(output, 'reason')).toContain('Error:');
+  });
+
+  test('PreCompact emits systemMessage and stores context for SessionStart', async () => {
     const proc = await resetMockProcess();
 
     const originalEnv = { ...process.env };
@@ -692,11 +873,65 @@ describe('Session C Handler Regressions', () => {
     }
 
     const output = parseJsonObject(proc.stdout.output);
-    const hookSpecificOutput = getRecord(output, 'hookSpecificOutput');
-    expect(getString(hookSpecificOutput, 'hookEventName')).toBe('PreCompact');
-    expect(getString(hookSpecificOutput, 'additionalContext')).toContain(
+    // PreCompact no longer injects additionalContext (not a documented channel).
+    // Context is user-visible via systemMessage and re-injected on compact SessionStart.
+    expect(getString(output, 'systemMessage')).toContain(
       'Instruction Validation'
     );
+    expect(output['hookSpecificOutput']).toBeUndefined();
+  });
+
+  test('formatDetailedContextSummary keeps full decisions and files (not counts only)', () => {
+    const detailed = formatDetailedContextSummary({
+      projectStatus: '3 modified files',
+      keyDecisions: ['decided to use Vitest for unit tests'],
+      recentChanges: ['src/lifecycle/pre-compact.ts'],
+      pendingTasks: [],
+      errors: ['Type error in hooks'],
+      importantFiles: [
+        'src/lifecycle/pre-compact.ts',
+        'src/lifecycle/session-start.ts',
+      ],
+    });
+
+    expect(detailed).toContain('decided to use Vitest for unit tests');
+    expect(detailed).toContain('src/lifecycle/session-start.ts');
+    expect(detailed).toContain('Type error in hooks');
+    // Abbreviated board style ("1 recorded") must not replace the detailed body.
+    expect(detailed).not.toMatch(/Key Decisions:\s*1 recorded/i);
+  });
+
+  test('PreCompact SessionStart restore keeps detailed context after single write', async () => {
+    const sessionId = `precompact-restore-${Date.now()}`;
+    // Simulate the two payloads the handler used to write separately.
+    // The bug was a second savePreCompactContext call overwriting the first.
+    const detailed = formatDetailedContextSummary({
+      projectStatus: 'dirty tree',
+      keyDecisions: ['decided to use strict PreCompact schema'],
+      recentChanges: [],
+      pendingTasks: [],
+      errors: [],
+      importantFiles: ['src/validation/schemas.ts'],
+    });
+    const abbreviated = [
+      'Pre-Compact Context Summary',
+      '',
+      '📋 **Project Status Preserved**',
+      'Key Decisions: 1 recorded',
+    ].join('\n');
+
+    // Correct single-write contract used by handlePreCompact after the fix.
+    await savePreCompactContext(
+      sessionId,
+      [detailed, abbreviated].filter(Boolean).join('\n\n')
+    );
+    const restored = await consumePreCompactContext(sessionId);
+
+    expect(restored).toContain('decided to use strict PreCompact schema');
+    expect(restored).toContain('src/validation/schemas.ts');
+    expect(restored).toContain('Key Decisions: 1 recorded');
+    // Second consume should find nothing (file removed).
+    expect(await consumePreCompactContext(sessionId)).toBeNull();
   });
 });
 

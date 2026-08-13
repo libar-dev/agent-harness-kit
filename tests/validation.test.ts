@@ -74,6 +74,8 @@ import {
   validateElicitationResultInput,
   permissionRequestOutputSchema,
   permissionDeniedOutputSchema,
+  permissionUpdateModeSchema,
+  permissionUpdateEntrySchema,
   preToolUseOutputSchema,
   postToolUseOutputSchema,
   postToolUseFailureOutputSchema,
@@ -81,6 +83,7 @@ import {
   userPromptSubmitOutputSchema,
   userPromptExpansionOutputSchema,
   stopOutputSchema,
+  subagentStopOutputSchema,
   baseHookOutputSchema,
   notificationOutputSchema,
   sessionStartOutputSchema,
@@ -101,7 +104,6 @@ import {
   askUserQuestionToolInputSchema,
   exitPlanModeToolInputSchema,
   todoWriteToolInputSchema,
-  mcpToolInputSchema,
   commandHookHandlerSchema,
   httpHookHandlerSchema,
   mcpToolHookHandlerSchema,
@@ -124,8 +126,93 @@ import {
   safeValidateRawTranscriptPayloadMetadata,
   validateRawHistoryLine,
   validateRawTranscriptPayloadMetadata,
+  type StopInputSchema,
+  type SubagentStopInputSchema,
+  type StopOutputSchema,
+  type SubagentStopOutputSchema,
+  type NotificationInputSchema,
+  type NotificationOutputSchema,
+  type PermissionUpdateEntrySchema,
+  type PermissionUpdateModeSchema,
+  type ExitPlanModeToolInputSchema,
+  type AgentToolInputSchema,
+  type TaskToolInputSchema,
+  type BackgroundTaskEntrySchema,
+  type SessionCronEntrySchema,
+  type HooksConfigSchema,
 } from '../src/validation/index.js';
+import type {
+  AgentToolInput,
+  BackgroundTaskEntry,
+  ExitPlanModeToolInput,
+  HooksConfig,
+  NotificationInput,
+  NotificationOutput,
+  PermissionUpdateEntry,
+  PermissionUpdateMode,
+  SessionCronEntry,
+  StopInput,
+  StopOutput,
+  SubagentStopInput,
+  SubagentStopOutput,
+  TaskToolInput,
+} from '../src/types/index.js';
 import { HookOutputBuilder } from '../src/utils/output-builder.js';
+
+/**
+ * Bidirectional assignability check for manual/Zod public contracts.
+ * Prefer mutual extends over exact-equal so `?: never` discriminant
+ * exclusions remain compatible with Zod-inferred optional absences.
+ */
+type MutualAssignability<A, B> = [A] extends [B]
+  ? [B] extends [A]
+    ? true
+    : false
+  : false;
+type AssertTrue<T extends true> = T;
+
+type PublicContractParity = [
+  AssertTrue<MutualAssignability<StopInput, StopInputSchema>>,
+  AssertTrue<MutualAssignability<SubagentStopInput, SubagentStopInputSchema>>,
+  AssertTrue<MutualAssignability<StopOutput, StopOutputSchema>>,
+  AssertTrue<MutualAssignability<SubagentStopOutput, SubagentStopOutputSchema>>,
+  AssertTrue<MutualAssignability<NotificationInput, NotificationInputSchema>>,
+  AssertTrue<MutualAssignability<NotificationOutput, NotificationOutputSchema>>,
+  AssertTrue<
+    MutualAssignability<PermissionUpdateEntry, PermissionUpdateEntrySchema>
+  >,
+  AssertTrue<
+    MutualAssignability<PermissionUpdateMode, PermissionUpdateModeSchema>
+  >,
+  AssertTrue<
+    MutualAssignability<ExitPlanModeToolInput, ExitPlanModeToolInputSchema>
+  >,
+  AssertTrue<MutualAssignability<AgentToolInput, AgentToolInputSchema>>,
+  AssertTrue<MutualAssignability<TaskToolInput, TaskToolInputSchema>>,
+  AssertTrue<
+    MutualAssignability<BackgroundTaskEntry, BackgroundTaskEntrySchema>
+  >,
+  AssertTrue<MutualAssignability<SessionCronEntry, SessionCronEntrySchema>>,
+  AssertTrue<MutualAssignability<HooksConfig, HooksConfigSchema>>,
+];
+
+const publicContractParity: PublicContractParity = [
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+  true,
+];
+void publicContractParity;
 import {
   createPreToolUseInput,
   createPostToolUseInput,
@@ -283,6 +370,18 @@ describe('Hook Input Schema Validation', () => {
     };
     const result = validateHookInput(inputWithoutPermissionMode);
     expect(result.hook_event_name).toBe('PreToolUse');
+  });
+
+  it('should validate prompt_id as an optional UUID', () => {
+    const input = {
+      ...createPreToolUseInput('Bash', { command: 'echo hi' }),
+      prompt_id: '550e8400-e29b-41d4-a716-446655440000',
+    };
+    expect(validateHookInput(input).prompt_id).toBe(input.prompt_id);
+    expectValidationError(
+      () => validateHookInput({ ...input, prompt_id: 'not-a-uuid' }),
+      'HOOK_VALIDATION_FAILED'
+    );
   });
 
   it('should validate auto permission_mode', () => {
@@ -476,23 +575,133 @@ describe('Hook Input Schema Validation', () => {
     expect(result.hook_event_name).toBe('SessionEnd');
   });
 
-  it('should validate Notification with notification_type', () => {
-    const input = createNotificationInput('test msg', 'permission_prompt');
-    const result = validateHookInput(input);
+  it.each(['agent_needs_input', 'agent_completed'] as const)(
+    'should validate Notification type %s',
+    notificationType => {
+      const result = validateHookInput(
+        createNotificationInput('background agent update', notificationType)
+      );
+      expect(result.hook_event_name).toBe('Notification');
+      if (result.hook_event_name === 'Notification') {
+        expect(result.notification_type).toBe(notificationType);
+      }
+    }
+  );
+
+  it('should validate Notification title as an optional string', () => {
+    const withTitle = createNotificationInput(
+      'Agent needs input',
+      'agent_needs_input',
+      { title: 'Background agent' }
+    );
+    const result = validateHookInput(withTitle);
     expect(result.hook_event_name).toBe('Notification');
-    if ('notification_type' in result) {
-      expect(result.notification_type).toBe('permission_prompt');
+    if (result.hook_event_name === 'Notification') {
+      expect(result.title).toBe('Background agent');
+    }
+
+    expectValidationError(
+      () =>
+        validateHookInput({
+          ...createNotificationInput('Agent needs input', 'agent_needs_input'),
+          title: 42,
+        }),
+      'HOOK_VALIDATION_FAILED'
+    );
+  });
+
+  it('rejects malformed background_tasks and session_crons entries', () => {
+    expectValidationError(
+      () =>
+        validateHookInput(
+          createStopInput({
+            background_tasks: [
+              {
+                id: '',
+                type: 'shell',
+                status: 'running',
+                description: 'missing id',
+              },
+            ],
+          })
+        ),
+      'HOOK_VALIDATION_FAILED'
+    );
+    expectValidationError(
+      () =>
+        validateHookInput({
+          ...createStopInput(),
+          session_crons: [
+            {
+              id: 'cron-1',
+              schedule: '0 9 * * 1-5',
+              recurring: 'yes',
+              prompt: 'check the build',
+            },
+          ],
+        }),
+      'HOOK_VALIDATION_FAILED'
+    );
+  });
+
+  it('preserves SubagentStop agent_transcript_path and task metadata', () => {
+    const input = createSubagentStopInput({
+      agent_transcript_path: '/tmp/agent-abc.jsonl',
+      background_tasks: [
+        {
+          id: 'task-2',
+          type: 'subagent',
+          status: 'running',
+          description: 'explore repo',
+          agent_type: 'Explore',
+        },
+      ],
+      session_crons: [
+        {
+          id: 'cron-2',
+          schedule: '*/15 * * * *',
+          recurring: false,
+          prompt: 'resume later',
+        },
+      ],
+    });
+    const result = validateHookInput(input);
+    expect(result.hook_event_name).toBe('SubagentStop');
+    if (result.hook_event_name === 'SubagentStop') {
+      expect(result.agent_transcript_path).toBe('/tmp/agent-abc.jsonl');
+      expect(result.background_tasks?.[0]?.agent_type).toBe('Explore');
+      expect(result.session_crons?.[0]?.recurring).toBe(false);
     }
   });
 
-  it('should validate Stop input', () => {
+  it('should validate Stop input with forward-compatible task and cron metadata', () => {
     const input = createStopInput({
       last_assistant_message: 'Done with the task.',
+      background_tasks: [
+        {
+          id: 'task-1',
+          type: 'shell',
+          status: 'running',
+          description: 'tail logs',
+          command: 'tail -f app.log',
+          future_field: 42,
+        },
+      ],
+      session_crons: [
+        {
+          id: 'cron-1',
+          schedule: '0 9 * * 1-5',
+          recurring: true,
+          prompt: 'check the build',
+          future_field: 'kept',
+        },
+      ],
     });
     const result = validateHookInput(input);
     expect(result.hook_event_name).toBe('Stop');
-    if ('last_assistant_message' in result) {
-      expect(result.last_assistant_message).toBe('Done with the task.');
+    if (result.hook_event_name === 'Stop') {
+      expect(result.background_tasks?.[0]?.['future_field']).toBe(42);
+      expect(result.session_crons?.[0]?.['future_field']).toBe('kept');
     }
   });
 
@@ -894,6 +1103,16 @@ describe('HookOutputBuilder', () => {
     expect(output.decision).toBe('block');
     expect(output.reason).toBe('Not allowed');
   });
+
+  it('blockPrompt(reason, options) sets suppressOriginalPrompt', () => {
+    const output = HookOutputBuilder.blockPrompt('Not allowed', {
+      suppressOriginalPrompt: true,
+    });
+    expect(output.decision).toBe('block');
+    expect(output.reason).toBe('Not allowed');
+    expect(output.suppressOriginalPrompt).toBe(true);
+    expect(userPromptSubmitOutputSchema.safeParse(output).success).toBe(true);
+  });
 });
 
 describe('Type Guards', () => {
@@ -1155,7 +1374,14 @@ describe('Additional Event Input Schemas', () => {
       'Bash',
       { command: 'npm test' },
       {
-        permission_suggestions: [{ type: 'toolAlwaysAllow', tool: 'Bash' }],
+        permission_suggestions: [
+          {
+            type: 'addRules',
+            rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
+            behavior: 'allow',
+            destination: 'localSettings',
+          },
+        ],
       }
     );
     const result = validateHookInput(input);
@@ -1420,14 +1646,40 @@ describe('Additional Event Output Schemas', () => {
     expect(result.success).toBe(true);
   });
 
-  it('accepts PreCompact additionalContext output', () => {
-    const result = preCompactOutputSchema.safeParse({
-      hookSpecificOutput: {
-        hookEventName: 'PreCompact',
-        additionalContext: 'Compact this detail',
-      },
+  it('accepts PreCompact block and universal output and rejects context injection', () => {
+    expect(
+      preCompactOutputSchema.safeParse({
+        decision: 'block',
+        reason: 'Do not compact yet',
+      }).success
+    ).toBe(true);
+
+    const allowed = preCompactOutputSchema.safeParse({
+      systemMessage: 'Saved context for SessionStart re-injection',
     });
-    expect(result.success).toBe(true);
+    expect(allowed.success).toBe(true);
+
+    // PreCompact decision control is block-only; additionalContext is not a
+    // documented PreCompact channel. Event-safe schema must reject injection.
+    expect(
+      preCompactOutputSchema.safeParse({
+        hookSpecificOutput: {
+          hookEventName: 'PreCompact',
+          additionalContext: 'not a PreCompact channel',
+        },
+      }).success
+    ).toBe(false);
+
+    expect(
+      preCompactOutputSchema.safeParse({
+        decision: 'block',
+        reason: 'blocked',
+        hookSpecificOutput: {
+          hookEventName: 'PreCompact',
+          additionalContext: 'still invalid',
+        },
+      }).success
+    ).toBe(false);
   });
 
   it('accepts ConfigChange block output', () => {
@@ -1680,10 +1932,12 @@ describe('Additional Tool Input Validators', () => {
       description: 'Find API endpoints',
       subagent_type: 'Explore',
       model: 'sonnet',
+      run_in_background: true,
     });
     const result = validateTaskToolInput(hookInput);
     expect(result.subagent_type).toBe('Explore');
     expect(result.model).toBe('sonnet');
+    expect(result.run_in_background).toBe(true);
   });
 
   it('validateTaskToolInput throws for wrong tool name', () => {
@@ -1697,10 +1951,12 @@ describe('Additional Tool Input Validators', () => {
       description: 'Find API endpoints',
       subagent_type: 'Explore',
       model: 'sonnet',
+      run_in_background: true,
     });
     const result = validateAgentToolInput(hookInput);
     expect(result.prompt).toBe('Find all API endpoints');
     expect(result.subagent_type).toBe('Explore');
+    expect(result.run_in_background).toBe(true);
     expect(agentToolInputSchema.safeParse(hookInput.tool_input).success).toBe(
       true
     );
@@ -1739,17 +1995,35 @@ describe('Additional Tool Input Validators', () => {
     );
   });
 
-  it('validates empty ExitPlanMode input', () => {
-    const hookInput = createPreToolUseInput('ExitPlanMode', {});
+  it('validates injected ExitPlanMode plan input', () => {
+    const hookInput = createPreToolUseInput('ExitPlanMode', {
+      plan: '## Plan\nRun the tests',
+      planFilePath: '/tmp/plan.md',
+      allowedPrompts: [{ tool: 'Bash', prompt: 'run tests' }],
+    });
     const result = validateExitPlanModeToolInput(hookInput);
-    expect(result).toEqual({});
-    expect(exitPlanModeToolInputSchema.safeParse({}).success).toBe(true);
+    expect(result.planFilePath).toBe('/tmp/plan.md');
+    expect(result.allowedPrompts?.[0]?.tool).toBe('Bash');
   });
 
-  it('rejects non-empty ExitPlanMode input', () => {
-    const hookInput = createPreToolUseInput('ExitPlanMode', {
-      plan: 'continue',
+  it('strips unknown ExitPlanMode tool_input keys like other tool schemas', () => {
+    const result = exitPlanModeToolInputSchema.safeParse({
+      plan: '## Plan',
+      planFilePath: '/tmp/plan.md',
+      unexpectedStatus: 'complete',
     });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({
+        plan: '## Plan',
+        planFilePath: '/tmp/plan.md',
+      });
+      expect(Object.keys(result.data).sort()).toEqual(['plan', 'planFilePath']);
+    }
+  });
+
+  it('rejects ExitPlanMode input missing injected fields', () => {
+    const hookInput = createPreToolUseInput('ExitPlanMode', {});
     expect(() => validateExitPlanModeToolInput(hookInput)).toThrow(
       HookValidationError
     );
@@ -1787,17 +2061,31 @@ describe('Additional Tool Input Validators', () => {
     );
   });
 
-  it('validates generic MCP tool input', () => {
-    const hookInput = createPreToolUseInput('mcp__memory__create_entities', {
+  it.each([
+    'mcp__memory__create_entities',
+    'mcp__plugin_slack_slack__slack_send_message',
+    'mcp__claude-in-chrome__navigate_page',
+  ])('validates anchored MCP tool name %s', toolName => {
+    const hookInput = createPreToolUseInput(toolName, {
       entities: [{ name: 'Session B', entityType: 'task' }],
     });
     const result = validateMCPToolInput(hookInput);
     expect(result['entities']).toEqual([
       { name: 'Session B', entityType: 'task' },
     ]);
-    expect(mcpToolInputSchema.safeParse(hookInput.tool_input).success).toBe(
-      true
-    );
+  });
+
+  it.each([
+    'mcp____tool',
+    'mcp__server__',
+    'mcp__server',
+    'mcp__server__tool__extra',
+    'mcp__server__tool!',
+    'prefix_mcp__server__tool',
+  ])('rejects malformed MCP tool name %s', toolName => {
+    expect(() =>
+      validateMCPToolInput(createPreToolUseInput(toolName, {}))
+    ).toThrow(HookValidationError);
   });
 
   it('validateToolInput routes correctly to WebFetch validator', () => {
@@ -1848,9 +2136,12 @@ describe('Additional Tool Input Validators', () => {
   });
 
   it('validateToolInput routes correctly to ExitPlanMode validator', () => {
-    const hookInput = createPreToolUseInput('ExitPlanMode', {});
+    const hookInput = createPreToolUseInput('ExitPlanMode', {
+      plan: '## Plan',
+      planFilePath: '/tmp/plan.md',
+    });
     const result = validateToolInput(hookInput);
-    expect(result).toEqual({});
+    expect(result).toEqual({ plan: '## Plan', planFilePath: '/tmp/plan.md' });
   });
 
   it('validateToolInput routes correctly to TodoWrite validator', () => {
@@ -2034,20 +2325,14 @@ describe('Output Schema Validation Details', () => {
   });
 
   describe('Notification output schema', () => {
-    it('accepts additionalContext in hookSpecificOutput', () => {
-      const output = {
+    it('rejects Notification-specific output fields', () => {
+      const result = notificationOutputSchema.safeParse({
         hookSpecificOutput: {
           hookEventName: 'Notification',
           additionalContext: 'Notification logged',
         },
-      };
-      const result = notificationOutputSchema.safeParse(output);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.hookSpecificOutput?.additionalContext).toBe(
-          'Notification logged'
-        );
-      }
+      });
+      expect(result.success).toBe(false);
     });
 
     it('works without hookSpecificOutput', () => {
@@ -2157,12 +2442,24 @@ describe('HookOutputBuilder Schema Helpers', () => {
 
     it('creates allow with updatedPermissions', () => {
       const output = HookOutputBuilder.allowPermission({
-        updatedPermissions: [{ type: 'toolAlwaysAllow', tool: 'Bash' }],
+        updatedPermissions: [
+          {
+            type: 'addRules',
+            rules: [{ toolName: 'Bash' }],
+            behavior: 'allow',
+            destination: 'session',
+          },
+        ],
       });
       const decision = output.hookSpecificOutput?.decision;
       if (decision?.behavior === 'allow') {
         expect(decision.updatedPermissions).toEqual([
-          { type: 'toolAlwaysAllow', tool: 'Bash' },
+          {
+            type: 'addRules',
+            rules: [{ toolName: 'Bash' }],
+            behavior: 'allow',
+            destination: 'session',
+          },
         ]);
       }
     });
@@ -2276,6 +2573,27 @@ describe('HookOutputBuilder Schema Helpers', () => {
       );
     });
 
+    it('permissionRequestSetMode() accepts the manual alias', () => {
+      const output = HookOutputBuilder.permissionRequestSetMode(
+        'manual',
+        'userSettings'
+      );
+      const decision = output.hookSpecificOutput?.decision;
+      expect(decision?.behavior).toBe('allow');
+      if (decision?.behavior === 'allow') {
+        expect(decision.updatedPermissions).toEqual([
+          {
+            type: 'setMode',
+            mode: 'manual',
+            destination: 'userSettings',
+          },
+        ]);
+      }
+      expect(permissionRequestOutputSchema.safeParse(output).success).toBe(
+        true
+      );
+    });
+
     it('permissionDeniedRetry() creates retry output', () => {
       const output = HookOutputBuilder.permissionDeniedRetry(true);
       expect(output.hookSpecificOutput?.retry).toBe(true);
@@ -2328,7 +2646,9 @@ describe('HookOutputBuilder Schema Helpers', () => {
     it('teammateStop() creates TeammateIdle stop output', () => {
       const output = HookOutputBuilder.teammateStop('Teammate should continue');
       expect(output.continue).toBe(false);
-      expect(output.hookSpecificOutput.hookEventName).toBe('TeammateIdle');
+      expect(output.stopReason).toBe('Teammate should continue');
+      // Official TeammateIdle control is continue/stopReason only.
+      expect('hookSpecificOutput' in output).toBe(false);
       expect(baseHookOutputSchema.safeParse(output).success).toBe(true);
     });
 
@@ -2344,17 +2664,76 @@ describe('HookOutputBuilder Schema Helpers', () => {
       expect(userPromptSubmitOutputSchema.safeParse(output).success).toBe(true);
     });
 
-    it('subagentStopContext() creates SubagentStop block output', () => {
+    it('stopBlock() creates Stop block output', () => {
+      const output = HookOutputBuilder.stopBlock('Run remaining checks');
+      expect(output).toEqual({
+        decision: 'block',
+        reason: 'Run remaining checks',
+      });
+      expect(stopOutputSchema.safeParse(output).success).toBe(true);
+    });
+
+    it('stopContext() creates non-error Stop additionalContext', () => {
+      const output = HookOutputBuilder.stopContext('Run the test suite');
+      expect(output).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'Stop',
+          additionalContext: 'Run the test suite',
+        },
+      });
+      expect(stopOutputSchema.safeParse(output).success).toBe(true);
+    });
+
+    it('subagentStopBlock() creates SubagentStop block output', () => {
+      const output = HookOutputBuilder.subagentStopBlock(
+        'Summarize findings first'
+      );
+      expect(output.decision).toBe('block');
+      expect(subagentStopOutputSchema.safeParse(output).success).toBe(true);
+    });
+
+    it('subagentStopAdditionalContext() creates non-error SubagentStop feedback', () => {
+      const output = HookOutputBuilder.subagentStopAdditionalContext(
+        'Keep investigating edge cases'
+      );
+      expect(output).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'SubagentStop',
+          additionalContext: 'Keep investigating edge cases',
+        },
+      });
+      expect(subagentStopOutputSchema.safeParse(output).success).toBe(true);
+    });
+
+    it('subagentStopContext() remains a deprecated block compatibility alias', () => {
       const output = HookOutputBuilder.subagentStopContext(
         'Summarize findings first'
       );
       expect(output.decision).toBe('block');
-      expect(stopOutputSchema.safeParse(output).success).toBe(true);
+      expect(subagentStopOutputSchema.safeParse(output).success).toBe(true);
     });
 
-    it('stopFailureLog() creates observability output', () => {
+    it('failureFeedback() creates PostToolUseFailure feedback', () => {
+      const output = HookOutputBuilder.failureFeedback(
+        'Retry with corrected args',
+        'Use absolute paths'
+      );
+      expect(output.decision).toBe('block');
+      expect(output.reason).toBe('Retry with corrected args');
+      expect(output.hookSpecificOutput?.hookEventName).toBe(
+        'PostToolUseFailure'
+      );
+      expect(output.hookSpecificOutput?.additionalContext).toBe(
+        'Use absolute paths'
+      );
+      expect(postToolUseFailureOutputSchema.safeParse(output).success).toBe(
+        true
+      );
+    });
+
+    it('stopFailureLog() is a no-op compatibility shim', () => {
       const output = HookOutputBuilder.stopFailureLog('Rate limit observed');
-      expect(output.systemMessage).toBe('Rate limit observed');
+      expect(output).toEqual({});
       expect(baseHookOutputSchema.safeParse(output).success).toBe(true);
     });
   });
@@ -2588,6 +2967,7 @@ describe('Hook Configuration Schemas (settings.json)', () => {
         type: 'prompt',
         prompt: 'Check conditions: $ARGUMENTS',
         model: 'claude-haiku-4-5-20251001',
+        continueOnBlock: true,
         timeout: 30,
         if: 'Write(*.ts)',
       });
@@ -2614,6 +2994,7 @@ describe('Hook Configuration Schemas (settings.json)', () => {
         type: 'agent',
         prompt: 'Verify conditions',
         model: 'claude-sonnet-4-5-20250929',
+        continueOnBlock: true,
         timeout: 120,
         statusMessage: 'Verifying...',
         if: 'Bash(npm test *)',
@@ -2851,6 +3232,7 @@ describe('Hook Configuration Schemas (settings.json)', () => {
 
     it('validates root hook restriction fields', () => {
       const result = hooksConfigSchema.safeParse({
+        disableAllHooks: true,
         allowManagedHooksOnly: true,
         allowedHttpHookUrls: [
           'https://hooks.example.com/*',
@@ -2859,6 +3241,183 @@ describe('Hook Configuration Schemas (settings.json)', () => {
         httpHookAllowedEnvVars: ['MY_TOKEN', 'HOOK_SECRET'],
       });
       expect(result.success).toBe(true);
+    });
+
+    it('enforces the documented event handler matrix', () => {
+      expect(
+        hooksConfigSchema.safeParse({
+          hooks: {
+            SessionStart: [
+              {
+                hooks: [
+                  { type: 'prompt', prompt: 'unsupported at session start' },
+                ],
+              },
+            ],
+          },
+        }).success
+      ).toBe(false);
+      expect(
+        hooksConfigSchema.safeParse({
+          hooks: {
+            SessionStart: [
+              {
+                hooks: [
+                  { type: 'http', url: 'https://hooks.example.com/start' },
+                ],
+              },
+            ],
+          },
+        }).success
+      ).toBe(false);
+      expect(
+        hooksConfigSchema.safeParse({
+          hooks: {
+            Notification: [
+              {
+                hooks: [
+                  { type: 'agent', prompt: 'unsupported for notifications' },
+                ],
+              },
+            ],
+          },
+        }).success
+      ).toBe(false);
+      expect(
+        hooksConfigSchema.safeParse({
+          hooks: {
+            Notification: [
+              {
+                hooks: [
+                  {
+                    type: 'http',
+                    url: 'https://hooks.example.com/notify',
+                  },
+                ],
+              },
+            ],
+          },
+        }).success
+      ).toBe(true);
+      expect(
+        hooksConfigSchema.safeParse({
+          hooks: {
+            Stop: [
+              {
+                hooks: [
+                  { type: 'agent', prompt: 'supported decision handler' },
+                ],
+              },
+            ],
+          },
+        }).success
+      ).toBe(true);
+      expect(
+        hooksConfigSchema.safeParse({
+          hooks: {
+            Setup: [
+              {
+                hooks: [{ type: 'command', command: 'echo setup-ok' }],
+              },
+            ],
+          },
+        }).success
+      ).toBe(true);
+    });
+
+    it('keeps MessageDisplay generic with an optional matcher', () => {
+      expect(
+        hooksConfigSchema.safeParse({
+          hooks: {
+            MessageDisplay: [
+              {
+                matcher: 'stream',
+                hooks: [{ type: 'prompt', prompt: 'generic display handler' }],
+              },
+            ],
+          },
+        }).success
+      ).toBe(true);
+      expect(
+        hooksConfigSchema.safeParse({
+          hooks: {
+            MessageDisplay: [
+              {
+                hooks: [
+                  {
+                    type: 'agent',
+                    prompt: 'generic display agent handler',
+                  },
+                ],
+              },
+            ],
+          },
+        }).success
+      ).toBe(true);
+    });
+
+    it('validates documented permission update variants', () => {
+      const updates = [
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'Bash', ruleContent: 'git *' }],
+          behavior: 'allow',
+          destination: 'session',
+        },
+        {
+          type: 'replaceRules',
+          rules: [{ toolName: 'Edit' }],
+          behavior: 'ask',
+          destination: 'projectSettings',
+        },
+        {
+          type: 'removeRules',
+          rules: [{ toolName: 'Bash' }],
+          behavior: 'deny',
+          destination: 'localSettings',
+        },
+        {
+          type: 'setMode',
+          mode: 'manual',
+          destination: 'userSettings',
+        },
+        {
+          type: 'addDirectories',
+          directories: ['/tmp/workspace'],
+          destination: 'session',
+        },
+        {
+          type: 'removeDirectories',
+          directories: ['/tmp/workspace'],
+          destination: 'session',
+        },
+      ] as const;
+
+      for (const update of updates) {
+        expect(permissionUpdateEntrySchema.safeParse(update).success).toBe(
+          true
+        );
+      }
+
+      expect(
+        permissionUpdateEntrySchema.safeParse({
+          type: 'setMode',
+          mode: 'not-a-mode',
+          destination: 'session',
+        }).success
+      ).toBe(false);
+      expect(
+        permissionUpdateEntrySchema.safeParse({
+          type: 'addRules',
+          rules: [{ toolName: '' }],
+          behavior: 'allow',
+          destination: 'session',
+        }).success
+      ).toBe(false);
+      expect(permissionUpdateModeSchema.safeParse('manual').success).toBe(true);
+      expect(permissionUpdateModeSchema.safeParse('default').success).toBe(
+        true
+      );
     });
 
     it('validates official HTTP hook example shape', () => {
@@ -3024,18 +3583,97 @@ describe('Output Schema Validation', () => {
     });
   });
 
-  describe('stopOutputSchema', () => {
-    it('accepts block decision with reason', () => {
-      const result = stopOutputSchema.safeParse({
-        decision: 'block',
-        reason: 'Still have tasks to complete',
-      });
-      expect(result.success).toBe(true);
+  describe('Stop and SubagentStop output schemas', () => {
+    it('requires a reason for complete block outputs', () => {
+      expect(
+        stopOutputSchema.safeParse({
+          decision: 'block',
+          reason: 'Still have tasks to complete',
+        }).success
+      ).toBe(true);
+      expect(stopOutputSchema.safeParse({ decision: 'block' }).success).toBe(
+        false
+      );
+      // Presence is required; empty string is accepted to match public string contracts.
+      expect(
+        subagentStopOutputSchema.safeParse({
+          decision: 'block',
+          reason: '',
+        }).success
+      ).toBe(true);
+      expect(
+        stopOutputSchema.safeParse({
+          hookSpecificOutput: {
+            hookEventName: 'Stop',
+            additionalContext: '',
+          },
+        }).success
+      ).toBe(true);
     });
 
-    it('accepts empty object (no blocking)', () => {
-      const result = stopOutputSchema.safeParse({});
-      expect(result.success).toBe(true);
+    it('accepts event-matching additionalContext only', () => {
+      expect(
+        stopOutputSchema.safeParse({
+          hookSpecificOutput: {
+            hookEventName: 'Stop',
+            additionalContext: 'Run tests before stopping',
+          },
+        }).success
+      ).toBe(true);
+      expect(
+        stopOutputSchema.safeParse({
+          hookSpecificOutput: {
+            hookEventName: 'SubagentStop',
+            additionalContext: 'Keep investigating',
+          },
+        }).success
+      ).toBe(false);
+      expect(
+        subagentStopOutputSchema.safeParse({
+          hookSpecificOutput: {
+            hookEventName: 'SubagentStop',
+            additionalContext: 'Keep investigating',
+          },
+        }).success
+      ).toBe(true);
+      expect(
+        subagentStopOutputSchema.safeParse({
+          hookSpecificOutput: {
+            hookEventName: 'Stop',
+            additionalContext: 'Wrong event',
+          },
+        }).success
+      ).toBe(false);
+    });
+
+    it('rejects mixed block and additionalContext discriminants', () => {
+      expect(
+        stopOutputSchema.safeParse({
+          decision: 'block',
+          reason: 'keep going',
+          hookSpecificOutput: {
+            hookEventName: 'Stop',
+            additionalContext: 'also keep going',
+          },
+        }).success
+      ).toBe(false);
+      expect(
+        subagentStopOutputSchema.safeParse({
+          decision: 'block',
+          reason: 'keep going',
+          hookSpecificOutput: {
+            hookEventName: 'SubagentStop',
+            additionalContext: 'also keep going',
+          },
+        }).success
+      ).toBe(false);
+    });
+
+    it('accepts universal output without event-specific fields', () => {
+      expect(
+        stopOutputSchema.safeParse({ systemMessage: 'Observed' }).success
+      ).toBe(true);
+      expect(subagentStopOutputSchema.safeParse({}).success).toBe(true);
     });
   });
 
@@ -3046,6 +3684,18 @@ describe('Output Schema Validation', () => {
         reason: 'Prompt not allowed',
       });
       expect(result.success).toBe(true);
+    });
+
+    it('accepts suppressOriginalPrompt with block decision', () => {
+      const result = userPromptSubmitOutputSchema.safeParse({
+        decision: 'block',
+        reason: 'Prompt not allowed',
+        suppressOriginalPrompt: true,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.suppressOriginalPrompt).toBe(true);
+      }
     });
 
     it('accepts additionalContext in hookSpecificOutput', () => {
@@ -3175,18 +3825,14 @@ describe('Edge Cases', () => {
     }
   });
 
-  it('hooksConfigSchema strips unknown event keys', () => {
+  it('hooksConfigSchema rejects unknown event keys', () => {
     const result = hooksConfigSchema.safeParse({
       hooks: {
         FakeEvent: [{ hooks: [{ type: 'command', command: 'echo test' }] }],
         PreToolUse: [{ hooks: [{ type: 'command', command: 'echo test' }] }],
       },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.hooks?.['PreToolUse']).toBeDefined();
-      expect('FakeEvent' in (result.data.hooks ?? {})).toBe(false);
-    }
+    expect(result.success).toBe(false);
   });
 
   it('validates UserPromptSubmit via factory', () => {
