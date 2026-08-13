@@ -20,6 +20,14 @@
       "import": "./dist/processing/index.js",
       "types": "./dist/processing/index.d.ts"
     },
+    "./grok": {
+      "import": "./dist/grok/index.js",
+      "types": "./dist/grok/index.d.ts"
+    },
+    "./grok/processing": {
+      "import": "./dist/grok/processing/index.js",
+      "types": "./dist/grok/processing/index.d.ts"
+    },
     "./validation": {
       "import": "./dist/validation/index.js",
       "types": "./dist/validation/index.d.ts"
