@@ -95,6 +95,10 @@ echo '{"hook_event_name":"PreToolUse","session_id":"s1","transcript_path":"/tmp/
 - **[Session tailing](docs/internal/tail-session.md)** — CLI and public library APIs for live transcript ingestion
 - **[Full docs index](docs/README.md)**
 
+## Grok (second harness)
+
+The package also attaches to Grok Build through the `@libar-dev/agent-harness-kit/grok` and `/grok/processing` subpaths: Grok-native hook validation, output building, and a runner for Grok's 15 hook events (14 wire events plus the legacy `subagent_end` alias), settings validation for JSON and TOML hook config, and discovery, parsing, and tailing of Grok's on-disk session files. Scope is attach-only; the library answers hook calls and reads session logs but never starts or drives Grok. Claude hook scripts do not run correctly under Grok; write a Grok-native entrypoint instead. See the [Grok Adapter Reference](docs/reference/grok-adapter.md) for the event list, wire contracts, and the Grok-vs-Claude incompatibility matrix.
+
 ## Development
 
 Use Node 24 for local development to match the repo's `@types/node` baseline and CI matrix. Published runtime support remains Node 22+.

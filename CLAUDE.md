@@ -47,6 +47,7 @@ const bashInput = validateBashToolInput(input); // Returns typed BashToolInput
 **30 hook events**: Setup, SessionStart, UserPromptSubmit, UserPromptExpansion, PreToolUse, PermissionRequest, PermissionDenied, PostToolUse, PostToolUseFailure, PostToolBatch, Notification, MessageDisplay, SubagentStart, SubagentStop, TaskCreated, TaskCompleted, Stop, StopFailure, TeammateIdle, InstructionsLoaded, ConfigChange, CwdChanged, FileChanged, WorktreeCreate, WorktreeRemove, PreCompact, PostCompact, Elicitation, ElicitationResult, SessionEnd.
 
 **Key modules**:
+
 - `src/types/index.ts` — Type definitions: hook I/O interfaces, tool input types, hook config types (`HookHandler`, `MatcherGroup`, `HooksConfig`), and `HookEnvironmentVars`
 - `src/utils/index.ts` — Core I/O (`readStdinJson`, `outputJson`, `executeHook`), logging, config (`getConfig()` reads `CLAUDE_*` env vars)
 - `src/utils/output-builder.ts` — `HookOutputBuilder` with methods for all output patterns
@@ -56,6 +57,8 @@ const bashInput = validateBashToolInput(input); // Returns typed BashToolInput
 - `src/lifecycle/` — Lifecycle, async, worktree, elicitation, config, and session reference hooks
 - `src/processing/` — Session parsing, denoising, markdown export, structured block extraction, and tail-mode ingestion helpers
 - `src/cli/` — Shipped CLIs for bulk export (`claude-session-export`) and live tailing (`claude-session-tail`)
+- `src/grok/` — Grok Build adapter: hook envelope types and Zod validation (`types.ts`, `validation.ts`), `GrokHookOutputBuilder` (`output-builder.ts`), the `executeGrokHook` runner (`execute.ts`), and JSON/TOML settings validation (`settings.ts`)
+- `src/grok/processing/` — Grok session discovery (`discovery.ts`), `updates.jsonl` and `events.jsonl` parsers (`updates.ts`, `events.ts`), checkpointed tailing (`tail.ts`), and the normalized block reducer (`blocks.ts`)
 
 ## HookOutputBuilder Methods
 
