@@ -1,0 +1,16 @@
+{
+  "hookEventName": "post_tool_use",
+  "sessionId": "session-001",
+  "cwd": "/workspace/project",
+  "workspaceRoot": "/workspace/project",
+  "timestamp": "2026-08-13T04:03:00Z",
+  "toolName": "run_terminal_command",
+  "toolUseId": "tool-001",
+  "toolInput": {"command": "pnpm test"},
+  "toolResult": {"exitCode": 0, "stdout": "passed"},
+  "toolInputTruncated": false,
+  "toolResultTruncated": false,
+  "durationMs": 1250,
+  "isBackgrounded": false,
+  "subagentType": "coding"
+}

@@ -1,0 +1,17 @@
+{
+  "hookEventName": "stop",
+  "sessionId": "session-001",
+  "cwd": "/workspace/project",
+  "workspaceRoot": "/workspace/project",
+  "timestamp": "2026-08-13T04:06:00Z",
+  "reason": "end_turn",
+  "stopHookActive": true,
+  "lastAssistantMessage": "The task is complete.",
+  "backgroundTasks": [
+    {"id": "task-001", "type": "shell", "status": "running", "command": "pnpm test"},
+    {"id": "task-002", "type": "subagent", "status": "running", "description": "Review code", "agentType": "reviewer"}
+  ],
+  "sessionCrons": [
+    {"id": "cron-001", "schedule": "every 5 minutes", "recurring": true, "prompt": "Check the build"}
+  ]
+}

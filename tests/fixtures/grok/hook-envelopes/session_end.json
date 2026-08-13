@@ -1,0 +1,10 @@
+{
+  "hookEventName": "session_end",
+  "sessionId": "session-001",
+  "cwd": "/workspace/project",
+  "workspaceRoot": "/workspace/project",
+  "timestamp": "2026-08-13T04:14:00Z",
+  "reason": "user_exit",
+  "turnCount": 12,
+  "toolCallCount": 8
+}

@@ -1,0 +1,11 @@
+{
+  "hookEventName": "permission_denied",
+  "sessionId": "session-001",
+  "cwd": "/workspace/project",
+  "workspaceRoot": "/workspace/project",
+  "timestamp": "2026-08-13T04:05:00Z",
+  "toolName": "read_file",
+  "toolUseId": "tool-003",
+  "toolInput": {"path": "/private/file"},
+  "toolInputTruncated": false
+}

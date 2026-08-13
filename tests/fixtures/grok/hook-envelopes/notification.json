@@ -1,0 +1,11 @@
+{
+  "hookEventName": "notification",
+  "sessionId": "session-001",
+  "cwd": "/workspace/project",
+  "workspaceRoot": "/workspace/project",
+  "timestamp": "2026-08-13T04:08:00Z",
+  "notificationType": "warning",
+  "message": "A background task is still running",
+  "title": "Background task",
+  "level": "warning"
+}

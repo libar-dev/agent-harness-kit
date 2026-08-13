@@ -1,0 +1,13 @@
+{
+  "hookEventName": "post_tool_use_failure",
+  "sessionId": "session-001",
+  "cwd": "/workspace/project",
+  "workspaceRoot": "/workspace/project",
+  "timestamp": "2026-08-13T04:04:00Z",
+  "toolName": "run_terminal_command",
+  "toolUseId": "tool-002",
+  "toolInput": {"command": "false"},
+  "toolInputTruncated": false,
+  "error": "command exited with status 1",
+  "subagentType": "coding"
+}

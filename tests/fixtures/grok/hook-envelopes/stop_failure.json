@@ -1,0 +1,10 @@
+{
+  "hookEventName": "stop_failure",
+  "sessionId": "session-001",
+  "cwd": "/workspace/project",
+  "workspaceRoot": "/workspace/project",
+  "timestamp": "2026-08-13T04:07:00Z",
+  "error": "rate_limit",
+  "errorDetails": "Retry after 30 seconds",
+  "lastAssistantMessage": "The request could not be completed."
+}

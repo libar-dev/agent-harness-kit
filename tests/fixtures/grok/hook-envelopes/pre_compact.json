@@ -1,0 +1,8 @@
+{
+  "hookEventName": "pre_compact",
+  "sessionId": "session-001",
+  "cwd": "/workspace/project",
+  "workspaceRoot": "/workspace/project",
+  "timestamp": "2026-08-13T04:12:00Z",
+  "source": "auto"
+}
