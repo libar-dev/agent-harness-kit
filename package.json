@@ -105,6 +105,7 @@
     "prepack": "pnpm run clean && pnpm run test:run && pnpm run check && pnpm run build"
   },
   "dependencies": {
+    "@noble/hashes": "^2.3.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
