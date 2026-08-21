@@ -72,12 +72,11 @@ pnpm-debug.log*
 session-exports/
 .sisyphus/
 
-# OmO plans and state
+# OmO live state (archive finished plans to .plans/NN-slug.md)
 .omo/*
-!.omo/boulder.json
-!.omo/drafts/
+!.omo/rules/
+!.omo/rules/**
 !.omo/plans/
-!.omo/evidence/
 
 # Local agent planning outside OmO
 /plans/

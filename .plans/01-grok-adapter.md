@@ -14,7 +14,9 @@
 **Risk:** Medium - Grok's public source tree can lag the shipped binary; mitigated by pinning plus tolerant parsing of unknown event variants.
 **Decisions to sanity-check:** one package (not two); Grok session data gets its own change-based model (upsert/delete) rather than reusing Claude's block model; five Rust source files are vendored into the repo under Apache-2.0 attribution.
 
-Your next move: nothing — the required high-accuracy review runs now; start work after it reports. Full execution detail follows below.
+**What we learned:** Attach-only, no Claude-to-Grok translator. Rewind keeps later chunks on the kept prompt; `fromStart` after reset must advance generation. Unknown tags stay in the tail. Archive finished plans under `.plans/`; leave evidence packets optional and runtime out of the public tree.
+
+Your next move: this plan is archived. For a fresh run, copy it back to `.omo/plans/grok-adapter.md` with boxes unchecked and delete boulder/runtime first.
 
 ---
 
