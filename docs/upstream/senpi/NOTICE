@@ -1,0 +1,11 @@
+Senpi upstream contract files
+
+The contract files in this directory are copied from the published npm package
+@code-yeongyu/senpi (version recorded in pin.json):
+
+  https://github.com/code-yeongyu/senpi
+
+Copyright (c) code-yeongyu and contributors. The upstream package is licensed
+under the MIT License. The pin manifest records the engine version, npm
+registry integrity, package-relative source paths, and per-file sha256 hashes
+of the vendored bytes.
