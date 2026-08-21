@@ -121,10 +121,22 @@ export interface GrokNormalizedEventRecord {
   readonly origin: GrokRecordOrigin;
 }
 
+/**
+ * Parsed Grok record whose native tag is not in the known update or event
+ * schema. The reducer skips these records; tailing preserves them verbatim.
+ */
+export interface GrokNormalizedUnknownRecord {
+  readonly kind: 'unknown';
+  readonly tag: string;
+  readonly raw: unknown;
+  readonly origin: GrokRecordOrigin;
+}
+
 /** Parsed Grok record accepted by the normalized reducer. */
 export type GrokNormalizedRecord =
   | GrokNormalizedUpdateRecord
-  | GrokNormalizedEventRecord;
+  | GrokNormalizedEventRecord
+  | GrokNormalizedUnknownRecord;
 
 /** Result of reducing an ordered set of parsed Grok records. */
 export interface GrokReductionResult {
@@ -167,7 +179,7 @@ export function reduceGrokRecords(
 
   for (const record of records) {
     if (record.kind === 'update') reduceUpdate(state, record);
-    else reduceEvent(state, record);
+    else if (record.kind === 'event') reduceEvent(state, record);
   }
 
   return {
@@ -460,8 +472,7 @@ function rewindBlocks(
     state.upsertIndexes.delete(block.id);
     state.changes.push({ type: 'delete', id: block.id, origin });
   }
-  state.currentPromptIndex =
-    targetPromptIndex === 0 ? undefined : targetPromptIndex - 1;
+  state.currentPromptIndex = targetPromptIndex;
 }
 
 function reduceEvent(

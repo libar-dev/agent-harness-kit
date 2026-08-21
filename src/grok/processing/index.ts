@@ -51,6 +51,7 @@ export type {
   GrokBlockChange,
   GrokNormalizedEventRecord,
   GrokNormalizedRecord,
+  GrokNormalizedUnknownRecord,
   GrokNormalizedUpdateRecord,
   GrokRecordOrigin,
   GrokReductionResult,

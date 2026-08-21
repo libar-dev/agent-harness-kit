@@ -187,6 +187,87 @@ describe('reduceGrokRecords', () => {
     ]);
   });
 
+  it('attaches unlabeled records after rewind to the kept target prompt', () => {
+    const records = [
+      ...promptRecords(3),
+      rewindRecord(1, 7),
+      updateRecord(
+        {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'after-rewind-assistant',
+          content: { type: 'text', text: 'after' },
+        },
+        8
+      ),
+      updateRecord(
+        {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'after-rewind-tool',
+          title: 'Read',
+          kind: 'read',
+          status: 'in_progress',
+        },
+        9
+      ),
+      updateRecord(
+        {
+          sessionUpdate: 'agent_thought_chunk',
+          messageId: 'after-rewind-thought',
+          content: { type: 'text', text: 'hmm' },
+        },
+        10
+      ),
+    ];
+
+    const result = reduceGrokRecords(records);
+    const blocks = foldGrokBlockChanges(result.changes);
+    const ids = blocks.map(block => block.id);
+
+    expect(ids).not.toContain('session-1:user_text:user-2');
+    expect(ids).not.toContain('session-1:assistant_text:agent-2');
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'session-1:user_text:user-1',
+        'session-1:assistant_text:agent-1',
+      ])
+    );
+    expect(
+      blocks.find(
+        block => block.id === 'session-1:assistant_text:after-rewind-assistant'
+      )
+    ).toMatchObject({ promptIndex: 1 });
+    expect(
+      blocks.find(block => block.id === 'session-1:tool_use:after-rewind-tool')
+    ).toMatchObject({ promptIndex: 1 });
+    expect(
+      blocks.find(
+        block => block.id === 'session-1:thinking:after-rewind-thought'
+      )
+    ).toMatchObject({ promptIndex: 1 });
+  });
+
+  it('skips unknown records without changing the reduction', () => {
+    const known = updateRecord(
+      {
+        sessionUpdate: 'user_message_chunk',
+        messageId: 'user-0',
+        content: { type: 'text', text: 'P0' },
+        _meta: { promptIndex: 0 },
+      },
+      1
+    );
+    const unknown: GrokNormalizedRecord = {
+      kind: 'unknown',
+      tag: 'future_session_update',
+      raw: { sessionUpdate: 'future_session_update' },
+      origin: origin('conversation', 'future_session_update', 2),
+    };
+
+    expect(reduceGrokRecords([known, unknown])).toEqual(
+      reduceGrokRecords([known])
+    );
+  });
+
   it('emits no deletes when the rewind target is beyond the last prompt', () => {
     const records = promptRecords(3);
     records.push(rewindRecord(99, 7));

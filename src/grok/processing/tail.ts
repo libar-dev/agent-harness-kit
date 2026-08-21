@@ -1,6 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { watch } from 'node:fs';
-import { mkdir, open, readFile, rename, rm, unlink } from 'node:fs/promises';
+import {
+  mkdir,
+  open,
+  readFile,
+  rename,
+  rm,
+  stat,
+  unlink,
+} from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 
 import {
@@ -20,6 +28,7 @@ import {
 import { parseGrokSessionUpdate } from './updates.js';
 
 const MARKER_VERSION = 1;
+const STALE_MARKER_LOCK_MS = 30_000;
 const SOURCE_FILENAMES = {
   updates: 'updates.jsonl',
   events: 'events.jsonl',
@@ -153,6 +162,11 @@ interface ParsedSource {
   readonly diagnostics: readonly GrokTailDiagnostic[];
 }
 
+interface ParsedLine {
+  readonly record?: GrokTailRecord;
+  readonly diagnostic?: GrokTailDiagnostic;
+}
+
 class StaleGrokSessionCheckpointError extends Error {}
 
 /**
@@ -160,8 +174,9 @@ class StaleGrokSessionCheckpointError extends Error {}
  *
  * Both size-snapshotted source reads must succeed before the checkpoint can be
  * committed. A missing events.jsonl is represented by a `missing` source; a
- * missing updates.jsonl is an error. Complete malformed and unknown records
- * advance their source cursor and are reported as diagnostics.
+ * missing updates.jsonl is an error. Complete malformed records advance their
+ * source cursor and are reported as diagnostics. Unknown tags are preserved as
+ * native records and also reported as diagnostics.
  *
  * Automatic checkpoint failures do not discard a successfully read batch.
  * They return `checkpointStatus: { status: 'failed', error }`, leave the saved
@@ -186,9 +201,13 @@ export async function tailGrokSession(
       ? undefined
       : { maxLineBytes: options.maxLineBytes };
 
+  const markerCursors = {
+    updates: marker?.sources.updates ?? null,
+    events: marker?.sources.events ?? null,
+  } satisfies Record<GrokTailSourceKind, JsonlCursor | null>;
   const previousCursors = {
-    updates: options.fromStart ? null : (marker?.sources.updates ?? null),
-    events: options.fromStart ? null : (marker?.sources.events ?? null),
+    updates: options.fromStart ? null : markerCursors.updates,
+    events: options.fromStart ? null : markerCursors.events,
   } satisfies Record<GrokTailSourceKind, JsonlCursor | null>;
   const updatePath = join(resolvedSessionDir, SOURCE_FILENAMES.updates);
   const eventPath = join(resolvedSessionDir, SOURCE_FILENAMES.events);
@@ -207,7 +226,18 @@ export async function tailGrokSession(
     cursorOptions
   );
 
-  const deltas = { updates: updateDelta, events: eventDelta } as const;
+  const deltas = {
+    updates: applyFromStartGeneration(
+      updateDelta,
+      markerCursors.updates,
+      options.fromStart
+    ),
+    events: applyFromStartGeneration(
+      eventDelta,
+      markerCursors.events,
+      options.fromStart
+    ),
+  } as const;
   const parsedDelta = parseSources(deltas);
   const orderedRecords = [...parsedDelta.records].sort(compareTailRecords);
   const deltaOrigins = new Set(
@@ -460,8 +490,10 @@ function parseSources(
     }
     for (const line of delta.lines) {
       const parsed = parseLine(sourceKind, generation, line);
-      if ('record' in parsed) records.push(parsed);
-      else diagnostics.push(parsed);
+      if (parsed.record !== undefined) records.push(parsed.record);
+      if (parsed.diagnostic !== undefined) {
+        diagnostics.push(parsed.diagnostic);
+      }
     }
   }
   return { records, diagnostics };
@@ -471,30 +503,41 @@ function parseLine(
   sourceKind: GrokTailSourceKind,
   generation: number,
   line: JsonlLine
-): GrokTailRecord | GrokTailDiagnostic {
+): ParsedLine {
   let raw: unknown;
   try {
     raw = JSON.parse(line.value) as unknown;
   } catch (error: unknown) {
-    return lineDiagnostic(
-      sourceKind,
-      line,
-      'invalid_json',
-      error instanceof Error ? error.message : String(error)
-    );
+    return {
+      diagnostic: lineDiagnostic(
+        sourceKind,
+        line,
+        'invalid_json',
+        error instanceof Error ? error.message : String(error)
+      ),
+    };
   }
 
   if (sourceKind === 'updates') {
     const parsed = parseGrokSessionUpdate(raw);
-    if (parsed.kind !== 'known') {
-      return lineDiagnostic(
+    if (parsed.kind === 'unknown') {
+      return unknownParsedLine(
         sourceKind,
+        generation,
         line,
-        parsed.kind === 'unknown' ? 'unknown_record' : 'invalid_record',
-        parsed.kind === 'unknown'
-          ? `Unknown update '${parsed.tag}'`
-          : parsed.error
+        parsed.tag,
+        parsed.raw
       );
+    }
+    if (parsed.kind !== 'known') {
+      return {
+        diagnostic: lineDiagnostic(
+          sourceKind,
+          line,
+          'invalid_record',
+          parsed.error
+        ),
+      };
     }
     const nativeType = parsed.envelope.params.update.sessionUpdate;
     const origin = createOrigin(sourceKind, nativeType, generation, line);
@@ -504,24 +547,37 @@ function parseLine(
       origin,
     };
     return {
-      sourceKind,
-      effectiveTimestamp: updateTimestamp(parsed.envelope),
-      nativeType,
-      generation,
-      byteStart: line.byteStart,
-      byteEnd: line.byteEnd,
-      record,
+      record: {
+        sourceKind,
+        effectiveTimestamp: updateTimestamp(parsed.envelope),
+        nativeType,
+        generation,
+        byteStart: line.byteStart,
+        byteEnd: line.byteEnd,
+        record,
+      },
     };
   }
 
   const parsed = parseGrokEvent(raw);
-  if (parsed.kind !== 'known') {
-    return lineDiagnostic(
+  if (parsed.kind === 'unknown') {
+    return unknownParsedLine(
       sourceKind,
+      generation,
       line,
-      parsed.kind === 'unknown' ? 'unknown_record' : 'invalid_record',
-      parsed.kind === 'unknown' ? `Unknown event '${parsed.tag}'` : parsed.error
+      parsed.tag,
+      parsed.raw
     );
+  }
+  if (parsed.kind !== 'known') {
+    return {
+      diagnostic: lineDiagnostic(
+        sourceKind,
+        line,
+        'invalid_record',
+        parsed.error
+      ),
+    };
   }
   const nativeType = parsed.event.type;
   const origin = createOrigin(sourceKind, nativeType, generation, line);
@@ -532,13 +588,52 @@ function parseLine(
   };
   const parsedTimestamp = Date.parse(parsed.event.ts);
   return {
-    sourceKind,
-    effectiveTimestamp: Number.isFinite(parsedTimestamp) ? parsedTimestamp : 0,
-    nativeType,
-    generation,
-    byteStart: line.byteStart,
-    byteEnd: line.byteEnd,
-    record,
+    record: {
+      sourceKind,
+      effectiveTimestamp: Number.isFinite(parsedTimestamp)
+        ? parsedTimestamp
+        : 0,
+      nativeType,
+      generation,
+      byteStart: line.byteStart,
+      byteEnd: line.byteEnd,
+      record,
+    },
+  };
+}
+
+function unknownParsedLine(
+  sourceKind: GrokTailSourceKind,
+  generation: number,
+  line: JsonlLine,
+  tag: string,
+  raw: unknown
+): ParsedLine {
+  const origin = createOrigin(sourceKind, tag, generation, line);
+  const record: GrokNormalizedRecord = {
+    kind: 'unknown',
+    tag,
+    raw,
+    origin,
+  };
+  return {
+    record: {
+      sourceKind,
+      effectiveTimestamp: unknownRecordTimestamp(sourceKind, raw),
+      nativeType: tag,
+      generation,
+      byteStart: line.byteStart,
+      byteEnd: line.byteEnd,
+      record,
+    },
+    diagnostic: lineDiagnostic(
+      sourceKind,
+      line,
+      'unknown_record',
+      sourceKind === 'updates'
+        ? `Unknown update '${tag}'`
+        : `Unknown event '${tag}'`
+    ),
   };
 }
 
@@ -573,6 +668,26 @@ function lineDiagnostic(
     byteEnd: line.byteEnd,
     message,
   };
+}
+
+function unknownRecordTimestamp(
+  sourceKind: GrokTailSourceKind,
+  raw: unknown
+): number {
+  if (!isRecord(raw)) return 0;
+  if (sourceKind === 'updates') {
+    const timestamp = raw['timestamp'];
+    if (typeof timestamp === 'number' && Number.isFinite(timestamp)) {
+      return Math.abs(timestamp) < 100_000_000_000
+        ? timestamp * 1_000
+        : timestamp;
+    }
+    return 0;
+  }
+  const timestamp = raw['ts'];
+  if (typeof timestamp !== 'string') return 0;
+  const parsed = Date.parse(timestamp);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function updateTimestamp(
@@ -768,6 +883,23 @@ function checkpointSources(
   return { updates: sources.updates ?? null, events: sources.events ?? null };
 }
 
+function applyFromStartGeneration(
+  delta: JsonlDelta,
+  previousCursor: JsonlCursor | null,
+  fromStart: boolean | undefined
+): JsonlDelta {
+  if (fromStart !== true || previousCursor === null || delta.cursor === null) {
+    return delta;
+  }
+  return {
+    ...delta,
+    cursor: {
+      ...delta.cursor,
+      generation: previousCursor.generation + 1,
+    },
+  };
+}
+
 function validateCheckpointProgression(
   marker: GrokSessionMarker | null,
   next: Readonly<Record<GrokTailSourceKind, JsonlCursor | null>>
@@ -826,15 +958,36 @@ async function withMarkerLock<T>(
   try {
     await mkdir(lockPath, { mode: 0o700 });
   } catch (error: unknown) {
-    if (hasErrorCode(error, 'EEXIST')) {
+    if (!hasErrorCode(error, 'EEXIST')) throw error;
+    if (!(await removeStaleMarkerLock(lockPath))) {
       throw new Error(`Grok session marker is locked: '${markerPath}'`);
     }
-    throw error;
+    try {
+      await mkdir(lockPath, { mode: 0o700 });
+    } catch (retryError: unknown) {
+      if (hasErrorCode(retryError, 'EEXIST')) {
+        throw new Error(`Grok session marker is locked: '${markerPath}'`);
+      }
+      throw retryError;
+    }
   }
   try {
     return await action();
   } finally {
     await rm(lockPath, { recursive: true, force: true });
+  }
+}
+
+async function removeStaleMarkerLock(lockPath: string): Promise<boolean> {
+  try {
+    const stats = await stat(lockPath);
+    if (Date.now() - stats.mtimeMs <= STALE_MARKER_LOCK_MS) {
+      return false;
+    }
+    await rm(lockPath, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
   }
 }
 

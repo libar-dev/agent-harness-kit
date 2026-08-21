@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 
@@ -137,6 +137,35 @@ describe('Grok session discovery', () => {
     expect(invalid?.sessionId).toBe('invalid-session');
     expect(invalid?.error).toBeInstanceOf(ZodError);
   });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'surfaces a summary.json read failure as the underlying error',
+    async () => {
+      const cwd = '/fixtures/unreadable-summary';
+      const sessionDir = join(
+        grokHome,
+        'sessions',
+        encodeGrokCwdDirname(cwd),
+        'unreadable-session'
+      );
+      const summaryPath = join(sessionDir, 'summary.json');
+      await mkdir(sessionDir, { recursive: true });
+      await writeFile(summaryPath, JSON.stringify(validSummary('grok-4')));
+      await chmod(summaryPath, 0o000);
+
+      try {
+        const sessions = await listGrokSessions(cwd, { GROK_HOME: grokHome });
+        expect(sessions).toHaveLength(1);
+        const invalid = sessions.find(session => session.kind === 'invalid');
+        expect(invalid?.error).toBeInstanceOf(Error);
+        expect(invalid?.error).not.toBeInstanceOf(ZodError);
+        expect(invalid?.error.message).not.toBe('Required');
+        expect(invalid?.error.message).toMatch(/EACCES|permission denied/i);
+      } finally {
+        await chmod(summaryPath, 0o600);
+      }
+    }
+  );
 
   it('finds a hashed cwd directory through its plain-text .cwd fallback', async () => {
     const cwd = '/fixtures/fallback/workspace';

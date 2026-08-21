@@ -9,6 +9,7 @@ import {
   readdir,
   rename,
   rm,
+  utimes,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -277,6 +278,103 @@ describe('Grok session tail', () => {
       reset: true,
       generation: 1,
     });
+  });
+
+  it('commits fromStart after a source reset that already advanced generation', async () => {
+    const session = await createSession('from-start-generation');
+    const markerDir = join(root, 'from-start-generation-markers');
+    const options = { markerDir, allowedMarkerRoots: [root] } as const;
+
+    await tailGrokSession(session, { ...options, fromStart: true });
+
+    const replacement = join(session, 'replacement.jsonl');
+    await writeFile(replacement, updateLine(1_786_591_800, 'reset', 'reset'));
+    await rename(replacement, join(session, 'updates.jsonl'));
+
+    const reset = await tailGrokSession(session, options);
+    expect(reset.checkpointStatus).toEqual({ status: 'committed' });
+    expect(
+      reset.sources.find(source => source.sourceKind === 'updates')
+    ).toMatchObject({
+      reset: true,
+      generation: 1,
+    });
+
+    const fromStart = await tailGrokSession(session, {
+      ...options,
+      fromStart: true,
+    });
+    expect(fromStart.checkpointStatus).toEqual({ status: 'committed' });
+    expect(
+      fromStart.checkpoint.sources.find(
+        source => source.sourceKind === 'updates'
+      )?.cursor?.generation
+    ).toBe(2);
+
+    const manual = await tailGrokSession(session, {
+      ...options,
+      fromStart: true,
+      checkpointMode: 'manual',
+    });
+    expect(manual.checkpointStatus).toEqual({ status: 'manual' });
+    await expect(
+      commitGrokSessionCheckpoint(session, manual.checkpoint, options)
+    ).resolves.toBeUndefined();
+  });
+
+  it('preserves unknown sessionUpdate tags as native records', async () => {
+    const session = await createSession('unknown-update');
+    const unknown = {
+      timestamp: 9_000,
+      method: 'session/update',
+      params: {
+        sessionId: 'session-tail',
+        update: {
+          sessionUpdate: 'future_session_update',
+          payload: { hello: 'world' },
+        },
+      },
+    };
+    await writeFile(
+      join(session, 'updates.jsonl'),
+      `${JSON.stringify(unknown)}\n`
+    );
+    await writeFile(join(session, 'events.jsonl'), '');
+
+    const result = await tailGrokSession(session, {
+      fromStart: true,
+      checkpointMode: 'manual',
+    });
+
+    const unknownRecord = result.records.find(
+      record => record.record.kind === 'unknown'
+    );
+    if (unknownRecord?.record.kind !== 'unknown') {
+      throw new Error('expected an unknown native record');
+    }
+    expect(unknownRecord.record.tag).toBe('future_session_update');
+    expect(unknownRecord.record.raw).toEqual(unknown);
+  });
+
+  it('recovers a stale marker lock and still commits', async () => {
+    const session = await createSession('stale-lock');
+    const markerDir = join(root, 'stale-lock-markers');
+    const options = { markerDir, allowedMarkerRoots: [root] } as const;
+    await tailGrokSession(session, { ...options, fromStart: true });
+
+    const markerPath = await markerFile(markerDir);
+    const lockPath = `${markerPath}.lock`;
+    await mkdir(lockPath);
+    const stale = new Date(Date.now() - 31_000);
+    await utimes(lockPath, stale, stale);
+
+    await appendFile(
+      join(session, 'updates.jsonl'),
+      updateLine(1_786_591_900, 'after-stale-lock', 'after-stale-lock')
+    );
+    const result = await tailGrokSession(session, options);
+    expect(result.checkpointStatus).toEqual({ status: 'committed' });
+    expect(result.records).toHaveLength(1);
   });
 
   it('reports a missing events.jsonl without treating it as an error', async () => {

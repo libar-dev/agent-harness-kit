@@ -29,12 +29,12 @@ export interface ValidGrokSession {
   readonly summary: GrokSummary;
 }
 
-/** A Grok session whose summary could not be parsed or validated. */
+/** A Grok session whose summary could not be read, parsed, or validated. */
 export interface InvalidGrokSession {
   readonly kind: 'invalid';
   readonly sessionId: string;
   readonly sessionDir: string;
-  readonly error: z.ZodError;
+  readonly error: Error;
 }
 
 /** The result of reading one discovered Grok session. */
@@ -218,14 +218,14 @@ async function readGrokSession(sessionDir: string): Promise<GrokSession> {
     const summary = grokSummaryJsonSchema.parse(summaryJson);
     return { kind: 'valid', sessionId, sessionDir, summary };
   } catch (error: unknown) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof Error) {
       return { kind: 'invalid', sessionId, sessionDir, error };
     }
-
-    const result = z.string().min(1).safeParse(undefined);
-    if (!result.success) {
-      return { kind: 'invalid', sessionId, sessionDir, error: result.error };
-    }
-    throw error;
+    return {
+      kind: 'invalid',
+      sessionId,
+      sessionDir,
+      error: new Error(String(error)),
+    };
   }
 }
