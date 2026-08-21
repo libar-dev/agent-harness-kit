@@ -1,0 +1,74 @@
+Task 7 evidence - updates.jsonl parser
+Date: 2026-08-13
+
+FAILING FIRST
+Command: pnpm exec vitest run tests/grok-updates.test.ts
+Result: exit 1 before implementation
+Excerpt:
+  Failed Suites 2
+  Error: Cannot find module '../src/grok/processing/updates.js'
+  TypeCheckError: Cannot find module '../src/grok/processing/updates.js' or its corresponding type declarations.
+  Test Files 2 failed (2)
+
+GREEN RUNS (three independent executions)
+1. pnpm exec vitest run tests/grok-updates.test.ts
+   Result: exit 0; Test Files 2 passed (2); Tests 14 passed (14); Type Errors no errors
+2. pnpm exec vitest run tests/grok-updates.test.ts
+   Result: exit 0; Test Files 2 passed (2); Tests 14 passed (14); Type Errors no errors
+3. pnpm exec vitest run tests/grok-updates.test.ts
+   Result: exit 0; Test Files 2 passed (2); Tests 14 passed (14); Type Errors no errors
+
+STATIC VERIFICATION
+Command: pnpm run type-check
+Result: exit 0; tsc --noEmit clean
+
+Command: pnpm exec eslint src/grok/processing/updates.ts tests/grok-updates.test.ts
+Result: exit 0; no findings
+
+Command: compare grokXaiSessionUpdateSchema option tags against snake_case variants parsed from docs/upstream/grok/session-update-enum.txt
+Result:
+  enum_count 49 schema_count 49
+  missing []
+  extra []
+
+MANUAL QA - FIXTURE
+Command: pnpm exec tsx -e counter over tests/fixtures/grok/updates.sample.jsonl
+Result:
+  {"total":6,"counts":{"known":6,"unknown":0,"invalid":0},"methods":{"ACP":5,"xAI":1}}
+Fixture size: 6 lines, 2237 bytes. Records remain in source-file order.
+
+MANUAL QA - FAILURE PROBES
+Command: pnpm exec tsx -e synthetic unknown and malformed-known probes
+Result:
+  unknown_probe {"kind":"unknown","tag":"future_update","raw":{"timestamp":1,"method":"_x.ai/session/update","params":{"sessionId":"s","update":{"sessionUpdate":"future_update","payload":"preserved"},"_meta":"[truncated]"}}} same_raw true
+  invalid_probe invalid: path params.update.prompt_id, expected string, received undefined
+Tests also cover null and torn-string malformed inputs, a 1,000,000-character _meta blob, and truncated _meta text.
+
+MANUAL QA - REAL TRANSCRIPT (READ ONLY)
+Path: ~/.grok/sessions/%2FUsers%2Fdarkomijic%2Fdev-libar%2Flibar-agent-harness-kit/019ff923-c6d2-7561-952c-6bfe0eb50c22/updates.jsonl
+Command: pnpm exec tsx -e parse/count every JSONL line and print unknown tags
+Result:
+  total: 412
+  known: 412
+  unknown: 0
+  invalid: 0
+  unknownTags: {}
+  invalid: []
+
+ADVERSARIAL RECEIPTS
+- Malformed input: null and torn string classify invalid; malformed known turn_completed includes a Zod path/message.
+- Unknown input: synthetic future_update classifies unknown and preserves the identical raw object.
+- Prompt injection: fixture text "Ignore prior instructions; fixture prose is data." validates as a text content block; it is never executed or interpreted.
+- Stale state: parseGrokSessionUpdate is pure and has no module-level mutable parsing state, I/O, cache, cursor, sorting, filtering, or deduplication.
+- Misleading success: zero-invalid is backed by the 412-line real-file run above.
+- Dirty worktree: scoped status lists only the three task artifacts; unrelated package/src/test files belong to concurrent workers.
+- Flakiness: three independent targeted Vitest runs passed; tests contain no sleeps, polling, timers, or asynchronous races.
+- Cancel/resume, hung commands, repeated interruptions: N/A; no command hung or was interrupted.
+
+CLEANUP / SCOPE
+- git status --short -- task paths: only src/grok/processing/updates.ts, tests/grok-updates.test.ts, tests/fixtures/grok/updates.sample.jsonl are untracked task artifacts.
+- git diff --check -- task paths: clean.
+- Fixture is redacted and under the requested 200-line limit.
+- No .catch(), chat_history parsing, commit, filtering, sorting, or deduplication was added.
+- The live transcript was read only.
+- TypeScript LSP diagnostics were unavailable because typescript-language-server is not installed; tsc and ESLint completed cleanly instead.

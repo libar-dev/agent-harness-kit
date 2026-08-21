@@ -1,0 +1,277 @@
+=== F3 REAL MANUAL QA AUDIT: grok-adapter ===
+date: 2026-08-13T06:38:19Z
+repo: /Users/darkomijic/dev-libar/libar-agent-harness-kit
+branch: feat/grok-adapter
+head: 87b241d092a24df7f843b1482771e40ecba907c8
+node: v26.7.0
+tsx: tsx v4.21.0
+
+=== CHECK 1: hook-envelope fixtures end-to-end (validateGrokHookInput) ===
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-D46fvsV_.cjs:3
+`)},"createLog"),x=I(g.bgLightYellow(g.black(" CJS "))),ae=I(g.bgBlue(" ESM ")),oe=[".cts",".mts",".ts",".tsx",".jsx"],ie=[".js",".cjs",".mjs"],k=[".ts",".tsx",".jsx"],F=o((s,e,r,n)=>{const t=Object.getOwnPropertyDescriptor(s,e);t?.set?s[e]=r:(!t||t.configurable)&&Object.defineProperty(s,e,{value:r,enumerable:t?.enumerable||n?.enumerable,writable:n?.writable??(t?t.writable:!0),configurable:n?.configurable??(t?t.configurable:!0)})},"safeSet"),ce=o((s,e,r)=>{const n=e[".js"],t=o((a,i)=>{if(s.enabled===!1)return n(a,i);const[c,f]=i.split("?");if((new URLSearchParams(f).get("namespace")??void 0)!==r)return n(a,i);x(2,"load",{filePath:i}),a.id.startsWith("data:text/javascript,")&&(a.path=m.dirname(c)),R.parent?.send&&R.parent.send({type:"dependency",path:c});const p=oe.some(h=>c.endsWith(h)),P=ie.some(h=>c.endsWith(h));if(!p&&!P)return n(a,c);let d=O.readFileSync(c,"utf8");if(c.endsWith(".cjs")){const h=w.transformDynamicImport(i,d);h&&(d=A()?$(h):h.code)}else if(p||w.isESM(d)){const h=w.transformSync(d,i,{tsconfigRaw:exports.fileMatcher?.(c)});d=A()?$(h):h.code}x(1,"loaded",{filePath:c}),a._compile(d,c)},"transformer");F(e,".js",t);for(const a of k)F(e,a,t,{enumerable:!r,writable:!0,configurable:!0});return F(e,".mjs",t,{writable:!0,configurable:!0}),()=>{e[".js"]===t&&(e[".js"]=n);for(const a of[...k,".mjs"])e[a]===t&&delete e[a]}},"createExtensions"),le=o(s=>e=>{if((e==="."||e===".."||e.endsWith("/.."))&&(e+="/"),_.test(e)){let r=m.join(e,"index.js");e.startsWith("./")&&(r=`./${r}`);try{return s(r)}catch{}}try{return s(e)}catch(r){const n=r;if(n.code==="MODULE_NOT_FOUND")try{return s(`${e}${m.sep}index.js`)}catch{}throw n}},"createImplicitResolver"),B=[".js",".json"],G=[".ts",".tsx",".jsx"],fe=[...G,...B],he=[...B,...G],y=Object.create(null);y[".js"]=[".ts",".tsx",".js",".jsx"],y[".jsx"]=[".tsx",".ts",".jsx",".js"],y[".cjs"]=[".cts"],y[".mjs"]=[".mts"];const X=o(s=>{const e=s.split("?"),r=e[1]?`?${e[1]}`:"",[n]=e,t=m.extname(n),a=[],i=y[t];if(i){const f=n.slice(0,-t.length);a.push(...i.map(l=>f+l+r))}const c=!(s.startsWith(v)||j(n))||n.includes(J)||n.includes("/node_modules/")?he:fe;return a.push(...c.map(f=>n+f+r)),a},"mapTsExtensions"),S=o((s,e,r)=>{if(x(3,"resolveTsFilename",{request:e,isDirectory:_.test(e),isTsParent:r,allowJs:exports.allowJs}),_.test(e)||!r&&!exports.allowJs)return;const n=X(e);if(n)for(const t of n)try{return s(t)}catch(a){const{code:i}=a;if(i!=="MODULE_NOT_FOUND"&&i!=="ERR_PACKAGE_PATH_NOT_EXPORTED")throw a}},"resolveTsFilename"),me=o((s,e)=>r=>{if(x(3,"resolveTsFilename",{request:r,isTsParent:e,isFilePath:j(r)}),j(r)){const n=S(s,r,e);if(n)return n}try{return s(r)}catch(n){const t=n;if(t.code==="MODULE_NOT_FOUND"){if(t.path){const i=t.message.match(/^Cannot find module '([^']+)'$/);if(i){const f=i[1],l=S(s,f,e);if(l)return l}const c=t.message.match(/^Cannot find module '([^']+)'. Please verify that the package.json has a valid "main" entry$/);if(c){const f=c[1],l=S(s,f,e);if(l)return l}}const a=S(s,r,e);if(a)return a}throw t}},"createTsExtensionResolver"),z="at cjsPreparseModuleExports (node:internal",de=o(s=>{const e=s.stack.split(`
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+
+Error: Cannot find module './src/grok/validation.js'
+Require stack:
+- /Users/darkomijic/dev-libar/libar-agent-harness-kit/[eval]
+    at node:internal/modules/cjs/loader:1569:15
+    at nextResolveSimple (/Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1004)
+    at /Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-D46fvsV_.cjs:3:2630
+    at /Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-D46fvsV_.cjs:3:1542
+    at resolveTsPaths (/Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-D46fvsV_.cjs:4:760)
+    at /Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1102
+    at m._resolveFilename (file:///Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-B7jrtLTO.mjs:1:789)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/Users/darkomijic/dev-libar/libar-agent-harness-kit/[eval]' ]
+}
+
+Node.js v26.7.0
+check1_exit=0
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-D46fvsV_.cjs:3
+`)},"createLog"),x=I(g.bgLightYellow(g.black(" CJS "))),ae=I(g.bgBlue(" ESM ")),oe=[".cts",".mts",".ts",".tsx",".jsx"],ie=[".js",".cjs",".mjs"],k=[".ts",".tsx",".jsx"],F=o((s,e,r,n)=>{const t=Object.getOwnPropertyDescriptor(s,e);t?.set?s[e]=r:(!t||t.configurable)&&Object.defineProperty(s,e,{value:r,enumerable:t?.enumerable||n?.enumerable,writable:n?.writable??(t?t.writable:!0),configurable:n?.configurable??(t?t.configurable:!0)})},"safeSet"),ce=o((s,e,r)=>{const n=e[".js"],t=o((a,i)=>{if(s.enabled===!1)return n(a,i);const[c,f]=i.split("?");if((new URLSearchParams(f).get("namespace")??void 0)!==r)return n(a,i);x(2,"load",{filePath:i}),a.id.startsWith("data:text/javascript,")&&(a.path=m.dirname(c)),R.parent?.send&&R.parent.send({type:"dependency",path:c});const p=oe.some(h=>c.endsWith(h)),P=ie.some(h=>c.endsWith(h));if(!p&&!P)return n(a,c);let d=O.readFileSync(c,"utf8");if(c.endsWith(".cjs")){const h=w.transformDynamicImport(i,d);h&&(d=A()?$(h):h.code)}else if(p||w.isESM(d)){const h=w.transformSync(d,i,{tsconfigRaw:exports.fileMatcher?.(c)});d=A()?$(h):h.code}x(1,"loaded",{filePath:c}),a._compile(d,c)},"transformer");F(e,".js",t);for(const a of k)F(e,a,t,{enumerable:!r,writable:!0,configurable:!0});return F(e,".mjs",t,{writable:!0,configurable:!0}),()=>{e[".js"]===t&&(e[".js"]=n);for(const a of[...k,".mjs"])e[a]===t&&delete e[a]}},"createExtensions"),le=o(s=>e=>{if((e==="."||e===".."||e.endsWith("/.."))&&(e+="/"),_.test(e)){let r=m.join(e,"index.js");e.startsWith("./")&&(r=`./${r}`);try{return s(r)}catch{}}try{return s(e)}catch(r){const n=r;if(n.code==="MODULE_NOT_FOUND")try{return s(`${e}${m.sep}index.js`)}catch{}throw n}},"createImplicitResolver"),B=[".js",".json"],G=[".ts",".tsx",".jsx"],fe=[...G,...B],he=[...B,...G],y=Object.create(null);y[".js"]=[".ts",".tsx",".js",".jsx"],y[".jsx"]=[".tsx",".ts",".jsx",".js"],y[".cjs"]=[".cts"],y[".mjs"]=[".mts"];const X=o(s=>{const e=s.split("?"),r=e[1]?`?${e[1]}`:"",[n]=e,t=m.extname(n),a=[],i=y[t];if(i){const f=n.slice(0,-t.length);a.push(...i.map(l=>f+l+r))}const c=!(s.startsWith(v)||j(n))||n.includes(J)||n.includes("/node_modules/")?he:fe;return a.push(...c.map(f=>n+f+r)),a},"mapTsExtensions"),S=o((s,e,r)=>{if(x(3,"resolveTsFilename",{request:e,isDirectory:_.test(e),isTsParent:r,allowJs:exports.allowJs}),_.test(e)||!r&&!exports.allowJs)return;const n=X(e);if(n)for(const t of n)try{return s(t)}catch(a){const{code:i}=a;if(i!=="MODULE_NOT_FOUND"&&i!=="ERR_PACKAGE_PATH_NOT_EXPORTED")throw a}},"resolveTsFilename"),me=o((s,e)=>r=>{if(x(3,"resolveTsFilename",{request:r,isTsParent:e,isFilePath:j(r)}),j(r)){const n=S(s,r,e);if(n)return n}try{return s(r)}catch(n){const t=n;if(t.code==="MODULE_NOT_FOUND"){if(t.path){const i=t.message.match(/^Cannot find module '([^']+)'$/);if(i){const f=i[1],l=S(s,f,e);if(l)return l}const c=t.message.match(/^Cannot find module '([^']+)'. Please verify that the package.json has a valid "main" entry$/);if(c){const f=c[1],l=S(s,f,e);if(l)return l}}const a=S(s,r,e);if(a)return a}throw t}},"createTsExtensionResolver"),z="at cjsPreparseModuleExports (node:internal",de=o(s=>{const e=s.stack.split(`
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+
+Error: Cannot find module '/Users/darkomijic/dev-libar/libar-agent-harness-kit/src/grok/validation.js'
+Require stack:
+- /Users/darkomijic/dev-libar/libar-agent-harness-kit/[eval]
+    at node:internal/modules/cjs/loader:1569:15
+    at nextResolveSimple (/Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1004)
+    at /Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-D46fvsV_.cjs:3:2630
+    at /Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-D46fvsV_.cjs:3:1542
+    at resolveTsPaths (/Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-D46fvsV_.cjs:4:760)
+    at /Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1102
+    at m._resolveFilename (file:///Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/register-B7jrtLTO.mjs:1:789)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/Users/darkomijic/dev-libar/libar-agent-harness-kit/[eval]' ]
+}
+
+Node.js v26.7.0
+check1_exit=1
+(note: tsx -e compiles to CJS; using async-IIFE + dynamic import of committed src/grok/validation.ts)
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+notification.json: event=notification OK
+permission_denied.json: event=permission_denied OK
+post_compact.json: event=post_compact OK
+post_tool_use.json: event=post_tool_use OK
+post_tool_use_failure.json: event=post_tool_use_failure OK
+pre_compact.json: event=pre_compact OK
+pre_tool_use.json: event=pre_tool_use OK
+session_end.json: event=session_end OK
+session_start.json: event=session_start OK
+stop.json: event=stop OK
+stop_failure.json: event=stop_failure OK
+subagent_end.json: event=subagent_end OK
+subagent_start.json: event=subagent_start OK
+subagent_stop.json: event=subagent_stop OK
+user_prompt_submit.json: event=user_prompt_submit OK
+total=15 pass=15 fail=0
+(node:52095) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+check1_exit=0
+
+=== CHECK 2: session tail end-to-end (tailGrokSession fromStart x2, real session copy) ===
+sessions dir listing (ls -t):
+019ff923-c6d2-7561-952c-6bfe0eb50c22
+prompt_history.jsonl
+newest session id: 019ff923-c6d2-7561-952c-6bfe0eb50c22 (only session present; used for audit)
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+(node:52345) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+--- run 1 (fresh markerDir=/var/folders/_b/_m4r75c11q1bmq_79kkhywxc0000gp/T/f3-grok-tail-fzBTLc/markers-run1) ---
+{
+  "records": 11682,
+  "recordsByKind": {
+    "event": 11270,
+    "update": 412
+  },
+  "recordsByNativeType": {
+    "agent_message_chunk": 27,
+    "agent_thought_chunk": 45,
+    "first_token": 45,
+    "loop_started": 45,
+    "permission_requested": 100,
+    "permission_resolved": 100,
+    "phase_changed": 10763,
+    "tool_call": 111,
+    "tool_call_update": 211,
+    "tool_completed": 99,
+    "tool_started": 100,
+    "turn_completed": 9,
+    "turn_ended": 9,
+    "turn_started": 9,
+    "user_message_chunk": 9
+  },
+  "changes": 303,
+  "changesByType": {
+    "upsert": 303
+  },
+  "upsertBlocksByType": {
+    "assistant_text": 27,
+    "thinking": 45,
+    "tool_result": 111,
+    "tool_use": 111,
+    "user_text": 9
+  },
+  "activities": 140,
+  "activitiesByCategory": {
+    "permission": 7,
+    "phase": 9,
+    "tool": 106,
+    "turn": 18
+  },
+  "diagnostics": 0,
+  "diagnosticsByKind": {},
+  "resets": 0,
+  "sources": [
+    {
+      "kind": "updates",
+      "status": "read",
+      "recordCount": 412,
+      "previousByteOffset": 0,
+      "newByteOffset": 2845992,
+      "fileSize": 2845992,
+      "reset": false
+    },
+    {
+      "kind": "events",
+      "status": "read",
+      "recordCount": 11270,
+      "previousByteOffset": 0,
+      "newByteOffset": 945549,
+      "fileSize": 945549,
+      "reset": false
+    }
+  ],
+  "firstTimestampRaw": 1786591368889,
+  "firstTimestampIso": "2026-08-13T03:22:48.889Z",
+  "lastTimestampRaw": 1786592621248,
+  "lastTimestampIso": "2026-08-13T03:43:41.248Z",
+  "checkpointStatus": "committed"
+}
+run1_invalid_lines=0
+--- run 2 (fresh markerDir=/var/folders/_b/_m4r75c11q1bmq_79kkhywxc0000gp/T/f3-grok-tail-fzBTLc/markers-run2) ---
+{
+  "records": 11682,
+  "recordsByKind": {
+    "event": 11270,
+    "update": 412
+  },
+  "recordsByNativeType": {
+    "agent_message_chunk": 27,
+    "agent_thought_chunk": 45,
+    "first_token": 45,
+    "loop_started": 45,
+    "permission_requested": 100,
+    "permission_resolved": 100,
+    "phase_changed": 10763,
+    "tool_call": 111,
+    "tool_call_update": 211,
+    "tool_completed": 99,
+    "tool_started": 100,
+    "turn_completed": 9,
+    "turn_ended": 9,
+    "turn_started": 9,
+    "user_message_chunk": 9
+  },
+  "changes": 303,
+  "changesByType": {
+    "upsert": 303
+  },
+  "upsertBlocksByType": {
+    "assistant_text": 27,
+    "thinking": 45,
+    "tool_result": 111,
+    "tool_use": 111,
+    "user_text": 9
+  },
+  "activities": 140,
+  "activitiesByCategory": {
+    "permission": 7,
+    "phase": 9,
+    "tool": 106,
+    "turn": 18
+  },
+  "diagnostics": 0,
+  "diagnosticsByKind": {},
+  "resets": 0,
+  "sources": [
+    {
+      "kind": "updates",
+      "status": "read",
+      "recordCount": 412,
+      "previousByteOffset": 0,
+      "newByteOffset": 2845992,
+      "fileSize": 2845992,
+      "reset": false
+    },
+    {
+      "kind": "events",
+      "status": "read",
+      "recordCount": 11270,
+      "previousByteOffset": 0,
+      "newByteOffset": 945549,
+      "fileSize": 945549,
+      "reset": false
+    }
+  ],
+  "firstTimestampRaw": 1786591368889,
+  "firstTimestampIso": "2026-08-13T03:22:48.889Z",
+  "lastTimestampRaw": 1786592621248,
+  "lastTimestampIso": "2026-08-13T03:43:41.248Z",
+  "checkpointStatus": "committed"
+}
+run2_invalid_lines=0
+deterministic_byte_identical=true
+tmpdir=/var/folders/_b/_m4r75c11q1bmq_79kkhywxc0000gp/T/f3-grok-tail-fzBTLc
+check2_exit=0
+
+=== CHECK 3: upstream pin freshness ===
+$ node scripts/sync-upstream-grok.mjs /tmp/grok-build --check; echo exit=$?
+Check summary:
+  unchanged docs/upstream/grok/event.rs
+  unchanged docs/upstream/grok/result.rs
+  unchanged docs/upstream/grok/runner-mod.rs
+  unchanged docs/upstream/grok/session-events-types.rs
+  unchanged docs/upstream/grok/plugins-types-lib.rs
+  unchanged docs/upstream/grok/session-update-enum.txt
+  unchanged docs/upstream/grok/pin.json
+Grok upstream vendor is in sync.
+exit=0
+
+=== CHECK 4 (bonus): parseGrokSessionUpdate/parseGrokEvent counters on REAL session files (read-only) ===
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+updates.jsonl: {"lines":412,"json_parse_error":0,"known":412,"unknown":0,"invalid":0} unknownTags: {}
+events.jsonl: {"lines":11270,"json_parse_error":0,"known":11270,"unknown":0,"invalid":0} unknownTags: {}
+total_invalid=0
+(node:52486) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+check4_exit=0
+
+=== CHECK 5: cleanup ===
+tmpdirs created by this audit:
+  1. /var/folders/_b/_m4r75c11q1bmq_79kkhywxc0000gp/T/f3-grok-tail-fzBTLc (check 2: session copy + markers-run1/2)
+tmp capture files created:
+  /tmp/f3-check1.out /tmp/f3-check2.out /tmp/f3-check3.out /tmp/f3-check4.out
+not created by this audit (left intact): /tmp/grok-build (created 2026-08-13 05:42:49 local, pre-dates audit; check 3 --check was read-only against it)
+removed: f3-grok-tail-fzBTLc + 4 capture files
+post-cleanup verification:
+ls: /var/folders/_b/_m4r75c11q1bmq_79kkhywxc0000gp/T/f3-grok-tail-fzBTLc: No such file or directory
+ls: /tmp/f3-check*.out: No such file or directory
+~/.grok session dir mtime sanity (must still be Aug 13 05:43):
+modified=Aug 13 05:43:41 2026
+
+=== VERDICT SUMMARY ===
+check1 (15 fixtures validate): PASS (exit=0, 15/15 OK)
+check2 (tail fromStart x2): PASS (exit=0, 0 invalid lines both runs, byte-identical summaries, records=11682 changes=303)
+check3 (upstream pin --check): PASS (exit=0, all 7 vendored files unchanged)
+check4 (bonus parse counters): PASS (exit=0, updates 412/412 known, events 11270/11270 known, invalid=0 unknown=0)
+check5 (cleanup): DONE (1 tmpdir + 4 capture files removed; ~/.grok read-only preserved; /tmp/grok-build pre-existing, left intact)
+overall: APPROVE

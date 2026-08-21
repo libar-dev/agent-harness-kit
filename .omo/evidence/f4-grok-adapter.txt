@@ -1,0 +1,425 @@
+F4 SCOPE FIDELITY AUDIT — grok-adapter
+======================================
+Task id: st_019ff9d4
+Repo: /Users/darkomijic/dev-libar/libar-agent-harness-kit
+Branch: feat/grok-adapter
+Base: 6a08ff3fc7401af16027082d0211ca8b8386e354
+HEAD: 87b241d092a24df7f843b1482771e40ecba907c8
+Date: 2026-08-13
+Auditor: omo senpi-task child (F4). Audit only; nothing fixed.
+
+----------------------------------------------------------------------
+CHECK 1 — FILE SET
+----------------------------------------------------------------------
+
+$ git branch --show-current && git rev-parse HEAD
+feat/grok-adapter
+87b241d092a24df7f843b1482771e40ecba907c8
+
+$ git diff --stat 6a08ff3fc7401af16027082d0211ca8b8386e354..HEAD
+ CLAUDE.md                                          |    3 +
+ README.md                                          |    4 +
+ docs/reference/grok-adapter.md                     |  235 ++++
+ docs/upstream/grok/LICENSE-APACHE                  |  204 ++++
+ docs/upstream/grok/NOTICE                          |   11 +
+ docs/upstream/grok/event.rs                        |  842 ++++++++++++++
+ docs/upstream/grok/pin.json                        |   40 +
+ docs/upstream/grok/plugins-types-lib.rs            | 1219 ++++++++++++++++++++
+ docs/upstream/grok/result.rs                       |   72 ++
+ docs/upstream/grok/runner-mod.rs                   |  142 +++
+ docs/upstream/grok/session-events-types.rs         |  908 +++++++++++++++
+ docs/upstream/grok/session-update-enum.txt         |  663 +++++++++++
+ examples/grok/pre-tool-use-guard.ts                |   46 +
+ package.json                                       |    9 +
+ pnpm-lock.yaml                                     |    9 +
+ scripts/sync-upstream-grok.mjs                     |  412 +++++++
+ src/grok/execute.ts                                |  248 ++++
+ src/grok/index.ts                                  |   60 +
+ src/grok/output-builder.ts                         |  124 ++
+ src/grok/processing/blocks.ts                      |  575 +++++++++
+ src/grok/processing/discovery.ts                   |  231 ++++
+ src/grok/processing/events.ts                      |  378 ++++++
+ src/grok/processing/index.ts                       |   64 +
+ src/grok/processing/jsonl-cursor.ts                |  312 +++++
+ src/grok/processing/tail.ts                        |  896 ++++++++++++++
+ src/grok/processing/updates.ts                     |  584 ++++++++++
+ src/grok/settings.ts                               |  229 ++++
+ src/grok/types.ts                                  |   97 ++
+ src/grok/validation.ts                             |  260 +++++
+ tests/fixtures/grok/events.sample.jsonl            |    9 +
+ tests/fixtures/grok/hook-envelopes/notification.json |   11 +
+ tests/fixtures/grok/hook-envelopes/permission_denied.json |   11 +
+ tests/fixtures/grok/hook-envelopes/post_compact.json |    8 +
+ tests/fixtures/grok/hook-envelopes/post_tool_use.json |   16 +
+ tests/fixtures/grok/hook-envelopes/post_tool_use_failure.json |   13 +
+ tests/fixtures/grok/hook-envelopes/pre_compact.json  |    8 +
+ tests/fixtures/grok/hook-envelopes/pre_tool_use.json |   12 +
+ tests/fixtures/grok/hook-envelopes/session_end.json  |   10 +
+ tests/fixtures/grok/hook-envelopes/session_start.json |   14 +
+ tests/fixtures/grok/hook-envelopes/stop.json       |   17 +
+ tests/fixtures/grok/hook-envelopes/stop_failure.json |   10 +
+ tests/fixtures/grok/hook-envelopes/subagent_end.json |   12 +
+ tests/fixtures/grok/hook-envelopes/subagent_start.json |   10 +
+ tests/fixtures/grok/hook-envelopes/subagent_stop.json |   12 +
+ tests/fixtures/grok/hook-envelopes/user_prompt_submit.json |    8 +
+ tests/fixtures/grok/updates.sample.jsonl           |    6 +
+ tests/grok-blocks.test.ts                          |  321 ++++++
+ tests/grok-discovery.test.ts                       |  177 +++
+ tests/grok-events.test.ts                          |   95 ++
+ tests/grok-execute.test.ts                         |  329 ++++++
+ tests/grok-jsonl-cursor.test.ts                    |  291 +++++
+ tests/grok-output-builder.test.ts                  |  223 ++++
+ tests/grok-settings.test.ts                        |  193 ++++
+ tests/grok-tail.test.ts                            |  420 +++++++
+ tests/grok-test-utils.ts                           |  183 +++
+ tests/grok-updates.test.ts                         |  141 +++
+ tests/grok-upstream-drift.test.ts                  |  151 +++
+ tests/grok-validation.test.ts                      |   97 ++
+ tests/package-exports.test.ts                      |   76 ++
+ 59 files changed, 11761 insertions(+)
+
+$ git diff --name-only 6a08ff3..HEAD
+CLAUDE.md
+README.md
+docs/reference/grok-adapter.md
+docs/upstream/grok/LICENSE-APACHE
+docs/upstream/grok/NOTICE
+docs/upstream/grok/event.rs
+docs/upstream/grok/pin.json
+docs/upstream/grok/plugins-types-lib.rs
+docs/upstream/grok/result.rs
+docs/upstream/grok/runner-mod.rs
+docs/upstream/grok/session-events-types.rs
+docs/upstream/grok/session-update-enum.txt
+examples/grok/pre-tool-use-guard.ts
+package.json
+pnpm-lock.yaml
+scripts/sync-upstream-grok.mjs
+src/grok/execute.ts
+src/grok/index.ts
+src/grok/output-builder.ts
+src/grok/processing/blocks.ts
+src/grok/processing/discovery.ts
+src/grok/processing/events.ts
+src/grok/processing/index.ts
+src/grok/processing/jsonl-cursor.ts
+src/grok/processing/tail.ts
+src/grok/processing/updates.ts
+src/grok/settings.ts
+src/grok/types.ts
+src/grok/validation.ts
+tests/fixtures/grok/events.sample.jsonl
+tests/fixtures/grok/hook-envelopes/notification.json
+tests/fixtures/grok/hook-envelopes/permission_denied.json
+tests/fixtures/grok/hook-envelopes/post_compact.json
+tests/fixtures/grok/hook-envelopes/post_tool_use.json
+tests/fixtures/grok/hook-envelopes/post_tool_use_failure.json
+tests/fixtures/grok/hook-envelopes/pre_compact.json
+tests/fixtures/grok/hook-envelopes/pre_tool_use.json
+tests/fixtures/grok/hook-envelopes/session_end.json
+tests/fixtures/grok/hook-envelopes/session_start.json
+tests/fixtures/grok/hook-envelopes/stop.json
+tests/fixtures/grok/hook-envelopes/stop_failure.json
+tests/fixtures/grok/hook-envelopes/subagent_end.json
+tests/fixtures/grok/hook-envelopes/subagent_start.json
+tests/fixtures/grok/hook-envelopes/subagent_stop.json
+tests/fixtures/grok/hook-envelopes/user_prompt_submit.json
+tests/fixtures/grok/updates.sample.jsonl
+tests/grok-blocks.test.ts
+tests/grok-discovery.test.ts
+tests/grok-events.test.ts
+tests/grok-execute.test.ts
+tests/grok-jsonl-cursor.test.ts
+tests/grok-output-builder.test.ts
+tests/grok-settings.test.ts
+tests/grok-tail.test.ts
+tests/grok-test-utils.ts
+tests/grok-updates.test.ts
+tests/grok-upstream-drift.test.ts
+tests/grok-validation.test.ts
+tests/package-exports.test.ts
+
+One-by-one comparison against expected set (59 files expected, 59 delivered):
+
+  Group                          Expected                         Delivered  Match
+  -----------------------------  -------------------------------  ---------  -----
+  src/grok/                      types.ts                          yes        OK
+                                 validation.ts                     yes        OK
+                                 output-builder.ts                 yes        OK
+                                 execute.ts                        yes        OK
+                                 settings.ts                       yes        OK
+                                 index.ts                          yes        OK
+  src/grok/processing/           discovery.ts                      yes        OK
+                                 updates.ts                        yes        OK
+                                 events.ts                         yes        OK
+                                 tail.ts                           yes        OK
+                                 blocks.ts                         yes        OK
+                                 index.ts                          yes        OK
+                                 jsonl-cursor.ts                   yes        OK
+  tests/                         grok-*.test.ts (11 files)         11         OK
+                                 grok-test-utils.ts                yes        OK
+  tests/fixtures/grok/           events.sample.jsonl               yes        OK
+                                 updates.sample.jsonl              yes        OK
+                                 hook-envelopes/*.json (15)        15         OK
+  docs/upstream/grok/            9 files                           9          OK
+  docs/reference/                grok-adapter.md                   yes        OK
+  scripts/                       sync-upstream-grok.mjs            yes        OK
+  examples/grok/                 pre-tool-use-guard.ts             yes        OK
+  root                           package.json                      yes        OK
+                                 pnpm-lock.yaml                    yes        OK
+                                 README.md                         yes        OK
+                                 CLAUDE.md                         yes        OK
+  tests/                         package-exports.test.ts           yes        OK
+
+Files outside expected set: NONE.
+Expected files missing: NONE.
+
+Note: tests/grok-events-drift.test.ts was added in d356f64 and later deleted by
+0338116 (consolidated into tests/grok-upstream-drift.test.ts); net file set is
+unaffected and matches the expected set exactly.
+
+$ git status --porcelain
+?? .grok/
+?? .omo/
+?? plans/
+
+Untracked entries are limited to .grok/, .omo/, plans/ (allowed scratch). No
+uncommitted product files.
+
+CHECK 1 RESULT: PASS — exact file-set match, clean product tree.
+
+----------------------------------------------------------------------
+CHECK 2 — MUST-HAVE MAPPING (plan .omo/plans/grok-adapter.md §Must have)
+----------------------------------------------------------------------
+
+$ git log --oneline 6a08ff3..HEAD
+87b241d docs(grok): add Grok adapter reference and incompatibility matrix
+73dc48d feat(grok): expose grok subpath exports
+5af4b10 feat(grok): add checkpointed Grok session tailing
+0338116 test(grok): consolidate events drift into upstream drift suite
+81c1197 feat(grok): add Grok hook runner
+38beb4a feat(grok): add Grok hook output builder
+85b6485 feat(grok): add Grok session block change model
+e7cb21e feat(grok): add Grok session discovery
+1cc6c8c chore(upstream): pin grok-build hook and session contract files
+63077e7 feat(grok): add Grok settings validation
+c659aad feat(grok): add hook envelope types and Zod validation
+d356f64 feat(grok): add events.jsonl event parser
+6dddfcd feat(grok): add updates.jsonl session update parser
+6fabae1 feat(grok): add bounded JSONL cursor primitive
+
+MH1. Grok-native hook support (types + Zod validation + output builder
+     allow/deny; Stop block/approve/force-stop/additionalContext +
+     executeGrokHook runner; 15 wire events + legacy subagent_end)
+  Commits:  c659aad (types+validation), 38beb4a (output builder),
+            81c1197 (runner)
+  Artifacts: src/grok/types.ts, src/grok/validation.ts,
+             src/grok/output-builder.ts, src/grok/execute.ts
+  Evidence:  src/grok/types.ts:22-37 GrokHookEventName const array lists all
+             15 wire events plus subagent_end:
+               session_start, user_prompt_submit, pre_tool_use, post_tool_use,
+               post_tool_use_failure, permission_denied, stop, stop_failure,
+               notification, subagent_start, subagent_stop, subagent_end,
+               pre_compact, post_compact, session_end
+  STATUS: MAPPED
+
+MH2. Grok settings validation (JSON + TOML hook config, command/http
+     handlers, matcher groups, event-key aliases; JSON fail-fast vs
+     TOML skip-bad-event semantics)
+  Commits:  63077e7
+  Artifacts: src/grok/settings.ts, tests/grok-settings.test.ts
+  STATUS: MAPPED
+
+MH3. Grok session discovery (GROK_HOME ?? ~/.grok, URL-encoded cwd with
+     blake3 slug fallback >255 bytes, .cwd file) + parse/tail of
+     updates.jsonl and events.jsonl
+  Commits:  e7cb21e (discovery), 6dddfcd (updates parser),
+            d356f64 (events parser), 5af4b10 (checkpointed tail),
+            6fabae1 (jsonl cursor primitive)
+  Artifacts: src/grok/processing/discovery.ts, src/grok/processing/updates.ts,
+             src/grok/processing/events.ts, src/grok/processing/tail.ts,
+             src/grok/processing/jsonl-cursor.ts
+  STATUS: MAPPED
+
+MH4. Grok-native normalized change model (upsert/delete blocks + activities
+     with provenance) inside src/grok/processing/, rewind-capable
+  Commits:  85b6485
+  Artifacts: src/grok/processing/blocks.ts, tests/grok-blocks.test.ts
+  STATUS: MAPPED
+
+MH5. Upstream pin: vendored event.rs, result.rs, runner/mod.rs,
+     session-events types.rs, plugins-types lib.rs, session-update-enum.txt
+     under docs/upstream/grok/ with Apache-2.0 NOTICE, pin manifest,
+     maintainer refresh script, drift tests
+  Commits:  1cc6c8c (vendor + pin.json + NOTICE + LICENSE-APACHE +
+            scripts/sync-upstream-grok.mjs), c659aad + 0338116 (drift tests)
+  Artifacts: docs/upstream/grok/{event.rs, result.rs, runner-mod.rs,
+             session-events-types.rs, plugins-types-lib.rs,
+             session-update-enum.txt, NOTICE, LICENSE-APACHE, pin.json},
+             scripts/sync-upstream-grok.mjs, tests/grok-upstream-drift.test.ts
+  $ ls docs/upstream/grok/
+  event.rs  LICENSE-APACHE  NOTICE  pin.json  plugins-types-lib.rs
+  result.rs  runner-mod.rs  session-events-types.rs  session-update-enum.txt
+  STATUS: MAPPED
+
+MH6. Public exports ./grok and ./grok/processing; root "." and all Claude
+     exports byte-identical
+  Commits:  73dc48d
+  Artifacts: package.json (additive exports only — see Check 3 diff),
+             src/grok/index.ts, src/grok/processing/index.ts,
+             tests/package-exports.test.ts
+  STATUS: MAPPED
+
+MH7. Docs: Grok vs Claude incompatibilities reference; no 30-event parity
+     claims
+  Commits:  87b241d
+  Artifacts: docs/reference/grok-adapter.md, README.md, CLAUDE.md
+  Note: plan todo 13 says "update AGENTS.md module list"; AGENTS.md is a
+  symlink to CLAUDE.md (verified: `ls -la` → AGENTS.md -> CLAUDE.md), so the
+  CLAUDE.md edit updates both paths. No finding.
+  STATUS: MAPPED
+
+MH8. Forward compatibility: unknown sessionUpdate/event tags preserved as
+     unknown native records, never fatal; malformed known variants reported
+     invalid, never downgraded
+  Commits:  6dddfcd (updates), d356f64 (events)
+  Artifacts: src/grok/processing/updates.ts:525-583 and
+             src/grok/processing/events.ts:347-377 — parse result unions
+             { kind: 'known' | 'unknown' | 'invalid' } with tag-peek dispatch;
+             unknown tags return raw preserved, malformed known variants
+             return invalid with error message.
+  STATUS: MAPPED
+
+Must-haves with no artifact: NONE.
+CHECK 2 RESULT: PASS — all 8 Must-haves map to committed artifacts.
+
+----------------------------------------------------------------------
+CHECK 3 — NO OUT-OF-SCOPE ADDITIONS
+----------------------------------------------------------------------
+
+$ git diff 6a08ff3..HEAD -- package.json
+diff --git a/package.json b/package.json
+index c0ee0b5..5f2a4ab 100644
+--- a/package.json
++++ b/package.json
+@@ -20,6 +20,14 @@
+       "import": "./dist/processing/index.js",
+       "types": "./dist/processing/index.d.ts"
+     },
++    "./grok": {
++      "import": "./dist/grok/index.js",
++      "types": "./dist/grok/index.d.ts"
++    },
++    "./grok/processing": {
++      "import": "./dist/grok/processing/index.js",
++      "types": "./dist/grok/processing/index.d.ts"
++    },
+     "./validation": {
+       "import": "./dist/validation/index.js",
+       "types": "./dist/validation/index.d.ts"
+@@ -105,6 +113,7 @@
+     "prepack": "pnpm run clean && pnpm run test:run && pnpm run check && pnpm run build"
+   },
+   "dependencies": {
++    "@noble/hashes": "^2.3.0",
+     "zod": "^4.3.6"
+   },
+   "devDependencies": {
+
+package.json delta: exactly two additive export subpaths (./grok,
+./grok/processing — mandated by MH6 / todo 12) and ONE new dependency
+@noble/hashes ^2.3.0 (mandated by todo 6 for the blake3 slug fallback).
+No other changes.
+
+$ git diff 6a08ff3..HEAD -- pnpm-lock.yaml
+(adds only: importer entry '@noble/hashes' specifier ^2.3.0 version 2.3.0;
+packages entry '@noble/hashes@2.3.0'; snapshots entry '@noble/hashes@2.3.0': {})
+Consistent with package.json; no stray lockfile churn.
+
+Bins:
+$ git show 6a08ff3:package.json | grep -A4 '"bin"'   (base)
+  "bin": { "claude-session-export": ..., "claude-session-tail": ... }
+$ grep -A4 '"bin"' package.json                      (HEAD)
+  "bin": { "claude-session-export": ..., "claude-session-tail": ... }
+Identical — no new bins. No new CLIs anywhere in the diffstat (no src/cli
+or bin-adjacent files touched).
+
+Diffstat scan for beyond-scope items: all 59 files fall inside the plan's
+allowed set (src/grok/**, tests/grok-*, tests/fixtures/grok/**,
+docs/upstream/grok/**, docs/reference/grok-adapter.md,
+scripts/sync-upstream-grok.mjs, examples/grok/**, package.json,
+pnpm-lock.yaml, README.md, CLAUDE.md/AGENTS.md, tests/package-exports.test.ts).
+No Claude-side source files (src/types, src/validation, src/utils,
+src/processing) appear in the diff at all.
+
+CHECK 3 RESULT: PASS — only @noble/hashes added, lockfile consistent, no new
+bins/CLIs, nothing beyond plan scope.
+
+----------------------------------------------------------------------
+CHECK 4 — COMMIT HYGIENE
+----------------------------------------------------------------------
+
+$ git log --format='%s' 6a08ff3..HEAD
+docs(grok): add Grok adapter reference and incompatibility matrix
+feat(grok): expose grok subpath exports
+feat(grok): add checkpointed Grok session tailing
+test(grok): consolidate events drift into upstream drift suite
+feat(grok): add Grok hook runner
+feat(grok): add Grok hook output builder
+feat(grok): add Grok session block change model
+feat(grok): add Grok session discovery
+chore(upstream): pin grok-build hook and session contract files
+feat(grok): add Grok settings validation
+feat(grok): add hook envelope types and Zod validation
+feat(grok): add events.jsonl event parser
+feat(grok): add updates.jsonl session update parser
+feat(grok): add bounded JSONL cursor primitive
+
+14 commits: 11x feat(grok), 1x chore(upstream), 1x docs(grok),
+1x test(grok). All conventional, all in the allowed type set.
+
+Todo-to-commit mapping (13 plan todos):
+  todo 1  -> 1cc6c8c chore(upstream): pin grok-build hook and session contract files
+  todo 2  -> c659aad feat(grok): add hook envelope types and Zod validation
+  todo 3  -> 38beb4a feat(grok): add Grok hook output builder
+  todo 4  -> 81c1197 feat(grok): add Grok hook runner
+  todo 5  -> 63077e7 feat(grok): add Grok settings validation
+  todo 6  -> e7cb21e feat(grok): add Grok session discovery
+  todo 7  -> 6dddfcd feat(grok): add updates.jsonl session update parser
+  todo 8  -> 6fabae1 feat(grok): add bounded JSONL cursor primitive
+  todo 9  -> d356f64 feat(grok): add events.jsonl event parser
+  todo 10 -> 5af4b10 feat(grok): add checkpointed Grok session tailing
+  todo 11 -> 85b6485 feat(grok): add Grok session block change model
+  todo 12 -> 73dc48d feat(grok): expose grok subpath exports
+  todo 13 -> 87b241d docs(grok): add Grok adapter reference and incompatibility matrix
+  extra   -> 0338116 test(grok): consolidate events drift into upstream drift suite
+             (test-only consolidation: deletes tests/grok-events-drift.test.ts,
+             folds its assertions into tests/grok-upstream-drift.test.ts;
+             conventional type, no product-surface change — acceptable)
+
+Planning-scratch scan:
+$ git log --format='%h' --name-only 6a08ff3..HEAD | grep -E '^(\.omo/|plans/|\.grok/)'
+(no output; exit 1)
+No commit touches plans/, .omo/, or .grok/.
+
+CHECK 4 RESULT: PASS — one conventional commit per todo plus one test-only
+consolidation; zero planning-scratch commits.
+
+----------------------------------------------------------------------
+OVERALL
+----------------------------------------------------------------------
+Check 1 FILE SET ............... PASS (59/59 exact; clean product tree)
+Check 2 MUST-HAVE MAPPING ...... PASS (8/8 mapped to commits + artifacts)
+Check 3 NO OUT-OF-SCOPE ........ PASS (only @noble/hashes; lock consistent;
+                                  no bins/CLIs)
+Check 4 COMMIT HYGIENE ......... PASS (14 conventional commits; no scratch)
+
+Findings: none.
+Non-finding observations:
+  - AGENTS.md is a symlink to CLAUDE.md; the docs commit's CLAUDE.md edit
+    satisfies the plan's AGENTS.md wording and the audit brief's CLAUDE.md
+    expectation simultaneously.
+  - Commit 0338116 is an extra (14th) commit beyond the 13 todos but is a
+    conventional test(grok) consolidation with no out-of-scope content.
+
+VERDICT: APPROVE

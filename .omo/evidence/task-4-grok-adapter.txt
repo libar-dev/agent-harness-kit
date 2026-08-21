@@ -1,0 +1,159 @@
+Task 4 — Grok hook runner (readGrokStdinJson + executeGrokHook + outputGrokJson)
+Repo: /Users/darkomijic/dev-libar/libar-agent-harness-kit (branch feat/grok-adapter)
+Date: 2026-08-13
+
+Changed files:
+- src/grok/execute.ts            (new: readGrokStdinJson, executeGrokHook, outputGrokJson, Grok output types)
+- tests/grok-execute.test.ts     (new: 19 tests, TDD red->green)
+- tests/grok-test-utils.ts       (additive: Grok stdin/stdout/stderr/exit mock variants; todo-2 factory untouched)
+- examples/grok/pre-tool-use-guard.ts (new: executable example)
+
+Invariant check:
+  $ grep -rn "getConfig|getProjectDir|logDebug" src/grok/
+  -> no matches (Grok path never reads CLAUDE_* config; logError only + optional GROK_HOOK_DEBUG flag)
+
+===============================================================================
+AUTOMATED VERIFICATION
+===============================================================================
+
+$ pnpm exec vitest run tests/grok-execute.test.ts   (3 consecutive runs)
+run1 exit=0 :: Test Files 2 passed (2) | Tests 36 passed (36) | Type Errors: no errors
+run2 exit=0 :: Test Files 2 passed (2) | Tests 36 passed (36) | Type Errors: no errors
+run3 exit=0 :: Test Files 2 passed (2) | Tests 36 passed (36) | Type Errors: no errors
+(19 runtime tests + 17 vitest-typecheck assertions; second "test file" entry is the
+TS typecheck pseudo-file. No real-time waits; the stdin-timeout test injects
+stdinTimeoutMs: 20 against a never-closing stdin mock.)
+
+$ pnpm run type-check
+-> exit 0 (clean; includes tests/, examples/, src/)
+
+$ pnpm exec eslint src/grok/execute.ts tests/grok-execute.test.ts tests/grok-test-utils.ts examples/grok/ --no-cache
+-> exit 0, zero errors, zero warnings
+
+Note: midway through this task the todo-10 lane's mid-write tests/grok-tail.test.ts
+briefly produced 7 cross-lane TypeCheckErrors (missing processing/tail.js import,
+implicit-any params). Not edited by this lane; the owning lane resolved them, after
+which all commands above pass with the exact mandated invocations.
+
+===============================================================================
+MANUAL QA — real process runs of examples/grok/pre-tool-use-guard.ts
+(stderr lines below strip pnpm's onlyBuiltDependencies WARN and tsx's
+DEP0205 module.register deprecation notice; both are launcher noise, not app output)
+===============================================================================
+
+--- QA-1 happy: valid fixture envelope ---------------------------------------
+$ pnpm exec tsx examples/grok/pre-tool-use-guard.ts < tests/fixtures/grok/hook-envelopes/pre_tool_use.json
+exit=0
+stdout:
+{
+  "decision": "allow"
+}
+stderr(app): (empty)
+
+--- QA-2 failure: malformed stdin --------------------------------------------
+$ echo 'not json' | pnpm exec tsx examples/grok/pre-tool-use-guard.ts
+exit=1
+stdout: (empty)
+stderr(app):
+[2026-08-13T05:33:39.618Z] ERROR: Grok hook execution failed
+Error: Failed to parse Grok hook input JSON: Unexpected token 'o', "not json
+" is not valid JSON
+    at readGrokStdinJson (.../src/grok/execute.ts:140:11)
+    at async executeGrokHook (.../src/grok/execute.ts:194:13)
+-> exit 1 is fail-open upstream: the tool call is NOT blocked by this failure.
+
+--- QA-3 failure: PascalCase hookEventName ------------------------------------
+$ sed 's/"pre_tool_use"/"PreToolUse"/' tests/fixtures/grok/hook-envelopes/pre_tool_use.json \
+    | pnpm exec tsx examples/grok/pre-tool-use-guard.ts
+exit=1
+stdout: (empty)
+stderr(app):
+[2026-08-13T05:33:51.299Z] ERROR: Grok hook execution failed
+-> stdin event names are snake_case only; aliases are config-side, never stdin-side.
+
+--- QA-4 handler-deny ----------------------------------------------------------
+$ sed 's/"pnpm test"/"rm -rf \/tmp\/qa-target"/' tests/fixtures/grok/hook-envelopes/pre_tool_use.json \
+    | pnpm exec tsx examples/grok/pre-tool-use-guard.ts
+exit=0
+stdout:
+{
+  "decision": "deny",
+  "reason": "Blocked by pre-tool-use guard: rm -rf /tmp/qa-target"
+}
+stderr(app): (empty)
+-> Handler printed the deny decision and returned normally, hence exit 0.
+   Upstream honors a deny decision regardless of the exit code (and ignores an
+   allow on exit 2), so the dangerous command is blocked. This contract is
+   JSDoc'd on executeGrokHook and on the example handler.
+
+===============================================================================
+ADVERSARIAL CLASSES
+===============================================================================
+- malformed input: covered by unit tests (not-json, truncated envelope, wrong-case
+  and unknown event names, missing toolInputTruncated) and QA-2/QA-3. A 129 KiB
+  toolInput string probe (1 KiB past upstream's 128 KiB truncation cap) validates
+  and reaches the handler intact (unit test).
+- misleading success output: every unit test asserts the exact exit-code sequence
+  AND stdout JSON; QA transcripts record real process exit codes alongside stdout.
+- hung commands: stdin-timeout path tested with a never-closing stdin mock and an
+  injected 20 ms timeout (no real 30 s wait); asserts exit 1 + timeout stderr line.
+- dirty worktree: other lanes' files (tests/grok-tail.test.ts, src/grok/processing/*)
+  observed mid-write; never edited. Scoped git status shows only this lane's files.
+- flaky tests: 3 consecutive green runs of the exact mandated command; no fixed
+  sleeps — the only timer is the behavior under test (shortened injected timeout).
+- prompt injection: envelope fields (toolInput.command, prompts, messages) are
+  treated strictly as data — validated by Zod, passed to the handler, never
+  evaluated, shell-executed, or interpolated into a command by the runner.
+- cancel-resume / stale state / repeated interruptions: N/A — the runner is a
+  single-shot stdin->stdout process with no persisted state, no resume surface,
+  and no checkpointing; interruption simply kills the process (upstream treats
+  non-zero/non-2 exits as fail-open).
+
+===============================================================================
+LOOP-BACK FIX (independent adversarial verification, verdict needs-fix)
+===============================================================================
+
+Defect (medium): with an injected exit hook, the stdin-timeout path invoked the
+exit function TWICE and emitted two stderr diagnostics — readGrokStdinText's
+timeout callback called exitFn(1) + logError, then rejected, and
+executeGrokHook's catch logged 'Grok hook execution failed' + exitFn(1) again.
+Real process.exit masked this by terminating at the first call.
+
+Verifier repro (pre-fix, stdinTimeoutMs: 1, never-resolving stdin, recording exit):
+  exit calls: [1,1]
+  stderr ERROR line count: 2
+
+Fix (design call: the reader owns timeout termination, single owner):
+- Added module-private GrokStdinTimeoutError; the reader's timeout callback does
+  logError + exitFn(1) exactly as before, then rejects with that typed error.
+- readGrokStdinJson rethrows GrokStdinTimeoutError unwrapped (it is not a parse
+  failure); all other errors keep the 'Failed to parse Grok hook input JSON' wrap.
+- executeGrokHook's input catch returns immediately on GrokStdinTimeoutError —
+  no second log, no second exit call. Observable contract on the timeout path
+  with an injected exit hook: exactly one exit(1) call and exactly one stderr
+  diagnostic ('Timeout waiting for Grok hook stdin input').
+- JSDoc updated on readGrokStdinJson (timeout rethrow semantics) and
+  executeGrokHook (exit-1 bullet names the reader-owned timeout path).
+
+Strengthened test (tests/grok-execute.test.ts, still the injected 20 ms timeout):
+  expect(exitRecorder.calls).toEqual([1]);                    // exact sequence
+  timeoutDiagnostics (stderr lines containing the timeout msg) toHaveLength(1)
+  expect(stderrOutput).not.toContain('Grok hook execution failed');
+
+Post-fix repro transcript (same harness as the verifier repro):
+  exit calls: [1]
+  stderr ERROR line count: 1
+
+Regression (post-fix):
+  pnpm exec vitest run tests/grok-execute.test.ts  -> x3 consecutive exit 0,
+    19 runtime tests + 17 typecheck assertions green, Type Errors: no errors
+  pnpm run type-check                              -> exit 0
+  pnpm exec eslint src/grok/execute.ts tests/grok-execute.test.ts \
+      tests/grok-test-utils.ts examples/grok/ --no-cache -> exit 0, zero problems
+
+Real-process QA re-run (unchanged from the original four probes):
+  QA-1 happy:       fixture pre_tool_use.json -> {"decision":"allow"} exit 0
+  QA-2 not json:    exit 1, stderr 'ERROR: Grok hook execution failed'
+  QA-3 wrong case:  hookEventName 'PreToolUse' -> exit 1, same stderr diagnostic
+  QA-4 deny:        'rm -rf /tmp/qa-target' -> {"decision":"deny","reason":"Blocked
+                    by pre-tool-use guard: rm -rf /tmp/qa-target"} exit 0

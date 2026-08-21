@@ -1,0 +1,256 @@
+F1 PLAN COMPLIANCE AUDIT — grok-adapter
+========================================
+Auditor: omo senpi-task child st_019ff9d1 (F1)
+Repo: /Users/darkomijic/dev-libar/libar-agent-harness-kit
+Branch: feat/grok-adapter @ 87b241d (13 implementation commits on top of base 6a08ff3)
+Date: 2026-08-13
+Plan audited: .omo/plans/grok-adapter.md (Must have / Must NOT have lists)
+Scope: compliance audit only; nothing fixed.
+
+Commit list (git log --oneline, oldest->newest on branch):
+  1cc6c8c chore(upstream): pin grok-build hook and session contract files
+  c659aad feat(grok): add hook envelope types and Zod validation
+  63077e7 feat(grok): add Grok settings validation
+  6fabae1 feat(grok): add bounded JSONL cursor primitive
+  e7cb21e feat(grok): add Grok session discovery
+  6dddfcd feat(grok): add updates.jsonl session update parser
+  d356f64 feat(grok): add events.jsonl event parser
+  38beb4a feat(grok): add Grok hook output builder
+  81c1197 feat(grok): add Grok hook runner
+  85b6485 feat(grok): add Grok session block change model
+  5af4b10 feat(grok): add checkpointed Grok session tailing
+  0338116 test(grok): consolidate events drift into upstream drift suite
+  73dc48d feat(grok): expose grok subpath exports
+  87b241d docs(grok): add Grok adapter reference and incompatibility matrix
+
+----------------------------------------------------------------------
+CHECK 1 — vendored upstream directory contents
+----------------------------------------------------------------------
+$ ls docs/upstream/grok/
+  event.rs
+  LICENSE-APACHE
+  NOTICE
+  pin.json
+  plugins-types-lib.rs
+  result.rs
+  runner-mod.rs
+  session-events-types.rs
+  session-update-enum.txt
+
+Expected EXACTLY 9 entries: event.rs, result.rs, runner-mod.rs,
+session-events-types.rs, plugins-types-lib.rs, session-update-enum.txt,
+NOTICE, pin.json, LICENSE-APACHE.
+Observed: exactly those 9, no extras, none missing.
+RESULT: PASS
+
+----------------------------------------------------------------------
+CHECK 2 — Claude-side files untouched
+----------------------------------------------------------------------
+$ git rev-parse --verify origin/main
+  6a08ff3fc7401af16027082d0211ca8b8386e354
+(origin/main IS present locally and equals the plan base; no fallback needed.)
+
+$ git diff --stat origin/main -- src/types src/validation src/utils src/processing
+  (empty, exit 0)
+
+$ git diff --stat 6a08ff3 -- tests/test-utils.ts
+  (empty, exit 0)
+
+RESULT: PASS (both diffs empty; HookOutputBuilder/executeHook/validateHookInput/
+hooksConfigSchema/src-processing all untouched; tests/test-utils.ts untouched —
+Grok fixtures live in the new tests/grok-test-utils.ts per plan)
+
+----------------------------------------------------------------------
+CHECK 3 — planning scratch never committed
+----------------------------------------------------------------------
+$ git status --porcelain plans/ .omo/ .grok/
+  ?? .grok/
+  ?? .omo/
+  ?? plans/
+(untracked only; nothing staged, nothing tracked)
+
+$ git ls-files plans/ .omo/ .grok/
+  (empty)
+
+$ git log --name-only 6a08ff3..HEAD -- plans/ .omo/ .grok/
+  (empty)
+
+RESULT: PASS
+
+----------------------------------------------------------------------
+CHECK 4 — no ask/defer/updatedInput outputs from src/grok
+----------------------------------------------------------------------
+$ grep -rnE '\b(ask|defer|updatedInput)\b' src/grok/
+  src/grok/processing/tail.ts:39:
+    /** Persist on successful tail or defer persistence to an explicit commit. */
+
+Judgment: single hit is a JSDoc comment in the session-tail module using
+"defer" as an English verb about checkpoint persistence timing — it is NOT a
+hook-output decision field. No builder method emits ask/defer/updatedInput
+(output-builder exposes only gateAllow/gateDeny/stopBlock/stopApprove/
+stopForce/stopContext/success/error per barrel src/grok/index.ts).
+RESULT: PASS
+
+----------------------------------------------------------------------
+CHECK 5 — Must-have walk (artifact + commit per item)
+----------------------------------------------------------------------
+M1. Grok-native hook support (types + Zod validation + output builder +
+    executeGrokHook runner; all 15 wire events incl. legacy subagent_end;
+    ported from HEAD e5fd4816 / SOURCE_REV ea094a8):
+    - src/grok/types.ts, src/grok/validation.ts        @ c659aad
+    - src/grok/output-builder.ts                       @ 38beb4a
+    - src/grok/execute.ts (executeGrokHook, readGrokStdinJson, outputGrokJson) @ 81c1197
+    - examples/grok/pre-tool-use-guard.ts              @ 81c1197
+    Runtime verification:
+    $ pnpm exec tsx -e "import { GrokHookEventName } from './src/grok/types.ts'; ..."
+      length: 15
+      session_start,user_prompt_submit,pre_tool_use,post_tool_use,
+      post_tool_use_failure,permission_denied,stop,stop_failure,notification,
+      subagent_start,subagent_stop,subagent_end,pre_compact,post_compact,session_end
+    SATISFIED.
+
+M2. Settings validation JSON + TOML with fail-fast vs skip-bad-event semantics:
+    - src/grok/settings.ts                             @ 63077e7
+    - exports validateGrokHooksConfig + validateGrokHooksToml (barrel verified)
+    - handler schema: z.enum(['command','http']) with command/url refinements
+    - alias tables present (PascalCase/snake_case/camelCase + legacy aliases)
+    SATISFIED.
+
+M3. Session discovery + updates/events parsing:
+    - src/grok/processing/discovery.ts                 @ e7cb21e
+      (getGrokHome, encodeGrokCwdDirname w/ blake3 from @noble/hashes/blake3.js,
+       findGrokSessionDirs, listGrokSessions, grokSummarySchema, .cwd fallback)
+    - src/grok/processing/updates.ts                   @ 6dddfcd (ACP + xAI unions)
+    - src/grok/processing/events.ts                    @ d356f64 (Event union)
+    SATISFIED.
+
+M4. Grok-native normalized change model (upsert/delete + activities + provenance,
+    no Claude SessionBlock unification, rewind-capable):
+    - src/grok/processing/blocks.ts                    @ 85b6485
+      (GrokSessionBlock, GrokBlockChange, GrokActivity, GrokRecordOrigin,
+       reduceGrokRecords, foldGrokBlockChanges — all exported from barrel)
+    SATISFIED.
+
+M5. Upstream pin (six contract files + NOTICE + pin manifest + refresh script +
+    drift tests):
+    - docs/upstream/grok/ 9 entries (check 1)          @ 1cc6c8c
+    - pin.json: head=e5fd4816d43260c15ba785f103990c1ed6cea230,
+                sourceRev=ea094a8c369475f97c85540d01730baec0dce5d6,
+                grokVersion=1.0.3, sha256 per file, fixtureRedump note,
+                @noble/hashes decision recorded in notes. JSON parses.
+    - scripts/sync-upstream-grok.mjs                   @ 1cc6c8c
+    - tests/grok-upstream-drift.test.ts reads docs/upstream/grok/event.rs and
+      docs/upstream/grok/session-events-types.rs (verified at lines 109/117);
+      extended for events drift                        @ 0338116
+    Drift suite executed:
+    $ pnpm exec vitest run tests/grok-upstream-drift.test.ts
+      Test Files 2 passed (2) | Tests 8 passed (8) | Type Errors: no errors
+    SATISFIED.
+
+M6. Public exports ./grok + ./grok/processing; root "." and Claude exports
+    byte-identical:
+    $ git diff 6a08ff3..HEAD -- package.json
+      Only two additive export blocks ("./grok", "./grok/processing") plus one
+      additive dependency line ("@noble/hashes": "^2.3.0"). The dependency is
+      plan-sanctioned (todo 6 decision, recorded in pin.json notes) and does not
+      touch the exports map. bin section unchanged (no bin hunk in diff).
+    - src/grok/index.ts barrel (types/validation/output-builder/execute/settings)
+    - src/grok/processing/index.ts barrel (discovery/updates/events/tail/blocks;
+      jsonl-cursor correctly internal — not exported)
+                                                      @ 73dc48d
+    SATISFIED.
+
+M7. Docs (Grok vs Claude incompatibilities reference; no 30-event parity claims):
+    - docs/reference/grok-adapter.md (235 lines)       @ 87b241d
+      line 222: "There is no 30-event parity, no Claude-to-Grok translator, and
+      no shared SessionBlock unification. Claude hook scripts will not run
+      correctly under Grok without a Grok-native entrypoint..."
+    - README.md "Grok (second harness)" section, 4 additive lines, attach-only
+      scope stated                                       @ 87b241d
+    SATISFIED.
+
+M8. Forward compatibility (unknown tags preserved, never fatal; malformed known
+    variants invalid, never downgraded):
+    - src/grok/processing/updates.ts:525-583 parseGrokSessionUpdate returns
+      {kind:'known'|'unknown'|'invalid'}; unknown tag -> raw preserved (line 577);
+      known-tag schema failure -> invalid (line 581). No throw, no .catch.
+    - src/grok/processing/events.ts:347-348 same tri-state for events.
+    SATISFIED.
+
+RESULT: PASS (all 8 Must-have items satisfied; nothing MISSING)
+
+----------------------------------------------------------------------
+CHECK 6 — Must-NOT walk
+----------------------------------------------------------------------
+N1. No ACP/Agent-SDK hook transport; no driving grok -p / grok agent; no
+    cockpit/HTTP forwarder for Grok:
+    $ grep -rniE 'agent-sdk|acp' src/grok/
+      9 hits, ALL in src/grok/processing/updates.ts: grokAcpSessionUpdateSchema,
+      acpEnvelopeSchema, acpTags — these implement the REQUIRED "ACP session/update
+      union" parsing of updates.jsonl (Must-have M3). No 'agent-sdk' hits.
+      No hook transport code.
+    $ grep -rnE 'spawn|execFile|execSync|child_process' src/grok/
+      Only event-variant name hits: 'subagent_spawned', 'spawn_failed'
+      (blocks.ts/events.ts/updates.ts) — schema literals, not process control.
+    PASS.
+
+N2. No mcp_tool/prompt/agent handler types in settings:
+    $ grep -nE "mcp_tool|'prompt'|\"prompt\"|type: 'agent'|z.literal\(" src/grok/settings.ts
+      (no hits)
+    Handler union is exactly z.enum(['command','http']) (settings.ts:81) with
+    command/url conditional refinements. 'agent' grep hits elsewhere are
+    SubagentStart/Stop/End EVENT-key aliases (hook events, not handler types).
+    No 17 Claude-only events ported (GrokHookEventName is exactly the 15).
+    No ask/defer/updatedInput outputs (check 4).
+    PASS.
+
+N3. No Claude<->Grok translator:
+    $ grep -rni 'translat' src/grok/
+      (no hits, exit 1)
+    Docs prescribe "write a Grok script" instead (grok-adapter.md:222, README).
+    PASS.
+
+N4. No new CLI bins:
+    package.json diff vs base contains no "bin" hunk; bin section unchanged.
+    PASS.
+
+N5. No git submodule / no CI network fetch / no vendoring beyond six files /
+    no npm dependency on Rust crates:
+    $ ls .gitmodules -> "No such file or directory"
+    Vendored set exactly the six contract files (check 1).
+    Only added dependency is @noble/hashes (pure JS, plan-sanctioned).
+    scripts/sync-upstream-grok.mjs takes a local checkout path (no CI fetch step
+    added; no CI files changed — none appear in branch diff).
+    PASS.
+
+N6. No planning scratch committed:
+    Covered by check 3 — plans/, .omo/, .grok/ untracked only; zero tracked
+    files; zero commits touching them.
+    PASS.
+
+N7. No `any` in src/grok or Grok tests:
+    $ grep -nE ': any|<any|as any' -r src/grok/ tests/grok-*.ts tests/fixtures/grok/
+      (no hits, exit 1)
+    PASS.
+
+RESULT: PASS (all Must-NOT items held)
+
+----------------------------------------------------------------------
+OBSERVATIONS (non-failing)
+----------------------------------------------------------------------
+O1. AGENTS.md is unchanged on the branch although todo 13's execution detail
+    mentioned updating its module list. This is not part of the plan's
+    Must-have list (Docs item is satisfied by docs/reference/grok-adapter.md +
+    README), so it does not fail F1; flagged for F4/final-review awareness.
+
+O2. README.md line 222-equivalent wording "15 hook events (14 wire events plus
+    the legacy subagent_end alias)" — consistent with runtime
+    GrokHookEventName.length === 15 and the passing drift test that pins the
+    list to the vendored event.rs hook_events! table.
+
+----------------------------------------------------------------------
+VERDICT
+----------------------------------------------------------------------
+All 6 check groups PASS; every Must-have has a committed artifact; every
+Must-NOT held. One non-failing observation (AGENTS.md not updated).
+VERDICT: APPROVE

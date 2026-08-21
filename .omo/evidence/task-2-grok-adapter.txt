@@ -1,0 +1,107 @@
+Task 2 evidence: Grok hook types, schemas, validators
+Date: 2026-08-13
+
+TDD failing-first receipt
+=========================
+Command:
+  pnpm exec vitest run tests/grok-validation.test.ts
+Result: exit 1, expected failure before implementation.
+Excerpt:
+  FAIL tests/grok-validation.test.ts
+  Error: Cannot find module '../src/grok/types.js'
+  TypeCheckError: Cannot find module '../src/grok/validation.js'
+  RED_EXIT=1
+
+Contract verification
+=====================
+Command:
+  pnpm exec vitest run tests/grok-validation.test.ts tests/grok-upstream-drift.test.ts
+Result: exit 0.
+  Test Files  4 passed (4)
+  Tests       16 passed (16)
+  Type Errors no errors
+
+The Vitest configuration runs runtime and TS test pools, so the 8 authored tests are reported once in each pool. The drift test parses docs/upstream/grok/event.rs, reads HookEventName's serde rename_all attribute, parses every hook_events! row, derives each serialized wire value, and compares it with GrokHookEventName in order and as symmetric sets.
+
+Command:
+  pnpm run type-check
+Result: exit 0 (tsc --noEmit).
+
+Command:
+  pnpm exec eslint src/grok/ tests/grok-validation.test.ts tests/grok-test-utils.ts tests/grok-upstream-drift.test.ts --no-cache
+Result: exit 0, no findings.
+
+Command:
+  pnpm exec tsc --project /tmp/task2-tsconfig.json --noEmit --typeRoots /Users/darkomijic/dev-libar/libar-agent-harness-kit/node_modules/@types
+Result: exit 0 (task-scoped independent type-check).
+
+Flake probe
+===========
+Command repeated three consecutive times:
+  pnpm exec vitest run tests/grok-validation.test.ts tests/grok-upstream-drift.test.ts
+Results:
+  Run 1: exit 0, 4 files / 16 tests, no type errors
+  Run 2: exit 0, 4 files / 16 tests, no type errors
+  Run 3: exit 0, 4 files / 16 tests, no type errors
+No sleeps, polling, or timing-dependent assertions are present.
+
+Manual QA: all fixture envelopes
+================================
+Command surface: pnpm exec tsx -e, reading tests/fixtures/grok/hook-envelopes/*.json and passing each parsed value through validateGrokHookInput.
+Output:
+  notification OK
+  permission_denied OK
+  post_compact OK
+  post_tool_use OK
+  post_tool_use_failure OK
+  pre_compact OK
+  pre_tool_use OK
+  session_end OK
+  session_start OK
+  stop OK
+  stop_failure OK
+  subagent_end OK
+  subagent_start OK
+  subagent_stop OK
+  user_prompt_submit OK
+Exactly 15 JSON fixture files were present.
+
+Manual QA: failure and boundary probes
+======================================
+Command surface: pnpm exec tsx -e, constructing boundary values and invoking validateGrokHookInput.
+Output:
+  wrong-case: ZodError
+  missing-toolInputTruncated: ZodError
+  unknown-event: ZodError
+  extra-unknown-field: accepted echoed
+  truncated-json: SyntaxError
+The wrong-case probe is a must-fail case and demonstrates that successful command execution did not mask validation failure.
+
+Adversarial coverage
+====================
+- Malformed input: wrong-case event, missing required truncation flag, unknown event, and truncated JSON all fail; an extra field is deliberately accepted and preserved by z.looseObject.
+- Misleading success output: the wrong-case must-fail probe printed ZodError, not a generic success marker.
+- Dirty worktree: scoped status listed only this task's six source/test paths plus the fixture directory; concurrent foreign entries were ignored. No files were staged or committed.
+- Flaky tests: the exact target command passed three consecutive runs without timing primitives.
+- Prompt injection: vendored Rust and hand-authored JSON fixtures were parsed solely as contract data. No text from those sources was interpreted as instructions or executed.
+- Cancel/resume, hung commands, repeated interruptions: N/A; no command hung or was cancelled and implementation completed in one uninterrupted task run.
+- Stale state: mandatory authority and style files were read from disk before implementation; final drift parsing re-read the vendored Rust source during every test run.
+
+Cleanup receipts
+================
+Commands and results:
+  git diff --name-only -- src/types src/validation src/utils src/processing tests/test-utils.ts
+    -> empty; no Claude files edited
+  git diff --cached --name-only -- <task paths>
+    -> empty; no staged files
+  git diff --check -- <task paths>
+    -> exit 0
+  grep for typed any, z.catch, and .catch( in task TypeScript files
+    -> no matches
+  git status --short -- <task paths>
+    -> only expected untracked task artifacts
+No git commit was created.
+
+Tooling note
+============
+The repository has no typescript-language-server executable, so LSP diagnostics were unavailable. The required full tsc type-check, Vitest TS pool, task-scoped tsc check, and ESLint all completed cleanly instead.

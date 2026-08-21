@@ -1,0 +1,98 @@
+TASK 3 — GrokHookOutputBuilder (gate + stop outputs only)
+Date: 2026-08-13
+Branch: feat/grok-adapter
+Files: src/grok/output-builder.ts (new), tests/grok-output-builder.test.ts (new),
+       src/grok/validation.ts (additive +35/-0 vs c659aad: grokGateOutputSchema,
+       grokStopHookSpecificOutputSchema, grokStopOutputSchema)
+
+OUTPUT AUTHORITY (docs/upstream/grok/runner-mod.rs, docs/upstream/grok/result.rs)
+- GateHookJson { decision: String (required), reason: Option<String> } for
+  pre_tool_use (the only Tool gate). "deny" reason falls back: nonblank JSON
+  reason -> first stderr line -> "denied by hook '<name>'". Unknown decision
+  literal is a hard error upstream. JSON deny honored on any exit code; exit 2
+  beats a JSON allow.
+- StopHookJson { decision?, reason?, continue?, stopReason?, hookSpecificOutput
+  .additionalContext? } for stop/subagent_stop/subagent_end (Stop gates); all
+  fields optional and combinable. decision "block"|"approve" only; blank reason
+  falls back to "Blocked by stop hook '<name>'"; additionalContext honored
+  NONBLANK only (filtered); stopReason NOT blank-filtered; continue:false
+  force-stop overrides blocks.
+- Every other event is an Observe gate: stdout decisions are ignored.
+  (Stated in src/grok/output-builder.ts module JSDoc.)
+
+BLANK-RULE CHOICES (mirroring runner-mod.rs filters)
+- gateDeny/stopBlock: blank/omitted reason is NOT serialized; upstream's
+  fallback chain applies (stderr first line / default message).
+- stopContext: blank argument omitted -> returns {} (empty output parses to
+  the same empty StopHookOutcome upstream; emitting the blank string would be
+  silently dropped by the same filter).
+- stopForce: stopReason serialized verbatim when provided (no upstream
+  nonblank filter on stop_reason).
+
+AUTOMATED VERIFICATION
+1) pnpm exec vitest run tests/grok-output-builder.test.ts — 3 consecutive runs:
+   run 1: Test Files 2 passed (2) | Tests 44 passed (44) | Type Errors: no errors
+   run 2: Test Files 2 passed (2) | Tests 44 passed (44) | Type Errors: no errors
+   run 3: Test Files 2 passed (2) | Tests 44 passed (44) | Type Errors: no errors
+   (44 = 22 runtime tests + 22 typecheck-mode entries)
+2) pnpm exec eslint src/grok/ tests/grok-output-builder.test.ts --no-cache
+   -> exit 0, zero problems.
+3) pnpm run type-check / pnpm exec tsc --noEmit
+   -> FULL-PROGRAM FAILURE IS CROSS-LANE NOISE ONLY. Concurrent lanes are
+   mid-write: tests/grok-execute.test.ts (todo 4, missing src/grok/execute.js
+   at the time) and tests/grok-tail.test.ts (todo 10, missing
+   src/grok/processing/tail.js + implicit-any params in that foreign file).
+   Scoped interpretation: zero tsc diagnostics mention
+   src/grok/output-builder.ts, src/grok/validation.ts, or
+   tests/grok-output-builder.test.ts (verified by grepping full tsc output);
+   vitest typecheck mode on the test file reports "Type Errors: no errors".
+   Foreign files were not edited.
+
+MANUAL QA — HAPPY PATH (pnpm exec tsx -e, real factory JSON + schema round-trip)
+gateAllow()                        {"decision":"allow"}                                roundtrip OK
+gateDeny("no writes")              {"decision":"deny","reason":"no writes"}            roundtrip OK
+gateDeny()                         {"decision":"deny"}                                 roundtrip OK
+gateDeny("  ")                     {"decision":"deny"}                                 roundtrip OK
+stopBlock("finish tests")          {"decision":"block","reason":"finish tests"}        roundtrip OK
+stopBlock()                        {"decision":"block"}                                roundtrip OK
+stopApprove()                      {"decision":"approve"}                              roundtrip OK
+stopForce("user halt")             {"continue":false,"stopReason":"user halt"}         roundtrip OK
+stopForce()                        {"continue":false}                                  roundtrip OK
+stopContext("remember failing...") {"hookSpecificOutput":{"additionalContext":"..."}}  roundtrip OK
+success()                          {}                                                  roundtrip OK
+success("msg")                     {}  (message never serialized; no such wire field)  roundtrip OK
+error("boom")                      {"continue":false,"stopReason":"boom"}              roundtrip OK
+
+MANUAL QA — FAILURE PROBES (pnpm exec tsx -e)
+stopContext("")      -> {} (blank omitted: upstream nonblank filter)
+stopContext("  \n ") -> {} (whitespace-only omitted, same rule)
+stopForce("")        -> {"continue":false,"stopReason":""} (verbatim: no upstream filter)
+roundtrip stopContext("") -> {} OK
+gate {decision:"maybe"}                 -> rejected: Invalid option: expected one of "allow"|"deny"
+gate {decision:"block"} (stop vocab)    -> rejected: Invalid option: expected one of "allow"|"deny"
+stop {decision:"deny"}  (gate vocab)    -> rejected: Invalid option: expected one of "block"|"approve"
+gate {decision:"deny",reason:42}        -> rejected: Invalid input: expected string, received number
+gate {} (missing decision)              -> rejected: Invalid option: expected one of "allow"|"deny"
+
+DIRTY WORKTREE (scoped git status, foreign lanes ignored)
+ M src/grok/validation.ts            (mine, additive +35/-0 vs c659aad)
+?? src/grok/output-builder.ts        (mine, new)
+?? tests/grok-output-builder.test.ts (mine, new)
+Foreign concurrent-lane entries observed and NOT touched: tests/grok-test-utils.ts (M),
+src/grok/execute.ts, examples/grok/, src/grok/processing/{blocks,tail}.ts,
+tests/grok-{blocks,execute,tail}.test.ts, .grok/, plans/.
+
+ADVERSARIAL CLASSES
+- malformed input: bad decision literals (maybe/block/deny cross-vocab), missing
+  decision, non-string reason, mistyped continue/stopReason/hookSpecificOutput —
+  all rejected by the Zod schemas (tests + probes above).
+- misleading success output: success("msg") serializes to exactly {} (asserted
+  via JSON.stringify === '{}'); any hand-built invalid output fails its schema
+  (shown above). Schemas are looseObject to mirror serde ignore-unknown, but
+  known fields are fully typed, so wrong vocabularies cannot pass.
+- dirty worktree: scoped status above; only my three files in my scope.
+- flaky tests: 3 consecutive green vitest runs (44/44 each), no timing
+  dependence (pure synchronous factories).
+- prompt injection / stale state / cancel-resume / hung commands / repeated
+  interruptions: N/A — pure deterministic factory functions with no I/O, no
+  process spawning, no environment reads, no shared mutable state.

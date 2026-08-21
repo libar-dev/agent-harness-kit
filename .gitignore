@@ -71,3 +71,14 @@ pnpm-debug.log*
 .claude-sessions/
 session-exports/
 .sisyphus/
+
+# OmO plans and durable state. Runtime trees stay local.
+.omo/*
+!.omo/boulder.json
+!.omo/drafts/
+!.omo/plans/
+!.omo/evidence/
+
+# Local agent planning outside OmO
+/plans/
+/.grok/

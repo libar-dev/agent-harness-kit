@@ -243,7 +243,16 @@ greptile review status --json      # whether HEAD already has a completed review
 
 ## Public Repository Hygiene
 
-Planning and context files created for agent workflows are ephemeral and must not be committed to the public repo. Examples include `prometheus-implementation-context.md` and `.omo/notepads/*` scratch files. Delete them before merging. Persistent guidance belongs in user-facing docs or ADRs, not in agent-context scratchpads.
+Scratch planning and agent-runtime files stay out of the public tree: free-floating context docs such as `prometheus-implementation-context.md`, `.omo/notepads/*`, `.omo/senpi-task/`, `.omo/start-work/`, repo-root `plans/`, and `.grok/`. Persistent product guidance belongs in user-facing docs or ADRs.
+
+Durable OmO recovery state is the exception and is tracked: `boulder.json`, `drafts/`, `plans/`, and durable `evidence/`. Commit those when they are created or materially changed. A plan may mark narrowly named runtime evidence as workspace-local. Never delete, prune, overwrite, or blanket-ignore unfamiliar `.omo/` state as cleanup — inspect it and preserve it until its owner and recovery value are clear.
+
+## Working discipline
+
+- **OmO state is recoverable project state.** Follow the hygiene rules above. Inspect before discarding.
+- **Commits are recovery boundaries, not workflow gates.** An execution plan's explicit commit strategy counts as authorization on its work branch; otherwise ask before committing. Prefer a commit after a coherent logical unit and its relevant quality gate, but never force one per todo, create empty commits, absorb unrelated or pre-existing changes, or commit from an unsafe dirty baseline. When no clean boundary exists, preserve and account for the state in the tracked plan/draft rather than discarding it; commit at the next safe boundary. Push only on the user's explicit request; never use `git stash`.
+- **GitHub transport on this workstation is SSH.** Use `git@github.com:<owner>/<repo>.git` remotes and confirm `gh auth status` reports `Git operations protocol: ssh` before a push. Do not switch remotes to HTTPS, replace SSH with token transport, or edit credential configuration unless the user explicitly requests that action.
+- **Unreleased OmO installs are user-controlled.** The user switches the official `~/dev-admin/oh-my-openagent` clone to `dev` when needed and owns `~/.omo/omo.jsonc`. Agents may inspect and report that state, but must not checkout, pull, build, globally install, or edit the OmO configuration unless the user explicitly requests that action.
 
 ## Comment Style
 

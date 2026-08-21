@@ -1,0 +1,84 @@
+Task 8 - Generic JSONL cursor primitive
+Date: 2026-08-13
+Scope: src/grok/processing/jsonl-cursor.ts, tests/grok-jsonl-cursor.test.ts
+
+TDD failing first
+Command:
+  pnpm exec vitest run tests/grok-jsonl-cursor.test.ts
+Observed non-zero exit before implementation:
+  FAIL tests/grok-jsonl-cursor.test.ts
+  Error: Cannot find module '/src/grok/processing/jsonl-cursor.js'
+  Test Files 2 failed (2)
+The command was wrapped with `test ${PIPESTATUS[0]} -ne 0` to assert the red run really failed.
+
+Focused verification - three consecutive runs
+Command:
+  for run in 1 2 3; do pnpm exec vitest run tests/grok-jsonl-cursor.test.ts || exit 1; done
+Results:
+  run 1: Test Files 2 passed (2); Tests 18 passed (18); Type Errors no errors
+  run 2: Test Files 2 passed (2); Tests 18 passed (18); Type Errors no errors
+  run 3: Test Files 2 passed (2); Tests 18 passed (18); Type Errors no errors
+Vitest reports the runtime suite and its TS typecheck suite separately; there are 9 behavioral cases.
+
+Static verification
+Command: pnpm run type-check
+Result: exit 0, tsc --noEmit clean.
+
+Command: pnpm exec eslint src/grok/processing/jsonl-cursor.ts tests/grok-jsonl-cursor.test.ts --no-cache
+Result: exit 0, no findings.
+
+Command: pnpm run lint
+Result: exit 0. One pre-existing warning was reported in out-of-scope src/lifecycle/subagent-stop.ts:328; the two task files were clean.
+
+Command: git diff --check -- src/grok/processing/jsonl-cursor.ts tests/grok-jsonl-cursor.test.ts
+Result: exit 0, no whitespace errors.
+
+LSP diagnostics
+Attempted for both changed TS files. The workstation does not have typescript-language-server installed, so LSP diagnostics were unavailable. `pnpm run type-check`, Vitest's TS suite, and scoped ESLint all passed instead; no workstation-global package was installed.
+
+Deterministic snapshot proof
+The focused test wraps node:fs/promises.open for one fixture. Its FileHandle.stat obtains the size snapshot and synchronously appends a second line before the first read. The first call returns only bytes inside the fstat snapshot; the second call returns the appended line. No sleeps or polling are used.
+
+Manual QA - happy path
+Command: pnpm exec tsx -e <tmp-file append/read script>
+Output:
+  {"first":["one","two","three"],"second":[],"held":[],"completed":["partial"],"offset":22}
+  cleanup: happy tmp removed
+This proves three initial lines, an empty second read, held partial bytes, and exactly one emission after completion.
+
+Manual QA - failure path
+Command: pnpm exec tsx -e <rename, 17 MiB oversized, and missing-file script>
+Output:
+  {"replacement":{"generation":1,"reset":true,"offset":0,"lines":["replacement"]},"oversized":{"diagnostics":[{"kind":"oversized","lineNumber":1,"byteStart":0,"byteEnd":17825794}],"lines":["ok"],"offset":17825797,"fileSize":17825797},"missing":{"lines":[],"cursorRetained":true,"fileSize":null}}
+  cleanup: 17 MiB fixture explicitly removed
+  cleanup: failure tmp removed
+
+Manual QA - adversarial malformed/resume probe
+Command: pnpm exec tsx -e <binary-garbage and serialized-cursor script>
+Output:
+  {"binary":["one","��"],"resume":["two"],"quiet":[],"serializedBytes":244}
+  cleanup: adversarial tmp removed
+Binary garbage is decoded with standard UTF-8 replacement characters and retained as a complete line. A cursor round-tripped through JSON resumes with exactly one appended line, then remains quiet.
+
+Adversarial classes
+- malformed input: oversized, torn partial, and binary-garbage lines covered. Oversized content is discarded after the configured bound while scanning fixed 64 KiB chunks.
+- cancel/resume: cursor JSON serialization probe resumed exactly once per appended line; the primitive is pull-based and has no active operation to cancel between calls.
+- stale state: same-inode shrink/regrow, same-size digest mismatch, and rename/inode replacement tests all force generation + 1 and byte-zero rescan.
+- misleading success output: missing-file test asserts empty lines, null fileSize, reset false, reference-identical retained cursor, and no offset advancement.
+- flaky tests: three consecutive focused runs passed; all fixtures are pull-based with no fixed sleeps or polling.
+- prompt injection: N/A. The primitive decodes bytes but never parses as commands, imports harness configuration, or executes file content.
+- hung commands: N/A. Reads are bounded by the open-file fstat snapshot and every scan loop advances by bytes read or terminates on zero bytes.
+- dirty worktree: scoped status showed only the two expected untracked task files before evidence creation. Foreign concurrent-worker entries were not inspected or modified.
+- repeated interruptions: serialized cursor probe demonstrates process-independent resume; partial tails remain uncommitted and are safely reread.
+
+Dependency/scope probes
+Command:
+  rg -n "Claude|CLAUDE_|getConfig" src/grok/processing/jsonl-cursor.ts
+Result: no matches.
+The module imports only node:crypto and node:fs/promises and is not added to a barrel.
+
+Cleanup receipts
+- Vitest afterAll recursively removed its os.tmpdir fixture root and asserted stat rejects with ENOENT. This root included the 17 MiB test fixture.
+- Happy manual-QA tmp root removed.
+- Failure manual-QA 17 MiB file removed explicitly, then its tmp root removed.
+- Adversarial manual-QA tmp root removed.

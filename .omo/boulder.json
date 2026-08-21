@@ -1,0 +1,18 @@
+{
+  "schema_version": 2,
+  "active_work_id": "grok-adapter",
+  "works": {
+    "grok-adapter": {
+      "work_id": "grok-adapter",
+      "active_plan": ".omo/plans/grok-adapter.md",
+      "plan_name": "grok-adapter",
+      "session_ids": [
+        "senpi:019ff964-96da-77e1-8c7d-618bc8ff15dd"
+      ],
+      "status": "completed",
+      "worktree_path": null,
+      "completed_at": "2026-08-13T07:07:06Z",
+      "pr_url": "https://github.com/libar-dev/agent-harness-kit/pull/3"
+    }
+  }
+}
