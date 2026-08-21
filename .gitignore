@@ -79,5 +79,4 @@ session-exports/
 !.omo/plans/
 
 # Local agent planning outside OmO
-/plans/
 /.grok/
