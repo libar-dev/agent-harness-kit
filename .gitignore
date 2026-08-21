@@ -72,7 +72,7 @@ pnpm-debug.log*
 session-exports/
 .sisyphus/
 
-# OmO plans and durable state. Runtime trees stay local.
+# OmO plans and state
 .omo/*
 !.omo/boulder.json
 !.omo/drafts/
