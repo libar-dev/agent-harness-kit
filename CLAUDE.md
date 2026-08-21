@@ -249,6 +249,7 @@ Scratch planning and agent-runtime files stay out of the public tree: free-float
 
 ## Working discipline
 
+- **Unslop.** Always on. Read `~/.agents/skills/unslop/SKILL.md` and apply it to every reply, commit message, PR body, and new doc. Existing context files get a later dedicated pass.
 - **OmO workspace state.** Follow the hygiene rules above. `.omo/plans/` is live only; `.plans/` is the archive.
 - **Commits are recovery boundaries, not workflow gates.** An execution plan's explicit commit strategy counts as authorization on its work branch; otherwise ask before committing. Prefer a commit after a coherent logical unit and its relevant quality gate, but never force one per todo, create empty commits, absorb unrelated or pre-existing changes, or commit from an unsafe dirty baseline. When no clean boundary exists, preserve and account for the state in the tracked plan/draft rather than discarding it; commit at the next safe boundary. Push only on the user's explicit request; never use `git stash`.
 - **GitHub transport on this workstation is SSH.** Use `git@github.com:<owner>/<repo>.git` remotes and confirm `gh auth status` reports `Git operations protocol: ssh` before a push. Do not switch remotes to HTTPS, replace SSH with token transport, or edit credential configuration unless the user explicitly requests that action.
