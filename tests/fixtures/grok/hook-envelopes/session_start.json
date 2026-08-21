@@ -1,0 +1,14 @@
+{
+  "hookEventName": "session_start",
+  "sessionId": "session-001",
+  "cwd": "/workspace/project",
+  "workspaceRoot": "/workspace/project",
+  "timestamp": "2026-08-13T04:00:00Z",
+  "transcriptPath": "/workspace/project/transcript.jsonl",
+  "clientIdentifier": "grok-build",
+  "promptId": "prompt-001",
+  "permissionMode": "default",
+  "source": "new",
+  "modelId": "grok-4",
+  "agentType": "coding"
+}

@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import * as rootExports from '../src/index.js';
 import * as lifecycleExports from '../src/lifecycle/index.js';
 import * as processingExports from '../src/processing/index.js';
+import * as grokExports from '../src/grok/index.js';
+import * as grokProcessingExports from '../src/grok/processing/index.js';
 import * as validationExports from '../src/validation/index.js';
 
 const repoRoot = process.cwd();
@@ -14,6 +16,14 @@ interface PackageExports {
     readonly types: string;
   };
   readonly './processing'?: {
+    readonly import: string;
+    readonly types: string;
+  };
+  readonly './grok'?: {
+    readonly import: string;
+    readonly types: string;
+  };
+  readonly './grok/processing'?: {
     readonly import: string;
     readonly types: string;
   };
@@ -104,6 +114,8 @@ function isPackageJsonShape(value: unknown): value is PackageJsonShape {
 const expectedPackageExportKeys = [
   '.',
   './processing',
+  './grok',
+  './grok/processing',
   './validation',
   './types',
   './utils',
@@ -154,6 +166,37 @@ const removedImplementationExports = [
   'parseSessionContent',
 ] as const;
 
+const expectedGrokRuntimeExports = [
+  'GrokHookEventName',
+  'executeGrokHook',
+  'grokGateOutputSchema',
+  'grokHookInputSchema',
+  'grokStopOutputSchema',
+  'outputGrokJson',
+  'readGrokStdinJson',
+  'validateGrokHookInput',
+  'validateGrokHooksConfig',
+  'validateGrokHooksToml',
+  'GrokHookOutputBuilder',
+] as const;
+
+const expectedGrokProcessingRuntimeExports = [
+  'commitGrokSessionCheckpoint',
+  'encodeGrokCwdDirname',
+  'findGrokSessionDirs',
+  'foldGrokBlockChanges',
+  'getGrokHome',
+  'grokEventSchema',
+  'grokSummarySchema',
+  'grokUpdateEnvelopeSchema',
+  'listGrokSessions',
+  'parseGrokEvent',
+  'parseGrokSessionUpdate',
+  'reduceGrokRecords',
+  'tailGrokSession',
+  'watchGrokSession',
+] as const;
+
 const expectedLifecycleHandlerExports = [
   'handleSetup',
   'handleMessageDisplay',
@@ -174,6 +217,14 @@ describe('package export contract', () => {
     expect(pkg.exports['./processing']).toEqual({
       import: './dist/processing/index.js',
       types: './dist/processing/index.d.ts',
+    });
+    expect(pkg.exports['./grok']).toEqual({
+      import: './dist/grok/index.js',
+      types: './dist/grok/index.d.ts',
+    });
+    expect(pkg.exports['./grok/processing']).toEqual({
+      import: './dist/grok/processing/index.js',
+      types: './dist/grok/processing/index.d.ts',
     });
     expect(pkg.exports['./validation']).toEqual({
       import: './dist/validation/index.js',
@@ -243,6 +294,12 @@ describe('package export contract', () => {
       access(join(repoRoot, 'src/processing/index.ts'))
     ).resolves.toBeUndefined();
     await expect(
+      access(join(repoRoot, 'src/grok/index.ts'))
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(repoRoot, 'src/grok/processing/index.ts'))
+    ).resolves.toBeUndefined();
+    await expect(
       access(join(repoRoot, 'src/types/index.ts'))
     ).resolves.toBeUndefined();
     await expect(
@@ -279,6 +336,25 @@ describe('package export contract', () => {
     for (const exportName of removedImplementationExports) {
       expect(rootExports).not.toHaveProperty(exportName);
     }
+    expect(rootExports).not.toHaveProperty('tailGrokSession');
+  });
+
+  it('exports the public Grok hook barrel surface', () => {
+    expect(Object.keys(grokExports).sort()).toEqual(
+      [...expectedGrokRuntimeExports].sort()
+    );
+
+    for (const exportName of expectedGrokRuntimeExports) {
+      expect(grokExports).toHaveProperty(exportName);
+    }
+  });
+
+  it('exports the public Grok processing barrel without its internal cursor', () => {
+    expect(Object.keys(grokProcessingExports).sort()).toEqual(
+      [...expectedGrokProcessingRuntimeExports].sort()
+    );
+    expect(grokProcessingExports).not.toHaveProperty('readJsonlDelta');
+    expect(grokProcessingExports).not.toHaveProperty('JsonlCursor');
   });
 
   it('exports only the ADR-approved runtime processing surface', () => {

@@ -1,0 +1,12 @@
+{
+  "hookEventName": "pre_tool_use",
+  "sessionId": "session-001",
+  "cwd": "/workspace/project",
+  "workspaceRoot": "/workspace/project",
+  "timestamp": "2026-08-13T04:02:00Z",
+  "toolName": "run_terminal_command",
+  "toolUseId": "tool-001",
+  "toolInput": {"command": "pnpm test"},
+  "toolInputTruncated": false,
+  "subagentType": "coding"
+}

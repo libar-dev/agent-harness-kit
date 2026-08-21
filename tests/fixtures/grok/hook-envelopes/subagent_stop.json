@@ -1,0 +1,12 @@
+{
+  "hookEventName": "subagent_stop",
+  "sessionId": "session-001",
+  "cwd": "/workspace/project",
+  "workspaceRoot": "/workspace/project",
+  "timestamp": "2026-08-13T04:10:00Z",
+  "phase": "gate",
+  "subagentId": "subagent-001",
+  "subagentType": "explore",
+  "stopHookActive": false,
+  "lastAssistantMessage": "Repository inspection complete."
+}

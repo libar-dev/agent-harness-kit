@@ -71,3 +71,13 @@ pnpm-debug.log*
 .claude-sessions/
 session-exports/
 .sisyphus/
+
+# OmO live state (archive finished plans to .plans/NN-slug.md)
+.omo/*
+!.omo/rules/
+!.omo/rules/**
+!.omo/plans/
+
+# Local agent planning outside OmO
+/plans/
+/.grok/
