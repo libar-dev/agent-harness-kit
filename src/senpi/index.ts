@@ -1,12 +1,13 @@
 /**
  * Public Senpi attach API.
  *
- * Initial Wave 1-3 surface: agent-home resolution, session v3 types,
- * hooks-config validation, and the vendored hook-contract manifest.
- * This is the stable `/senpi` subpath. Hook wire schemas, the command
- * runner, output builder, and trust modules are intentionally absent
- * here and land later through the finalized barrel. Cursor and
- * checkpoint marker internals are never exported from this package.
+ * Final `/senpi` surface: agent-home resolution, session v3 types,
+ * hooks-config validation, vendored hook-contract manifest, hook wire
+ * schemas and validators, command runner, output builder, read-only
+ * trust inspection, consent-gated trust writer, and observe-only
+ * hooks.json registration helpers. This barrel is now complete; later
+ * work must not add wildcard re-exports. Cursor and checkpoint marker
+ * internals are never exported from this package.
  *
  * Do not import this surface from the kit root barrel.
  */
@@ -64,3 +65,63 @@ export type {
 
 export { HOOK_DECISIONS, HOOK_INPUT_BRANCHES } from './hook-contract.js';
 export type { SenpiHookWireField } from './hook-contract.js';
+
+export {
+  senpiHookInputSchema,
+  senpiHookOutputSchema,
+  validateSenpiHookInput,
+} from './hook-wire.js';
+export type { SenpiHookInput, SenpiHookOutput } from './hook-wire.js';
+
+export {
+  executeSenpiHook,
+  outputSenpiJson,
+  readSenpiStdinJson,
+} from './execute.js';
+export type {
+  SenpiHookRunnerOptions,
+  SenpiStdinReadOptions,
+} from './execute.js';
+
+export { SenpiHookOutputBuilder } from './output-builder.js';
+
+export {
+  isSenpiCommandHookTrusted,
+  readSenpiHookTrustState,
+  senpiHashCommandHook,
+  senpiHookTrustId,
+} from './trust.js';
+export type {
+  SenpiHookSourceScope,
+  SenpiHookTrustEntry,
+  SenpiHookTrustOptions,
+  SenpiHookTrustPlatform,
+  SenpiHookTrustState,
+  SenpiHookTrustStateReadResult,
+  SenpiHookTrustStorageScope,
+  SenpiTrustCommandHookConfig,
+  SenpiTrustCommandHookHandler,
+  SenpiTrustHookSource,
+} from './trust.js';
+
+export {
+  SenpiTrustConsentError,
+  SenpiTrustLockError,
+  SenpiTrustStateMalformedError,
+  writeSenpiHookTrustEntry,
+} from './trust-writer.js';
+export type {
+  WriteSenpiHookTrustEntryOptions,
+  WriteSenpiHookTrustEntryResult,
+  WrittenSenpiHookTrustEntry,
+} from './trust-writer.js';
+
+export {
+  buildSenpiHooksRegistration,
+  writeSenpiHooksConfig,
+} from './registration.js';
+export type {
+  SenpiHooksRegistrationDocument,
+  SenpiHooksRegistrationGroup,
+  SenpiHooksRegistrationHandler,
+} from './registration.js';

@@ -201,8 +201,25 @@ const expectedSenpiRuntimeExports = [
   'SENPI_HOOK_EVENT_NAMES',
   'SENPI_UNSUPPORTED_HANDLER_TYPES',
   'SENPI_UNSUPPORTED_HOOK_EVENT_NAMES',
+  'SenpiHookOutputBuilder',
+  'SenpiTrustConsentError',
+  'SenpiTrustLockError',
+  'SenpiTrustStateMalformedError',
+  'buildSenpiHooksRegistration',
+  'executeSenpiHook',
+  'isSenpiCommandHookTrusted',
+  'outputSenpiJson',
+  'readSenpiHookTrustState',
+  'readSenpiStdinJson',
   'resolveSenpiAgentHome',
+  'senpiHashCommandHook',
+  'senpiHookInputSchema',
+  'senpiHookOutputSchema',
+  'senpiHookTrustId',
+  'validateSenpiHookInput',
   'validateSenpiHooksConfig',
+  'writeSenpiHookTrustEntry',
+  'writeSenpiHooksConfig',
 ] as const;
 
 const expectedSenpiProcessingRuntimeExports = [
@@ -435,7 +452,7 @@ describe('package export contract', () => {
     expect(grokProcessingExports).not.toHaveProperty('JsonlCursor');
   });
 
-  it('exports the initial public Senpi barrel surface', () => {
+  it('exports the final public Senpi barrel surface', () => {
     expect(Object.keys(senpiExports).sort()).toEqual(
       [...expectedSenpiRuntimeExports].sort()
     );
