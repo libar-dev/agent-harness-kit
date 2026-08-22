@@ -225,6 +225,7 @@ const expectedSenpiRuntimeExports = [
 const expectedSenpiProcessingRuntimeExports = [
   'commitSenpiSessionCheckpoint',
   'computeProjectionMutation',
+  'encodeSenpiCwdDirname',
   'findSenpiSessionDirs',
   'foldSenpiBlockChanges',
   'getSenpiSessionsRoot',
@@ -472,7 +473,6 @@ describe('package export contract', () => {
     expect(Object.keys(senpiProcessingExports).sort()).toEqual(
       [...expectedSenpiProcessingRuntimeExports].sort()
     );
-    expect(senpiProcessingExports).not.toHaveProperty('encodeSenpiCwdDirname');
     expect(senpiProcessingExports).not.toHaveProperty(
       'EMPTY_SENPI_BLOCK_REDUCTION_STATE'
     );

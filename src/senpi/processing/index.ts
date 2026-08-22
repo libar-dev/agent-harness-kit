@@ -39,7 +39,11 @@ export type {
 export { parseSenpiEntry } from './parse.js';
 export type { SenpiEntryParseResult, SenpiUnknownEntry } from './parse.js';
 
-export { findSenpiSessionDirs, getSenpiSessionsRoot } from './discovery.js';
+export {
+  encodeSenpiCwdDirname,
+  findSenpiSessionDirs,
+  getSenpiSessionsRoot,
+} from './discovery.js';
 
 export { listAllSenpiSessions, listSenpiSessions } from './listing.js';
 export type {

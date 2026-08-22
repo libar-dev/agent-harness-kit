@@ -119,7 +119,7 @@
     "clean": "rm -rf dist",
     "prepare": "pnpm run build",
     "reset": "pnpm run clean && pnpm run fix && pnpm run build",
-    "prepack": "pnpm run clean && pnpm run test:run && pnpm run check && pnpm run build"
+    "prepack": "pnpm run clean && pnpm run check && pnpm run build && pnpm run test:run"
   },
   "dependencies": {
     "@noble/hashes": "^2.3.0",
