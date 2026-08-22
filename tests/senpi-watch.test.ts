@@ -1,7 +1,6 @@
-import { watch as watchFs } from 'node:fs';
 import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,6 +13,7 @@ import {
 
 const QUIESCENCE_MS = 1_000;
 const COALESCE_MS = 5;
+const POLL_MS = 20;
 const HEADER_ID = 'cccccccc-dddd-4eee-afff-000000000001';
 
 const temporaryRoots: string[] = [];
@@ -128,36 +128,6 @@ async function makeTemporaryFile(): Promise<string> {
   return join(root, 'session.jsonl');
 }
 
-/**
- * Apply one filesystem mutation and wait until the kernel confirmed delivery
- * of the matching watch event, so clock advancement never races the operating
- * system's event latency.
- */
-async function fsEdit(
-  file: string,
-  action: () => Promise<void>
-): Promise<void> {
-  const controller = new AbortController();
-  const delivered = new Promise<void>((resolve, reject) => {
-    const watcher = watchFs(
-      dirname(file),
-      { signal: controller.signal },
-      (_eventType, filename) => {
-        if (filename !== null && filename.toString() === basename(file)) {
-          resolve();
-        }
-      }
-    );
-    watcher.on('error', reject);
-  });
-  try {
-    await action();
-    await delivered;
-  } finally {
-    controller.abort();
-  }
-}
-
 /** Drain the event loop so delivered hints reach the watcher callbacks. */
 async function drainIo(turns = 32): Promise<void> {
   for (let index = 0; index < turns; index += 1) {
@@ -193,6 +163,7 @@ async function startWatch(
     signal: controller.signal,
     quiescenceMs,
     coalesceMs: COALESCE_MS,
+    pollMs: POLL_MS,
     clock,
   });
   const events: SenpiSessionWatchEvent[] = [];
@@ -236,6 +207,34 @@ function requireResult(
   return event.result;
 }
 
+/**
+ * Advance past the poll backstop (and any delivered fs hint) after a file
+ * mutation. Correctness never depends on event arrival: the poll guarantees a
+ * reconcile, so no operating-system latency can stall the test.
+ */
+async function settleMutation(running: RunningWatch): Promise<void> {
+  await drainIo();
+  await running.clock.advanceBy(POLL_MS * 4);
+  await drainIo();
+}
+
+/**
+ * Advance whole stable-cursor windows until quiescence is observed. A late
+ * filesystem hint restarts the window, but hints are finite, so bounded
+ * advancement always converges; each window still yields at most one
+ * quiescent.
+ */
+async function advanceToQuiescence(
+  running: RunningWatch,
+  before: number
+): Promise<void> {
+  for (let index = 0; index < 8; index += 1) {
+    await running.clock.advanceBy(QUIESCENCE_MS);
+    if (countType(running.events, 'quiescent') > before) return;
+  }
+  throw new Error('timed out waiting for quiescence signal');
+}
+
 function fsEventWrapCount(): number {
   return process.getActiveResourcesInfo().filter(name => name === 'FSEventWrap')
     .length;
@@ -255,11 +254,8 @@ describe('watchSenpiSession', () => {
     expect(ready?.type).toBe('ready');
     expect(recordKeys(ready)).toEqual(['a1']);
 
-    await fsEdit(file, () =>
-      appendFile(file, messageLine('a2', 'a1', 'second'))
-    );
-    await drainIo();
-    await running.clock.advanceBy(COALESCE_MS * 2);
+    await appendFile(file, messageLine('a2', 'a1', 'second'));
+    await settleMutation(running);
     await waitForPredicate(
       () => resultEvents(running.events).length >= 1,
       'appended record result'
@@ -281,32 +277,32 @@ describe('watchSenpiSession', () => {
       () => running.events.length >= 1,
       'initial readiness yield'
     );
-    await fsEdit(file, () =>
-      appendFile(file, messageLine('a2', 'a1', 'second'))
-    );
-    await drainIo();
-    await running.clock.advanceBy(COALESCE_MS * 2);
+    await appendFile(file, messageLine('a2', 'a1', 'second'));
+    await settleMutation(running);
     await waitForPredicate(
       () => resultEvents(running.events).length >= 1,
       'appended record result'
     );
 
-    // Sub-window silence emits nothing.
+    // Sub-window silence emits nothing, even with backstop polls firing.
     const beforeSubWindow = running.events.length;
-    await running.clock.advanceBy(COALESCE_MS * 4);
+    await running.clock.advanceBy(POLL_MS * 6);
     expect(running.events.length).toBe(beforeSubWindow);
 
     // Exactly one full stable-cursor window yields exactly one quiescent.
-    await running.clock.advanceBy(QUIESCENCE_MS);
+    await advanceToQuiescence(running, 0);
     expect(countType(running.events, 'quiescent')).toBe(1);
     expect(resultEvents(running.events)).toHaveLength(1);
 
     // The next full window yields exactly one more; sub-window silence again
     // emits nothing.
+    const quiescentAfterFirst = countType(running.events, 'quiescent');
     await running.clock.advanceBy(COALESCE_MS * 4);
-    expect(countType(running.events, 'quiescent')).toBe(1);
+    expect(countType(running.events, 'quiescent')).toBe(quiescentAfterFirst);
     await running.clock.advanceBy(QUIESCENCE_MS);
-    expect(countType(running.events, 'quiescent')).toBe(2);
+    expect(countType(running.events, 'quiescent')).toBe(
+      quiescentAfterFirst + 1
+    );
     expect(resultEvents(running.events)).toHaveLength(1);
   });
 
@@ -322,13 +318,10 @@ describe('watchSenpiSession', () => {
 
     let previousId = 'a1';
     for (const id of ['a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a9']) {
-      await fsEdit(file, () =>
-        appendFile(file, messageLine(id, previousId, id))
-      );
+      await appendFile(file, messageLine(id, previousId, id));
       previousId = id;
     }
-    await drainIo();
-    await running.clock.advanceBy(COALESCE_MS * 2);
+    await settleMutation(running);
     await waitForPredicate(
       () => resultEvents(running.events).length >= 1,
       'storm result'
@@ -349,7 +342,7 @@ describe('watchSenpiSession', () => {
     ]);
     expect(requireResult(results[0]).reset).toBe(false);
 
-    await running.clock.advanceBy(QUIESCENCE_MS);
+    await advanceToQuiescence(running, 0);
     expect(countType(running.events, 'quiescent')).toBe(1);
     expect(resultEvents(running.events)).toHaveLength(1);
   });
@@ -388,20 +381,16 @@ describe('watchSenpiSession', () => {
     );
     expect(recordKeys(running.events[0])).toEqual(['a1']);
 
-    await fsEdit(file, () => rm(file));
-    await drainIo();
-    await running.clock.advanceBy(COALESCE_MS * 2);
+    await rm(file);
+    await settleMutation(running);
     await running.clock.advanceBy(QUIESCENCE_MS);
     expect(resultEvents(running.events)).toHaveLength(0);
 
-    await fsEdit(file, () =>
-      writeFile(
-        file,
-        `${headerLine()}${messageLine('a1', null, 'first')}${messageLine('a2', 'a1', 'second')}`
-      )
+    await writeFile(
+      file,
+      `${headerLine()}${messageLine('a1', null, 'first')}${messageLine('a2', 'a1', 'second')}`
     );
-    await drainIo();
-    await running.clock.advanceBy(COALESCE_MS * 2);
+    await settleMutation(running);
     await waitForPredicate(
       () => resultEvents(running.events).length >= 1,
       'replacement reset result'

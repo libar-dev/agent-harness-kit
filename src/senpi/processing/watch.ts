@@ -58,6 +58,14 @@ export interface SenpiSessionWatchOptions extends SenpiSessionTailOptions {
   readonly coalesceMs?: number;
   /** Clock for the quiescence and coalescing windows; defaults to real timers. */
   readonly clock?: SenpiWatchClock;
+  /**
+   * Optional wake-up backstop interval in milliseconds on the injected clock.
+   * When set, a repeating timer periodically triggers a reconcile so progress
+   * never depends on filesystem event delivery latency or loss. Poll wakes
+   * that observe no cursor movement emit nothing and leave the quiescence
+   * window untouched. Omitted or zero disables polling.
+   */
+  readonly pollMs?: number;
 }
 
 /**
@@ -96,7 +104,8 @@ export type SenpiSessionWatchEvent =
  * kept untouched and nothing is yielded; a reset is emitted only after the
  * replacement file is actually observed by `tailSenpiSession` (its own
  * invalidation predicate decides). Aborting the signal or closing iteration
- * releases the filesystem watcher.
+ * releases the filesystem watcher. An optional `pollMs` backstop reconciles
+ * on the injected clock even when filesystem hints are delayed or lost.
  *
  * @param file - Senpi session JSONL file to watch.
  * @param options - Tail options plus signal, window sizes, and clock.
@@ -116,17 +125,20 @@ export async function* watchSenpiSession(
     signal,
     quiescenceMs: _quiescenceMs,
     coalesceMs: _coalesceMs,
+    pollMs: _pollMs,
     clock: _clock,
     ...tailOptions
   } = options;
 
   let aborted = false;
+  const pollIntervalMs = options.pollMs ?? 0;
   let lastRevision: number | null = null;
   let lastByteOffset: number | null = null;
-  let wakeReason: 'change' | 'quiet' | null = null;
+  let wakeReason: 'change' | 'quiet' | 'poll' | null = null;
   let resumeWait: (() => void) | undefined;
   let coalesceHandle: NodeJS.Timeout | number | null = null;
   let quiescenceHandle: NodeJS.Timeout | number | null = null;
+  let pollHandle: NodeJS.Timeout | number | null = null;
 
   const wake = (): void => {
     const resume = resumeWait;
@@ -134,8 +146,10 @@ export async function* watchSenpiSession(
     resume?.();
   };
 
-  const markWake = (reason: 'change' | 'quiet'): void => {
-    if (reason === 'quiet' && wakeReason !== null) return;
+  /** Higher-priority reasons win: filesystem hints outrank quiet, quiet outranks polls. */
+  const markWake = (reason: 'change' | 'quiet' | 'poll'): void => {
+    if (wakeReason === 'change') return;
+    if (wakeReason === 'quiet' && reason === 'poll') return;
     wakeReason = reason;
   };
 
@@ -162,6 +176,24 @@ export async function* watchSenpiSession(
     }
   };
 
+  const disarmPoll = (): void => {
+    if (pollHandle !== null) {
+      clock.clearTimeout(pollHandle);
+      pollHandle = null;
+    }
+  };
+
+  /** Self-rescheduling backstop; never disarms or restarts quiescence. */
+  const armPoll = (): void => {
+    if (pollIntervalMs <= 0 || aborted || pollHandle !== null) return;
+    pollHandle = clock.setTimeout(() => {
+      pollHandle = null;
+      markWake('poll');
+      wake();
+      armPoll();
+    }, pollIntervalMs);
+  };
+
   const onActivity = (): void => {
     disarmQuiescence();
     if (coalesceHandle !== null) return;
@@ -186,6 +218,7 @@ export async function* watchSenpiSession(
   watcher.on('error', onActivity);
   signal?.addEventListener('abort', onAbort, { once: true });
   if (signal?.aborted === true) onAbort();
+  armPoll();
 
   const waitForEvent = (): Promise<void> =>
     new Promise<void>(resolve => {
@@ -236,15 +269,22 @@ export async function* watchSenpiSession(
       }
       if (observed && result !== null) {
         yield { type: 'result', result };
+        armQuiescence();
       } else if (reason === 'quiet') {
         yield { type: 'quiescent' };
+        armQuiescence();
+      } else if (reason === 'change') {
+        // Activity happened but moved nothing observable; restart the window.
+        armQuiescence();
       }
-      armQuiescence();
+      // A poll wake with nothing observed leaves the pending quiescence
+      // window running so polling can never suppress quiescence.
     }
   } finally {
     signal?.removeEventListener('abort', onAbort);
     disarmCoalesce();
     disarmQuiescence();
+    disarmPoll();
     watcher.close();
   }
 }
