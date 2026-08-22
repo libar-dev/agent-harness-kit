@@ -80,3 +80,6 @@ session-exports/
 
 # Local agent planning outside OmO
 /.grok/
+
+# Prometheus scratch context (repo AGENTS.md public-tree list)
+/prometheus-implementation-context.md

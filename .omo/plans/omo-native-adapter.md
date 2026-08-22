@@ -96,7 +96,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
 ## Todos
 > Implementation + Test = ONE todo. Never separate.
 <!-- APPEND TASK BATCHES BELOW THIS LINE WITH edit/apply_patch - never rewrite the headers above. -->
-- [ ] 1. Vendor senpi contract artifacts, pin.json, and tarball sync script
+- [x] 1. Vendor senpi contract artifacts, pin.json, and tarball sync script
   Recommended task executor category: unspecified-low - multi-file mechanical vendoring + script
   What to do / Must NOT do: Fetch the artifact of record: `npm pack @code-yeongyu/senpi@2026.8.19` (record the registry integrity sha512 in pin.json notes). Extract EXACTLY: docs/session-format.md, docs/settings.md, docs/environment-variables.md; ALL 21 hooks .d.ts files from dist/core/extensions/builtin/hooks/ (types, index, schema, trust, trust-storage, config-loader, command-runner, dispatcher, output-parser, output-bounds, safety, matcher, command, handler, diagnostics, plugin-loader, plugin-manifest, lifecycle-adapter, tool-adapter, stop-adapter, prompt-adapter - count must equal 21); AND the implementation files needed because .d.ts signatures alone are insufficient: hooks/trust.js (hash algorithm), hooks/output-parser.js (SYSTEM_MESSAGE_EVENTS, output parsing incl. decision "allow"), hooks/trust-storage.js (lock + scope paths), hooks/output-bounds.js, hooks/types.js. Store under docs/upstream/senpi/ preserving relative names (hooks files under docs/upstream/senpi/hooks/). Write NOTICE (MIT, code-yeongyu/senpi) - no Apache file. Write pin.json: {engineVersion:"2026.8.19", pinnedAt:<today>, source:"npm", registryIntegrity, files:{<name>:{upstreamPath, sha256}}, fixtureRedump, notes[]} with per-file sha256 of the vendored bytes. The pin is COMPLETE at this todo; later todos must never add vendored files post-hoc. Write scripts/sync-upstream-senpi.mjs accepting `node scripts/sync-upstream-senpi.mjs --tarball <path> [--check]`: re-extract, re-hash, compare to pin.json; --check writes nothing and exits non-zero printing `Senpi upstream vendor drift detected: <file>` on any mismatch; success prints `Senpi upstream vendor is in sync.` Must NOT fetch at test time or import engine code.
   Parallelization: Wave 1 | Blocked by: — | Blocks: 4, 5, 16, 19
@@ -105,7 +105,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios (name the exact tool + invocation): happy - run --check against pristine tarball, capture exit 0, Evidence <evidence-root>/task-1-check.log; failure - flip one byte in a vendored .d.ts copy, rerun, capture named-file drift error and non-zero exit, Evidence <evidence-root>/task-1-drift.log
   Commit: Y | feat(senpi): vendor senpi 2026.8.19 contract artifacts with pin and sync script
 
-- [ ] 2. Session v3 Zod schemas in src/senpi/types.ts
+- [x] 2. Session v3 Zod schemas in src/senpi/types.ts
   Recommended task executor category: unspecified-high - core contract schemas need strictness care
   What to do / Must NOT do: Define Zod schemas + z.infer exports for: entry base {type,id,parentId:string|null,timestamp}; session header {type:"session",version,id,timestamp,cwd,parentSession?}; the EXACTLY 9 known non-header entry tags (message, model_change, thinking_level_change, compaction, branch_summary, custom, custom_message, label, session_info) with payloads: message{message:AgentMessage}; model_change{provider,modelId}; thinking_level_change{thinkingLevel}; compaction{summary,tokensBefore,retainedTail?:AgentMessage[],firstKeptEntryId?,usage?,details?,fromHook?}; branch_summary{fromId,summary,...}; custom{customType,data?}; custom_message{customType,content,display,details?}; label{targetId,label}; session_info{name}; AgentMessage union user/assistant/toolResult/bashExecution/custom/branchSummary/compactionSummary with content blocks text/image/thinking{startedAt?,endedAt?}/toolCall and usage{input,output,cacheRead,cacheWrite,totalTokens,cost{input,output,cacheRead,cacheWrite,total}}. Use z.looseObject for additive forward-compat on all entry/message objects. No filesystem access, no hook schemas, no tree logic in this file.
   Parallelization: Wave 1 | Blocked by: — | Blocks: 5,6,7,8,10,14
@@ -114,7 +114,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - fence-parse unit tests/senpi-types.test.ts with >=10-parsed-entries assertion, Evidence <evidence-root>/task-2-types.log; failure - compaction missing `summary` parses as kind:'invalid', never throws, same evidence file
   Commit: Y | feat(senpi): session v3 entry and message schemas
 
-- [ ] 3. Agent-home resolution in src/senpi/home.ts
+- [x] 3. Agent-home resolution in src/senpi/home.ts
   Recommended task executor category: quick - single small pure module
   What to do / Must NOT do: Implement `resolveSenpiAgentHome(options?: {env?, homeDir?, exists?}): string` with exact precedence: first non-empty of OMO_CODING_AGENT_DIR, SENPI_CODING_AGENT_DIR, PI_CODING_AGENT_DIR (resolved absolute); `<homeDir>/.omo/agent` if it contains settings.json; `<homeDir>/.omo` if it contains settings.json; else `<homeDir>/.senpi/agent`. Pure/injectable. Also export AGENT_HOME_SENTINEL="settings.json" and AGENT_DIR_ENV_NAMES. No session discovery here.
   Parallelization: Wave 1 | Blocked by: — | Blocks: 11
@@ -123,7 +123,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - precedence matrix assertions green, Evidence <evidence-root>/task-3-home.log; failure - empty-string env value skipped not returned, same evidence
   Commit: Y | feat(senpi): agent-home resolution
 
-- [ ] 4. Hooks config validator in src/senpi/settings.ts
+- [x] 4. Hooks config validator in src/senpi/settings.ts
   Recommended task executor category: unspecified-high - diagnostic vocabulary parity is contract-critical
   What to do / Must NOT do: `validateSenpiHooksConfig(json: unknown): SenpiHooksConfig` validating: hooks record keyed by EXACTLY the 7 supported events (PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, PreCompact, PostCompact, Stop); handler groups {matcher?, hooks:[{type:"command", command, commandWindows?, timeout?, statusMessage?}]}; unknown event keys and unsupported handler types (http/prompt/agent/mcp_tool) produce typed diagnostics from the pinned HookDiagnosticCode vocabulary in vendored hooks/types.d.ts + diagnostics.d.ts (invalid_root, invalid_hooks, invalid_event_config, invalid_matcher, invalid_handler_group, invalid_handler_list, invalid_handler, invalid_command, invalid_command_windows, invalid_command_target, missing_command_target, invalid_timeout, invalid_status_message, unknown_event, unsupported_event, unsupported_field, unsupported_handler_type, unsupported_async_handler, unsupported_command_variant). Return {executableHandlers, diagnostics} mirroring ParsedHookConfig. No file discovery, no TOML, no execution.
   Parallelization: Wave 1 | Blocked by: 1 | Blocks: 5,15
@@ -132,7 +132,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - full-valid config round-trip, Evidence <evidence-root>/task-4-settings.log; failure - one http handler yields unsupported_handler_type diagnostic, not throw, same evidence
   Commit: Y | feat(senpi): hooks configuration validator with pinned diagnostics
 
-- [ ] 5. Upstream drift tests in tests/senpi-upstream-drift.test.ts
+- [x] 5. Upstream drift tests in tests/senpi-upstream-drift.test.ts
   Recommended task executor category: unspecified-high - two-way extraction logic against vendored sources
   What to do / Must NOT do: Parse vendored artifacts, assert BOTH directions against our code: (a) extract SUPPORTED_HOOK_EVENTS / UNSUPPORTED_KNOWN_HOOK_EVENTS / UNSUPPORTED_HANDLER_TYPES from hooks/types.d.ts and compare element-for-element with constants exported from src/senpi; (b) CREATE src/senpi/hook-contract.ts exporting HOOK_INPUT_BRANCHES (per-event required-field manifests copied VERBATIM from the HookInputWire union in vendored types.d.ts - e.g. SessionStart requires camelCase sessionId; permission_mode appears only on UserPromptSubmit; PreCompact has no accepted field; PostToolUse has no transcript_path) plus HOOK_DECISIONS = ["approve","block","deny","ask","allow"]; task 16 implements schemas strictly against this manifest; (c) extract entry `type` literals from vendored session-format.md json fences (regex-based, JSON.parse-independent) and compare with src/senpi/types.ts known-entry tags; (d) assert the vendored hooks .d.ts count equals 21; (e) include one mutation-detection case (tampered string makes the test fail with a named diff). Must NOT read the npm package at test time.
   Parallelization: Wave 1 | Blocked by: 1,2,4 | Blocks: 16,23
@@ -141,7 +141,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - green run log, Evidence <evidence-root>/task-5-drift.log; failure - mutation case red with named mismatch, same evidence
   Commit: Y | test(senpi): two-way drift tests against vendored 2026.8.19 artifacts
 
-- [ ] 6. Entry parser in src/senpi/processing/parse.ts
+- [x] 6. Entry parser in src/senpi/processing/parse.ts
   Recommended task executor category: quick - single-file parser with fully specified policy
   What to do / Must NOT do: `parseSenpiEntry(raw: unknown): SenpiEntryParseResult` returning {kind:'known', entry} for the 9 known non-header tags (message, model_change, thinking_level_change, compaction, branch_summary, custom, custom_message, label, session_info) plus the session header; {kind:'unknown', tag, entry, raw} for any other tag whose base {type,id,parentId,timestamp} validates (unknown entries are tree participants); {kind:'invalid', error, raw} for malformed known tags or base-invalid lines. Tag-peek dispatch per grok policy. No ordering/tree/IO logic.
   Parallelization: Wave 2 | Blocked by: 2 | Blocks: 7,12,15
@@ -150,7 +150,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - truth table green, Evidence <evidence-root>/task-6-parse.log; failure - malformed compaction returns invalid with message, never throws, same evidence
   Commit: Y | feat(senpi): known/unknown/invalid entry parser
 
-- [ ] 7. Tree projection in src/senpi/processing/projection.ts
+- [x] 7. Tree projection in src/senpi/processing/projection.ts
   Recommended task executor category: deep - one cohesive hard algorithmic problem, keep whole
   What to do / Must NOT do: Implement the approved design: SenpiTreeIndex {byId,parentById,childrenByParent,appendOrder,leafId,structuralLeaves,sessionName,labelsByTargetId}; index rules (reject duplicate id without overwrite; require parent already indexed; leaf = last accepted physical entry regardless of type); `resolveSenpiLeaf`; `projectSenpiBranch(entries, leafId, opts?)` -> root-to-leaf path records with stable keys; latest-compaction handling (retainedTail incl. [] authoritative, synthetic keys retained:<compaction-id>:<index>; legacy firstKeptEntryId range excluding older compactions; missing/off-path firstKept => warn + incomplete); off-path records disposition off_branch|summarized; cycle/missing-parent guards; warnings array. Pure helper `computeProjectionMutation(prevKeys, nextRecords)` returning {index,deleteCount,records,removedRecordKeys} | null via longest-common-prefix. Pure module: no IO.
   Parallelization: Wave 2 | Blocked by: 2,6,14 | Blocks: 10,12
@@ -159,7 +159,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - golden snapshot of projected linear history matches expected for the branch-switch fixture, Evidence <evidence-root>/task-7-projection.log; failure - cycle input yields invalid result with cycle diagnostic, no hang, same evidence
   Commit: Y | feat(senpi): v3 tree index, leaf resolution, compaction-aware projection
 
-- [ ] 8. Internal JSONL cursor in src/senpi/processing/jsonl-cursor.ts
+- [x] 8. Internal JSONL cursor in src/senpi/processing/jsonl-cursor.ts
   Recommended task executor category: unspecified-high - concurrency/digest edge cases across a file reader
   What to do / Must NOT do: Model on grok's cursor but senpi-owned: byte-offset scanning (0x0a), complete-line-only decode, partial-line deferral, inode/device identity, SHA-256 head+boundary digests, generation counter, oversized-line stream-discard diagnostic. Internal only - NOT exported from any barrel.
   Parallelization: Wave 2 | Blocked by: — | Blocks: 9,12
@@ -168,7 +168,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - cursor suite green, Evidence <evidence-root>/task-8-cursor.log; failure - same-size rewrite detected via boundary digest mismatch, same evidence
   Commit: Y | feat(senpi): internal bounded jsonl cursor
 
-- [ ] 9. Checkpoint marker in src/senpi/processing/checkpoint.ts
+- [x] 9. Checkpoint marker in src/senpi/processing/checkpoint.ts
   Recommended task executor category: quick - small marker module, fully specified
   What to do / Must NOT do: Senpi marker schema {sessionPathDigest, sessionId, device, inode, generation, offset, lineNumber, headDigest, boundaryDigest, revision, leafId, projectedRecordKeys[], markerVersion}; senpi-prefixed marker filenames; allowedMarkerRoots validation mirroring src/processing/tail.ts:1817-1870 gate semantics but independently implemented; atomic write via temp+rename under file lock; `commitSenpiSessionCheckpoint`; pure invalidation predicate. Never parses entries or decides branches.
   Parallelization: Wave 2 | Blocked by: 8 | Blocks: 12
@@ -177,7 +177,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - commit+reread equality, Evidence <evidence-root>/task-9-checkpoint.log; failure - offset-not-at-line-boundary forces invalidate=true, same evidence
   Commit: Y | feat(senpi): revisioned checkpoint markers with root gating
 
-- [ ] 10. Block model + fold in src/senpi/processing/blocks.ts
+- [x] 10. Block model + fold in src/senpi/processing/blocks.ts
   Recommended task executor category: unspecified-high - native block model + reduce/fold semantics
   What to do / Must NOT do: SenpiSessionBlock native model (role, entryId, parentId, branch status, origin entry|retained_tail, content blocks, usage, isError, timestamps, customType passthrough for custom/custom_message metadata blocks); `reduceSenpiProjection(previous, current)` producing upserts/deletes driven by projection mutations; `foldSenpiBlockChanges(changes): SenpiSessionBlock[]`. Stable block ids = entryId (+:<content-block-index> where split). Unknown/custom payloads stay metadata. No Claude/Grok type sharing.
   Parallelization: Wave 2 | Blocked by: 2,7 | Blocks: 12
@@ -186,7 +186,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - splice reduction golden, Evidence <evidence-root>/task-10-blocks.log; failure - dense custom stream (1000 senpi.todo-state entries) folds in O(n) within test timeout, same evidence
   Commit: Y | feat(senpi): native block reduction and folding
 
-- [ ] 11. Discovery + listing in src/senpi/processing/discovery.ts and listing.ts
+- [x] 11. Discovery + listing in src/senpi/processing/discovery.ts and listing.ts
   Recommended task executor category: unspecified-high - discovery + header-verified listing
   What to do / Must NOT do: discovery.ts: `getSenpiSessionsRoot(agentHome?)`, dash-encoded cwd dirname encoder (path with / replaced by -; document ambiguity, never decode), `findSenpiSessionDirs(projectCwd, agentHome?)` scanning `<agentHome>/sessions/` for candidate dirs; candidate generation may over-match (encoding ambiguity) because listing verifies headers. Skip `*-artifacts/` directories and per-cwd `extensions/` subdirs. listing.ts: `listSenpiSessions(projectCwd, agentHome?)` and `listAllSenpiSessions(agentHome?)` returning SenpiSessionInfo {path, id, cwd, name?, parentSessionPath?, created, modified, messageCount, firstMessage} (deliberate engine-parity minus allMessagesText) parsed from validated headers; firstMessage from the first user message; messageCount from a streaming full scan that is O(store) time and O(1) memory per file (bounded, no retention) - acceptable for a ~100 MB store; per-file failure isolation returning {kind:'valid'}|{kind:'invalid', error} entries; verify header cwd matches projectCwd for the per-project variant. No folding, no tailing.
   Parallelization: Wave 3 | Blocked by: 2,3 | Blocks: 12
@@ -195,7 +195,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - store with 3 projects lists correctly per-project and all (Evidence <evidence-root>/task-11-discovery.log); failure - ambiguous dirname (a-b vs a/b) resolved by header cwd check, same evidence
   Commit: Y | feat(senpi): session discovery and listing with header verification
 
-- [ ] 12. Tail orchestration in src/senpi/processing/tail.ts
+- [x] 12. Tail orchestration in src/senpi/processing/tail.ts
   Recommended task executor category: deep - integration of cursor/projection/blocks, shared insight
   What to do / Must NOT do: `tailSenpiSession(file, opts?)` integrating cursor scan -> parseSenpiEntry -> index update -> resolveSenpiLeaf -> projectSenpiBranch -> computeProjectionMutation vs prior projectedRecordKeys -> reduceSenpiProjection -> SenpiSessionTailResult {records, mutations(0..1 splice), offPath, diagnostics, leaf, previousByteOffset, nextByteOffset, fileSize, generation, revision, reset, checkpoint}. Automatic checkpoint mode persists only after full successful parse+projection; manual mode returns checkpoint for caller commit. Checkpoint invalidation per task 9 predicate (inode, size<offset, header/digest change, boundary, fromStart, malformed marker); cold rebuild replays [0,offset) without emitting and emits full splice from index 0. Terminal malformed line => leaf resolution invalid. Never expose cursor/marker types in the result.
   Parallelization: Wave 3 | Blocked by: 6,7,8,9,10,11 | Blocks: 13,15,23
@@ -204,7 +204,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - live-append sequence (write, tail, append, tail) golden log (Evidence <evidence-root>/task-12-tail.log); failure - truncated final line is deferred and reread next pass, same evidence
   Commit: Y | feat(senpi): leaf-linear session tail with splice mutations
 
-- [ ] 13. Watch + quiescence in src/senpi/processing/watch.ts
+- [x] 13. Watch + quiescence in src/senpi/processing/watch.ts
   Recommended task executor category: unspecified-high - watch + injected-clock quiescence
   What to do / Must NOT do: async-generator `watchSenpiSession(file, opts?)`: fs.watch events are wake-up hints only; every wake reconciles via tailSenpiSession; initial readiness yield; quiescence signal after configurable stable-cursor window (option quiescenceMs, default 30000) using injected clock (no fixed sleeps in tests); abort-signal cleanup; missing file retains prior checkpoint, no reset until replacement observed. Never duplicate projection/checkpoint logic.
   Parallelization: Wave 3 | Blocked by: 12 | Blocks: 15
@@ -213,7 +213,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - append-then-quiet sequence emits quiescence exactly once (Evidence <evidence-root>/task-13-watch.log); failure - watch-event storm coalesces to one tail per quiet interval, same evidence
   Commit: Y | feat(senpi): watch generator with stable-cursor quiescence
 
-- [ ] 14. Fixtures: sanitized real transcripts + synthetic edge cases
+- [x] 14. Fixtures: sanitized real transcripts + synthetic edge cases
   Recommended task executor category: unspecified-low - mechanical redaction + synthetic fixtures
   What to do / Must NOT do: Build tests/fixtures/senpi/: (a) 2-3 sanitized real session JSONL files copied from ~/.omo/agent/sessions (pick sessions with branch traffic and compaction; REDACT per category: message text content, tool arguments/outputs, cwd/home paths, session ids AND user-visible strings in every entry type - session_info.name, label.label strings, custom.data payloads replaced with type-preserving synthetic stubs (todo-state content leaks user text) - keep structure, entry types, tree shape, customType density); record redaction script tests/fixtures/senpi/redact.mjs so fixtures are reproducible; (b) synthetic fixtures: branch-switch, retainedTail compaction, legacy firstKeptEntryId compaction, duplicate-id, orphan-parent, multi-root, header-only, empty, unicode cwd. Manifest README.md documenting provenance. Must NOT commit unredacted personal data.
   Parallelization: Wave 2 | Blocked by: 2 | Blocks: 7,12
@@ -222,7 +222,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - fixtures parse + redaction idempotence log (Evidence <evidence-root>/task-14-fixtures.log); failure - privacy grep finds no original substrings (assertion passes = failure scenario avoided; document the negative check), same evidence
   Commit: Y | test(senpi): sanitized real and synthetic session fixtures
 
-- [ ] 15. Processing barrel, package export map, and export-surface tests (initial surface)
+- [x] 15. Processing barrel, package export map, and export-surface tests (initial surface)
   Recommended task executor category: quick - barrels + export-map edits + test extension
   What to do / Must NOT do: Create src/senpi/processing/index.ts (/senpi/processing barrel: types, parse, discovery/listing, projection, tail/watch/checkpoint commit, blocks) and an INITIAL src/senpi/index.ts exporting ONLY what exists after Wave 1-3 (home, session types re-export if desired, settings validator, hook-contract manifest, SenpiHookEventName consts - NO hook wire/runner/builder/trust modules; those land via todo 24). Cursor + marker internals NOT exported. Add exact package.json exports entries "./senpi" and "./senpi/processing" (no wildcards). Extend tests/package-exports.test.ts: exact export lists, cursor absence assertions, root barrel stays senpi-processing-free. Do not re-export from src/index.ts.
   Parallelization: Wave 3 | Blocked by: 4,6,7,8,9,10,11,12,13 | Blocks: 16,17,18,19,20,21,22,23,24
@@ -231,7 +231,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - export snapshot test green for the initial surface (Evidence <evidence-root>/task-15-exports.log); failure - the exact-list assertion rejects any name not in the approved list, including wildcard subpath entries, same evidence
   Commit: Y | feat(senpi): public barrels and package export surface
 
-- [ ] 16. Hook wire schemas in src/senpi/hook-wire.ts
+- [x] 16. Hook wire schemas in src/senpi/hook-wire.ts
   Recommended task executor category: unspecified-high - wire union parity with vendored types
   What to do / Must NOT do: Single canonical source for the hook wire: INPUT side = 7-event discriminated union whose per-branch fields are copied VERBATIM from the vendored HookInputWire union in hooks/types.d.ts and validated against HOOK_INPUT_BRANCHES from src/senpi/hook-contract.ts (note the asymmetries: SessionStart requires camelCase sessionId; permission_mode only on UserPromptSubmit; PreCompact has no accepted field; PostToolUse has no transcript_path). Accept camelCase primaries AND snake_case aliases (hook_event_name, session_id, tool_name, tool_input, tool_response, tool_use_id, will_retry, custom_instructions), normalizing once at this boundary. OUTPUT side = sourced from vendored output-parser.js / ParsedHookOutput["output"], NOT from types.d.ts HookOutputWire (which has only 6 fields): decision accepts "allow" as well as approve/block/deny/ask; reason, additionalContext, updatedInput, updatedToolOutput, continue; stopReason/suppressOutput/systemMessage are parser-level universal fields gated by SYSTEM_MESSAGE_EVENTS; hookSpecificOutput handled per vendored output-parser.js behavior. Export senpiHookInputSchema/senpiHookOutputSchema, validateSenpiHookInput, z.infer types. No settings/trust/IO.
   Parallelization: Wave 4 | Blocked by: 1,5,15 | Blocks: 17,18,20
@@ -240,7 +240,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - per-event fixture envelope validation (hand-authored one JSON per event under tests/fixtures/senpi/hook-inputs/), Evidence <evidence-root>/task-16-hook-wire.log; failure - PostToolUse with tool_response alias parses to toolOutput, same evidence
   Commit: Y | feat(senpi): hook input/output wire schemas with alias normalization
 
-- [ ] 17. Runner in src/senpi/execute.ts
+- [x] 17. Runner in src/senpi/execute.ts
   Recommended task executor category: unspecified-high - runner exit semantics parity
   What to do / Must NOT do: `readSenpiStdinJson(options?)` (bounded stdin read, 30s cap like grok), `outputSenpiJson(output)`, `executeSenpiHook(handler, options?)` with injectable stdin/stdout/exit seams. Semantics per VENDORED output-parser.js: exit 2 => {decision:'block', reason:<stderr-trimmed>}; otherwise stdout JSON parsed (universal fields continue/stopReason/suppressOutput/systemMessage event-gated to the 5-event SYSTEM_MESSAGE_EVENTS set; hookSpecificOutput per parser behavior); malformed/non-object stdout => diagnostic no-op exit 0; validation failure exit 1 with stderr log. Platform: win32 selects handler.commandWindows when present (mirror selectCommandForPlatform) via injectable platform option; POSIX is the tested path. Never read CLAUDE_* env, never reuse executeHook, never grant trust.
   Parallelization: Wave 4 | Blocked by: 15,16 | Blocks: 20,22
@@ -249,7 +249,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - scripted stdin/stdout round-trip per event (Evidence <evidence-root>/task-17-execute.log); failure - oversized stdin beyond cap truncates per documented policy without hang, same evidence
   Commit: Y | feat(senpi): hook command runner with senpi exit semantics
 
-- [ ] 18. Output builder in src/senpi/output-builder.ts
+- [x] 18. Output builder in src/senpi/output-builder.ts
   Recommended task executor category: quick - pure factory module
   What to do / Must NOT do: `SenpiHookOutputBuilder` pure factories returning schema-valid objects: approve(), block(reason?), deny(reason?), ask(reason?), context(additionalContext), updatedInput(input), updatedToolOutput(output), forceStop(stopReason?), systemMessage(text) (event-gated note in JSDoc), success(message?), error(reason). Every output round-trips senpiHookOutputSchema. No IO, no dispatch.
   Parallelization: Wave 4 | Blocked by: 15,16 | Blocks: 20
@@ -258,7 +258,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - factory/schema round-trip table (Evidence <evidence-root>/task-18-builder.log); failure - empty deny reason falls back per engine rule (documented in JSDoc + test), same evidence
   Commit: Y | feat(senpi): typed hook output builder
 
-- [ ] 19. Trust state read + pure hash parity in src/senpi/trust.ts
+- [x] 19. Trust state read + pure hash parity in src/senpi/trust.ts
   Recommended task executor category: unspecified-low - read-only module + golden hash
   What to do / Must NOT do: Read/validate HookTrustState v1 from <agentHome>/hooks-state.json and <cwd>/.senpi/hooks-state.json (scope global|project): {version:1, hooks:{<id>:{enabled,trustedHash?,scope,sourcePath,matcher?,commandPreview,updatedAt}}}; pure `senpiHookTrustId(handler)` and `senpiHashCommandHook(handler, opts?)` reproducing the algorithm in VENDORED hooks/trust.js exactly (the .d.ts has signatures only; the js is already pinned by task 1 - canonical-JSON sha256 ids of form hk_<sourceKeyHash>_<event>_<g>_<h>; platform-dependent hash input takes an INJECTED platform option, defaulting process.platform); `readSenpiHookTrustState(path)` with fail-closed malformed handling; `isSenpiCommandHookTrusted(handler, state)`. READ-ONLY: no writes anywhere in this module.
   Parallelization: Wave 4 | Blocked by: 1,15 | Blocks: 20,21
@@ -267,7 +267,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - golden hash parity (Evidence <evidence-root>/task-19-trust.log); failure - corrupted hooks-state.json yields fail-closed, not throw, same evidence
   Commit: Y | feat(senpi): read-only trust state inspection and hash parity
 
-- [ ] 20. Reference doc docs/reference/senpi-adapter.md
+- [x] 20. Reference doc docs/reference/senpi-adapter.md
   Recommended task executor category: writing - reference documentation
   What to do / Must NOT do: Write the full adapter reference mirroring docs/reference/grok-adapter.md structure: scope (attach-only), 7-event table with gate kinds and stdout honored fields, envelope contract (aliases), stdout contract + exit codes, runner, settings validation + config sources + trust gate, session layout + processing APIs table, tree/compaction semantics (persisted-leaf rule, splice mutations, checkpoint fields), pin/drift policy (npm tarball, engineVersion), OmO-vs-senpi naming note (OmO native = branded distribution; engine is senpi), Cockpit seam note. Update docs/README.md index. No prose pinning by tests beyond machine-checkable values.
   Parallelization: Wave 4/5 boundary | Blocked by: 15,16,17,18,19,24 | Blocks: —
@@ -276,7 +276,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - link/name audit script passes (Evidence <evidence-root>/task-20-docs.log); failure - any exported name in doc missing from barrels is caught by audit grep, same evidence
   Commit: Y | docs(senpi): adapter reference
 
-- [ ] 21. Consent-gated trust writer in src/senpi/trust-writer.ts
+- [x] 21. Consent-gated hook trust writer in src/senpi/trust-writer.ts
   Recommended task executor category: unspecified-high - locking/atomic write safety
   What to do / Must NOT do: Exported from the /senpi barrel as `writeSenpiHookTrustEntry(opts)` (todo 15's exact-list includes it) performing an EXPLICIT, caller-authorized write of one trust entry to the scoped hooks-state.json: file lock implemented INTERNALLY (mkdir/O_EXCL retry lock - NO new runtime npm dependency such as proper-lockfile), read-modify-write preserving ALL unrelated/unknown entries, atomic temp+rename, 0600 permissions, fail-closed on malformed existing state, requires an explicit `consent: true` option plus a `reason` string recorded in the entry. Never called from runner/settings/install code paths; no auto-trust. Export type documents that calling it IS the approval act.
   Parallelization: Wave 5 | Blocked by: 15,19 | Blocks: 22
@@ -285,7 +285,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - grant then isSenpiCommandHookTrusted true (Evidence <evidence-root>/task-21-trust-writer.log); failure - consent:false rejects with typed error, no file mutation (mtime assert), same evidence
   Commit: Y | feat(senpi): consent-gated hook trust writer
 
-- [ ] 22. Forwarder asset variant + hooks.json registration helper
+- [x] 22. Forwarder asset variant + hooks.json registration helper
   Recommended task executor category: unspecified-high - asset bundling + registration writer
   What to do / Must NOT do: (a) senpi forwarder asset: a silent command-hook script (modeled on src/forwarder/hook-forwarder.ts) that reads HookInputWire stdin and POSTs to a configured endpoint, exit 0 always (observe-only; never emits gate JSON); esbuild-bundled like dist/standalone/hook-forwarder.mjs (check src/forwarder/assets.ts + package.json build step and mirror) with --target=node22 (kit runtime floor is Node >=22; do not copy the legacy node18 target). (b) `buildSenpiHooksRegistration(events, command)` producing a hooks.json document for the 7 events (command type only), plus `writeSenpiHooksConfig(path, doc)` atomic write. Must NOT write trust state or enable gates (observe-only registration).
   Parallelization: Wave 5 | Blocked by: 15,17,21 | Blocks: 23
@@ -294,7 +294,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - end-to-end pipe->local-server capture (Evidence <evidence-root>/task-22-forwarder.log); failure - endpoint unreachable still exits 0 silently (observe-only guarantee), same evidence
   Commit: Y | feat(senpi): observe forwarder asset and hooks registration helper
 
-- [ ] 23. Cockpit Phase C cross-repo execution brief at plans/omo-native-adapter/cockpit-phase-c.md
+- [x] 23. Cockpit Phase C cross-repo execution brief at plans/omo-native-adapter/cockpit-phase-c.md
   Recommended task executor category: writing - cross-repo execution brief
   What to do / Must NOT do: Write the execution brief for the libar-cockpit observe adapter (executed in THAT repo under its own planning; this is a spec deliverable in this repo): mirror of src/main/services/grok/* file set (grokDiscovery/grokIngest/grokNormalize/grokRuntime/grokSessionFs/grokIngestSerializer/grokIngestError/grokProcessing + daemonComposition/grokSessionProcessing) mapped to senpi equivalents; harness id decision `omo` in shared schemas; lossy block map from SenpiSessionBlock; dynamic ESM import of /senpi + /senpi/processing; session-end via watch quiescence (no SessionEnd); ADR requirement (cockpit ADR equivalent of 0003) listed as prerequisite; merge-gate note: harness-kit PR merges only after Phase C integration tested. Must NOT include cockpit code changes in this repo.
   Parallelization: Wave 5 | Blocked by: 5,12,15 | Blocks: —
@@ -303,7 +303,7 @@ Your next move: approve to start execution via /start-work, or request changes. 
   QA scenarios: happy - completeness checklist in brief self-verified against cockpit file listing (Evidence <evidence-root>/task-23-phase-c-brief.log); failure - any cockpit grok file without a senpi mapping is listed in a gaps section rather than silently dropped, same evidence
   Commit: Y | docs(senpi): cockpit phase-c cross-repo execution brief
 
-- [ ] 24. Finalize /senpi barrel with hooks library exports
+- [x] 24. Finalize /senpi barrel with hooks library exports
   Recommended task executor category: quick - extend barrel + exact-list test once hooks modules exist
   What to do / Must NOT do: Extend src/senpi/index.ts to its FINAL approved surface: hook wire schemas+validators (16), execute runner + stdin/stdout helpers (17), output builder (18), trust read/pure hash (19), consent-gated writeSenpiHookTrustEntry (21). Update tests/package-exports.test.ts exact list to the final names; keep cursor/marker internals absent. No behavior changes to any module; no wildcard exports.
   Parallelization: Wave 5 | Blocked by: 15,16,17,18,19,21 | Blocks: 20
@@ -314,16 +314,16 @@ Your next move: approve to start execution via /start-work, or request changes. 
 
 ## Final verification wave
 > Runs in parallel after ALL todos. ALL must APPROVE. Surface results and wait for the user's explicit okay before declaring complete.
-- [ ] F1. Plan compliance audit
+- [x] F1. Plan compliance audit
   Recommended task executor category: unspecified-high - structural audit scripting
   Re-run the structural grammar check (column-zero `- [ ] N.`/`- [ ] F<n>.` rows, category line on every implementation row, numbering continuity, dependency-matrix consistency derived mechanically from Depends-on edges, no cycles) over .omo/plans/omo-native-adapter.md; verify every Success-criteria statement maps to an existing artifact path. Evidence <evidence-root>/final-f1-compliance.log. APPROVE only when every check passes with zero manual waivers.
-- [ ] F2. Code quality review
+- [x] F2. Code quality review
   Recommended task executor category: unspecified-high - adversarial code review
   Run `pnpm run check` + full `pnpm run test:run`; then spawn a FRESH unspecified-high adversarial reviewer over `git diff <base>...HEAD` limited to src/senpi/**, scripts/sync-upstream-senpi.mjs, tests/senpi-*, docs/upstream/senpi/**: verify no-explicit-any, JSDoc on every export, NodeNext .js imports, no dead code. Evidence <evidence-root>/final-f2-quality.log. APPROVE only with zero error-severity findings unresolved.
-- [ ] F3. Real manual QA (agent-executed, read-only)
+- [x] F3. Real manual QA (agent-executed, read-only)
   Recommended task executor category: deep - live-system proof
   Against the REAL store ~/.omo/agent/sessions (read-only, nothing copied into the repo): pick one real session with branch traffic; run tailSenpiSession from scratch and after a marker checkpoint; independently recompute expected linear history with a throwaway python jsonl leaf-walk and diff against the kit output; assert first/last user messages and message counts match. Then pipe each fixture envelope in tests/fixtures/senpi/hook-inputs/ through executeSenpiHook via node child process and assert exit codes/outputs match vendored semantics. Evidence <evidence-root>/final-f3-live-qa.log. APPROVE only on exact-match diffs.
-- [ ] F4. Scope fidelity
+- [x] F4. Scope fidelity
   Recommended task executor category: unspecified-high - guardrail audit
   Grep audits over src/ and tests/: zero imports matching @code-yeongyu/senpi or oh-my-openagent; zero imports of src/grok inside src/senpi; zero reads of auth.json; package.json dependencies unchanged from base (no new runtime deps); exports map has exactly ./senpi and ./senpi/processing additions (no wildcards); root barrel untouched. Evidence <evidence-root>/final-f4-scope.log. APPROVE only when every grep returns empty/expected.
 
