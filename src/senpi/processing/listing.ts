@@ -1,15 +1,19 @@
-import { createReadStream } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
-import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 
-import { senpiSessionHeaderSchema, type SenpiUserMessage } from '../types.js';
+import { senpiSessionHeaderSchema } from '../types.js';
 import {
   findSenpiSessionDirs,
   getSenpiSessionsRoot,
   listSenpiSessionFiles,
 } from './discovery.js';
-import { parseSenpiEntry } from './parse.js';
+import { mapConcurrentOrdered } from './concurrent-map.js';
+import {
+  readSenpiHeaderLine,
+  scanSenpiSessionSummary,
+} from './listing-scan.js';
+
+const DEFAULT_SCAN_CONCURRENCY = 4;
 
 /**
  * Options for session listing.
@@ -20,6 +24,12 @@ import { parseSenpiEntry } from './parse.js';
  */
 export interface SenpiListingOptions {
   readonly agentHome?: string | undefined;
+  /**
+   * Internal synchronization seam for deterministic scanner tests. Production
+   * callers omit it; when supplied, it runs inside the bounded worker slot.
+   * @internal
+   */
+  readonly beforeCandidateScan?: ((path: string) => Promise<void>) | undefined;
 }
 
 /**
@@ -68,13 +78,6 @@ export interface InvalidSenpiSession {
 /** Result of reading one discovered session file. */
 export type SenpiSessionListing = ValidSenpiSession | InvalidSenpiSession;
 
-/** Accumulated scan state for one session file (bounded, never retains entries). */
-interface ScanResult {
-  messageCount: number;
-  firstMessage: string | null;
-  lastName: string | undefined;
-}
-
 /**
  * List sessions of one project working directory.
  *
@@ -94,7 +97,7 @@ export async function listSenpiSessions(
   options?: SenpiListingOptions
 ): Promise<SenpiSessionListing[]> {
   const dirs = await findSenpiSessionDirs(projectCwd, options?.agentHome);
-  return listFromDirs(dirs, projectCwd);
+  return listFromDirs(dirs, projectCwd, options?.beforeCandidateScan);
 }
 
 /**
@@ -122,17 +125,26 @@ export async function listAllSenpiSessions(
   const dirs = rootEntries
     .filter(entry => entry.isDirectory())
     .map(entry => join(getSenpiSessionsRoot(options?.agentHome), entry.name));
-  return listFromDirs(dirs.sort((a, b) => a.localeCompare(b)));
+  return listFromDirs(
+    dirs.sort((a, b) => a.localeCompare(b)),
+    undefined,
+    options?.beforeCandidateScan
+  );
 }
 
 async function listFromDirs(
   dirs: readonly string[],
-  requiredCwd?: string
+  requiredCwd?: string,
+  beforeCandidateScan?: (path: string) => Promise<void>
 ): Promise<SenpiSessionListing[]> {
   const files = await listSenpiSessionFiles(dirs);
-  const listings = await Promise.all(
-    files.map(file => readSenpiSessionFile(file, requiredCwd))
-  );
+  const listings = await mapConcurrentOrdered(files, {
+    concurrency: DEFAULT_SCAN_CONCURRENCY,
+    map: async file => {
+      await beforeCandidateScan?.(file);
+      return readSenpiSessionFile(file, requiredCwd);
+    },
+  });
   return listings.filter(
     (listing): listing is SenpiSessionListing => listing !== null
   );
@@ -151,7 +163,7 @@ async function readSenpiSessionFile(
   requiredCwd?: string
 ): Promise<SenpiSessionListing | null> {
   try {
-    const headerLine = await readFirstLine(path);
+    const headerLine = await readSenpiHeaderLine(path);
     if (headerLine === null) {
       throw new Error('session file has no header line');
     }
@@ -175,7 +187,7 @@ async function readSenpiSessionFile(
       return null;
     }
 
-    const scan = await scanSessionFile(path);
+    const scan = await scanSenpiSessionSummary(path);
 
     const fileStat = await stat(path);
     const parsedCreated = new Date(header.timestamp);
@@ -203,100 +215,5 @@ async function readSenpiSessionFile(
       path,
       error: error instanceof Error ? error : new Error(String(error)),
     };
-  }
-}
-
-/**
- * Stream the whole session file line by line, counting `message` entries and
- * capturing the first user message text plus the latest session name.
- *
- * Deliberately O(store) time and O(1) memory per file: lines are processed as
- * streamed and no entry content is retained beyond the two scalars.
- *
- * @param path - Absolute session `.jsonl` path.
- * @throws Error naming the offending line number when any line cannot be
- *   decoded or fails entry validation - silent under-counting would be a
- *   misleading success.
- */
-async function scanSessionFile(path: string): Promise<ScanResult> {
-  const result: ScanResult = {
-    messageCount: 0,
-    firstMessage: null,
-    lastName: undefined,
-  };
-
-  const stream = createReadStream(path, { encoding: 'utf8' });
-  const lines = createInterface({ input: stream, crlfDelay: Infinity });
-  try {
-    let lineNumber = 0;
-    for await (const line of lines) {
-      lineNumber += 1;
-      if (line.trim().length === 0) {
-        continue;
-      }
-
-      let decoded: unknown;
-      try {
-        decoded = JSON.parse(line);
-      } catch (error: unknown) {
-        throw new Error(
-          `invalid JSON on line ${lineNumber}: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-
-      const parsed = parseSenpiEntry(decoded);
-      if (parsed.kind === 'invalid') {
-        throw new Error(`invalid entry on line ${lineNumber}: ${parsed.error}`);
-      }
-      if (parsed.kind === 'unknown') {
-        continue;
-      }
-
-      const entry = parsed.entry;
-      if (entry.type === 'message') {
-        result.messageCount += 1;
-        if (result.firstMessage === null && entry.message.role === 'user') {
-          result.firstMessage = userMessageText(entry.message);
-        }
-      } else if (entry.type === 'session_info') {
-        result.lastName = entry.name;
-      }
-    }
-  } finally {
-    lines.close();
-    stream.close();
-  }
-  return result;
-}
-
-function userMessageText(message: SenpiUserMessage): string {
-  if (typeof message.content === 'string') {
-    return message.content;
-  }
-  return message.content
-    .filter(block => block.type === 'text')
-    .map(block => block.text)
-    .join('\n');
-}
-
-/**
- * Stream-read the first non-empty line of a file without loading it fully.
- *
- * @param path - File to read.
- * @returns The first non-empty line, or null for an empty file.
- */
-async function readFirstLine(path: string): Promise<string | null> {
-  const stream = createReadStream(path, { encoding: 'utf8' });
-  const lines = createInterface({ input: stream, crlfDelay: Infinity });
-  try {
-    for await (const line of lines) {
-      if (line.trim().length > 0) {
-        return line;
-      }
-    }
-    return null;
-  } finally {
-    lines.close();
-    stream.close();
   }
 }

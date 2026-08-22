@@ -1,0 +1,532 @@
+Phase-C kit discovery bounds repair
+Base: b895f160b19d514ad5b0c2b1e6e66eca146ae992
+Branch: senpi-adapter
+Date: 2026-08-22
+
+THREAT / ROOT
+Cockpit list/find reaches listSenpiSessions, whose baseline Promise.all eagerly opened every candidate while node:readline buffered each header and record through newline. Candidate count therefore multiplied simultaneous attacker-controlled line allocations and CPU.
+
+CONTRACT EVIDENCE
+Largest checked fixture header: 172 bytes.
+Largest checked fixture record: 67,880 bytes.
+Header ceiling: 65,536 bytes (>380x fixture header).
+Record ceiling: 16,777,216 bytes (existing jsonl-cursor contract; >240x fixture record).
+Default candidate scan concurrency: 4.
+
+RED
+- Oversized header test received ordinary JSON parse error instead of code=header-line-too-large.
+- Oversized later-record test received ordinary JSON parse error instead of code=record-line-too-large.
+- Nine gated parent candidates observed maximum active scans=9; expected 4.
+
+GREEN
+pnpm exec vitest run tests/senpi-discovery.test.ts
+Test Files 2 passed (2)
+Tests 26 passed (26)
+Type Errors no errors
+
+MUTATION PROOF
+- Replacing workerCount=min(concurrency,item count) with workerCount=item count made the public-parent test fail: observed 9, expected 4. PARENT_POOL_MUTATION_EXPECTED_FAILURE=PASS.
+- Replacing the maxLineBytes guard with an unreachable MAX_SAFE_INTEGER guard made both exact oversized tests fail with ordinary parse errors. MUTATION_BYTE_GUARD_EXPECTED_FAILURE=PASS.
+- Both mutations were restored before gates.
+
+FINAL GATES
+$ pnpm exec eslint --no-cache <changed TypeScript files>
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/src/senpi/processing/listing-scan.ts
+  60:43  error  Replace `path:·string` with `⏎··path:·string⏎`  prettier/prettier
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/tests/senpi-discovery.test.ts
+  546:23  error  Replace `projectDir(agentHome,·'/work/hostile'),·'huge-header.jsonl'` with `⏎······projectDir(agentHome,·'/work/hostile'),⏎······'huge-header.jsonl'⏎····`  prettier/prettier
+  568:23  error  Replace `projectDir(agentHome,·'/work/hostile'),·'huge-record.jsonl'` with `⏎······projectDir(agentHome,·'/work/hostile'),⏎······'huge-record.jsonl'⏎····`  prettier/prettier
+
+✖ 3 problems (3 errors, 0 warnings)
+  3 errors and 0 warnings potentially fixable with the `--fix` option.
+
+INITIAL_CHANGED_FILE_LINT=FAIL (formatting corrected before final gate)
+$ pnpm run check
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @libar-dev/agent-harness-kit@0.2.0 check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> pnpm run type-check && pnpm run lint
+
+
+> @libar-dev/agent-harness-kit@0.2.0 type-check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> tsc --noEmit
+
+
+> @libar-dev/agent-harness-kit@0.2.0 lint /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> eslint . --cache --cache-location .eslint-custom.cache
+
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/src/lifecycle/subagent-stop.ts
+  328:18  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/src/senpi/processing/listing-scan.ts
+  60:43  error  Replace `path:·string` with `⏎··path:·string⏎`  prettier/prettier
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/tests/senpi-discovery.test.ts
+  546:23  error  Replace `projectDir(agentHome,·'/work/hostile'),·'huge-header.jsonl'` with `⏎······projectDir(agentHome,·'/work/hostile'),⏎······'huge-header.jsonl'⏎····`  prettier/prettier
+  568:23  error  Replace `projectDir(agentHome,·'/work/hostile'),·'huge-record.jsonl'` with `⏎······projectDir(agentHome,·'/work/hostile'),⏎······'huge-record.jsonl'⏎····`  prettier/prettier
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/tests/senpi-trust-writer.test.ts
+  132:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  160:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  180:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  291:17  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  295:18  warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+  329:20  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  336:9   warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+✖ 11 problems (3 errors, 8 warnings)
+  3 errors and 0 warnings potentially fixable with the `--fix` option.
+
+ ELIFECYCLE  Command failed with exit code 1.
+ ELIFECYCLE  Command failed with exit code 1.
+INITIAL_PNPM_CHECK=FAIL (same three formatting errors; corrected before final gate)
+$ pnpm exec eslint --no-cache <changed TypeScript files> (final)
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+CHANGED_FILE_LINT_FINAL=PASS
+$ pnpm run check (final)
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @libar-dev/agent-harness-kit@0.2.0 check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> pnpm run type-check && pnpm run lint
+
+
+> @libar-dev/agent-harness-kit@0.2.0 type-check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> tsc --noEmit
+
+
+> @libar-dev/agent-harness-kit@0.2.0 lint /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> eslint . --cache --cache-location .eslint-custom.cache
+
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/src/lifecycle/subagent-stop.ts
+  328:18  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/tests/senpi-trust-writer.test.ts
+  132:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  160:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  180:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  291:17  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  295:18  warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+  329:20  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  336:9   warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+✖ 8 problems (0 errors, 8 warnings)
+
+PNPM_CHECK_FINAL=PASS
+$ pnpm prepack
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @libar-dev/agent-harness-kit@0.2.0 prepack /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> pnpm run clean && pnpm run check && pnpm run build && pnpm run test:run
+
+
+> @libar-dev/agent-harness-kit@0.2.0 clean /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> rm -rf dist
+
+
+> @libar-dev/agent-harness-kit@0.2.0 check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> pnpm run type-check && pnpm run lint
+
+
+> @libar-dev/agent-harness-kit@0.2.0 type-check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> tsc --noEmit
+
+
+> @libar-dev/agent-harness-kit@0.2.0 lint /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> eslint . --cache --cache-location .eslint-custom.cache
+
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/src/lifecycle/subagent-stop.ts
+  328:18  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/tests/senpi-trust-writer.test.ts
+  132:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  160:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  180:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  291:17  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  295:18  warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+  329:20  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  336:9   warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+✖ 8 problems (0 errors, 8 warnings)
+
+
+> @libar-dev/agent-harness-kit@0.2.0 build /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> tsc --project tsconfig.build.json && esbuild src/forwarder/hook-forwarder.ts --bundle --platform=node --format=esm --target=node18 --outfile=dist/standalone/hook-forwarder.mjs && esbuild src/forwarder/hook-forwarder-senpi.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/standalone/hook-forwarder-senpi.mjs && node scripts/chmod-bins.mjs
+
+
+  dist/standalone/hook-forwarder.mjs  511.5kb
+
+⚡ Done in 20ms
+
+  dist/standalone/hook-forwarder-senpi.mjs  2.1kb
+
+⚡ Done in 1ms
+
+> @libar-dev/agent-harness-kit@0.2.0 test:run /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> vitest run
+
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.7 /Users/darkomijic/dev-libar/libar-agent-harness-kit
+
+[2026-08-22T17:57:24.221Z] ERROR: Timeout waiting for Senpi hook stdin input
+{}
+{}
+{}
+ ❯ tests/package-exports.test.ts (14 tests | 2 failed) 349ms
+     × exports the public Senpi processing barrel without cursor or marker internals 4ms
+     × smoke-imports the senpi package subpaths 334ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/package-exports.test.ts > package export contract > exports the public Senpi processing barrel without cursor or marker internals
+AssertionError: expected [ …(17) ] to deeply equal [ …(14) ]
+
+- Expected
++ Received
+
+@@ -1,6 +1,9 @@
+  [
++   "SENPI_LISTING_HEADER_MAX_BYTES",
++   "SENPI_LISTING_RECORD_MAX_BYTES",
++   "SenpiListingDiagnosticError",
+    "commitSenpiSessionCheckpoint",
+    "computeProjectionMutation",
+    "encodeSenpiCwdDirname",
+    "findSenpiSessionDirs",
+    "foldSenpiBlockChanges",
+
+ ❯ tests/package-exports.test.ts:473:56
+    471|
+    472|   it('exports the public Senpi processing barrel without cursor or mar…
+    473|     expect(Object.keys(senpiProcessingExports).sort()).toEqual(
+       |                                                        ^
+    474|       [...expectedSenpiProcessingRuntimeExports].sort()
+    475|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/package-exports.test.ts > package export contract > smoke-imports the senpi package subpaths
+AssertionError: expected [ …(17) ] to deeply equal [ …(14) ]
+
+- Expected
++ Received
+
+@@ -1,6 +1,9 @@
+  [
++   "SENPI_LISTING_HEADER_MAX_BYTES",
++   "SENPI_LISTING_RECORD_MAX_BYTES",
++   "SenpiListingDiagnosticError",
+    "commitSenpiSessionCheckpoint",
+    "computeProjectionMutation",
+    "encodeSenpiCwdDirname",
+    "findSenpiSessionDirs",
+    "foldSenpiBlockChanges",
+
+ ❯ tests/package-exports.test.ts:515:51
+    513|       [...expectedSenpiRuntimeExports].sort()
+    514|     );
+    515|     expect(Object.keys(packageProcessing).sort()).toEqual(
+       |                                                   ^
+    516|       [...expectedSenpiProcessingRuntimeExports].sort()
+    517|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 91 passed (92)
+      Tests  2 failed | 2247 passed (2249)
+Type Errors  no errors
+   Start at  19:57:22
+   Duration  10.17s (transform 2.56s, setup 0ms, import 5.06s, tests 20.74s, environment 3ms, typecheck 757ms)
+
+ ELIFECYCLE  Command failed with exit code 1.
+ ELIFECYCLE  Command failed with exit code 1.
+INITIAL_PNPM_PREPACK=FAIL (package runtime-export snapshot rejected unnecessary new exports; exports removed before final prepack)
+$ pnpm prepack (final after removing unnecessary runtime exports)
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @libar-dev/agent-harness-kit@0.2.0 prepack /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> pnpm run clean && pnpm run check && pnpm run build && pnpm run test:run
+
+
+> @libar-dev/agent-harness-kit@0.2.0 clean /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> rm -rf dist
+
+
+> @libar-dev/agent-harness-kit@0.2.0 check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> pnpm run type-check && pnpm run lint
+
+
+> @libar-dev/agent-harness-kit@0.2.0 type-check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> tsc --noEmit
+
+
+> @libar-dev/agent-harness-kit@0.2.0 lint /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> eslint . --cache --cache-location .eslint-custom.cache
+
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/src/lifecycle/subagent-stop.ts
+  328:18  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/tests/senpi-trust-writer.test.ts
+  132:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  160:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  180:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  291:17  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  295:18  warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+  329:20  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  336:9   warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+✖ 8 problems (0 errors, 8 warnings)
+
+
+> @libar-dev/agent-harness-kit@0.2.0 build /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> tsc --project tsconfig.build.json && esbuild src/forwarder/hook-forwarder.ts --bundle --platform=node --format=esm --target=node18 --outfile=dist/standalone/hook-forwarder.mjs && esbuild src/forwarder/hook-forwarder-senpi.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/standalone/hook-forwarder-senpi.mjs && node scripts/chmod-bins.mjs
+
+
+  dist/standalone/hook-forwarder.mjs  511.5kb
+
+⚡ Done in 15ms
+
+  dist/standalone/hook-forwarder-senpi.mjs  2.1kb
+
+⚡ Done in 1ms
+
+> @libar-dev/agent-harness-kit@0.2.0 test:run /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> vitest run
+
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.7 /Users/darkomijic/dev-libar/libar-agent-harness-kit
+
+[2026-08-22T17:58:14.291Z] ERROR: Timeout waiting for Senpi hook stdin input
+{}
+{}
+{}
+
+ Test Files  92 passed (92)
+      Tests  2249 passed (2249)
+Type Errors  no errors
+   Start at  19:58:11
+   Duration  10.40s (transform 2.87s, setup 0ms, import 6.31s, tests 23.40s, environment 3ms, typecheck 646ms)
+
+PNPM_PREPACK_FINAL=PASS
+$ pnpm run check (post immediate-reject hardening)
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @libar-dev/agent-harness-kit@0.2.0 check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> pnpm run type-check && pnpm run lint
+
+
+> @libar-dev/agent-harness-kit@0.2.0 type-check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> tsc --noEmit
+
+
+> @libar-dev/agent-harness-kit@0.2.0 lint /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> eslint . --cache --cache-location .eslint-custom.cache
+
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/src/lifecycle/subagent-stop.ts
+  328:18  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/tests/senpi-trust-writer.test.ts
+  132:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  160:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  180:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  291:17  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  295:18  warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+  329:20  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  336:9   warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+✖ 8 problems (0 errors, 8 warnings)
+
+PNPM_CHECK_POST_HARDENING=PASS
+$ pnpm prepack (final immediate-reject delta)
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @libar-dev/agent-harness-kit@0.2.0 prepack /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> pnpm run clean && pnpm run check && pnpm run build && pnpm run test:run
+
+
+> @libar-dev/agent-harness-kit@0.2.0 clean /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> rm -rf dist
+
+
+> @libar-dev/agent-harness-kit@0.2.0 check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> pnpm run type-check && pnpm run lint
+
+
+> @libar-dev/agent-harness-kit@0.2.0 type-check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> tsc --noEmit
+
+
+> @libar-dev/agent-harness-kit@0.2.0 lint /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> eslint . --cache --cache-location .eslint-custom.cache
+
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/src/lifecycle/subagent-stop.ts
+  328:18  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/tests/senpi-trust-writer.test.ts
+  132:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  160:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  180:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  291:17  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  295:18  warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+  329:20  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  336:9   warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+✖ 8 problems (0 errors, 8 warnings)
+
+
+> @libar-dev/agent-harness-kit@0.2.0 build /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> tsc --project tsconfig.build.json && esbuild src/forwarder/hook-forwarder.ts --bundle --platform=node --format=esm --target=node18 --outfile=dist/standalone/hook-forwarder.mjs && esbuild src/forwarder/hook-forwarder-senpi.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/standalone/hook-forwarder-senpi.mjs && node scripts/chmod-bins.mjs
+
+
+  dist/standalone/hook-forwarder.mjs  511.5kb
+
+⚡ Done in 16ms
+
+  dist/standalone/hook-forwarder-senpi.mjs  2.1kb
+
+⚡ Done in 1ms
+
+> @libar-dev/agent-harness-kit@0.2.0 test:run /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> vitest run
+
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.7 /Users/darkomijic/dev-libar/libar-agent-harness-kit
+
+[2026-08-22T17:59:41.395Z] ERROR: Timeout waiting for Senpi hook stdin input
+{}
+{}
+{}
+
+ Test Files  92 passed (92)
+      Tests  2249 passed (2249)
+Type Errors  no errors
+   Start at  19:59:39
+   Duration  10.21s (transform 2.43s, setup 0ms, import 5.33s, tests 21.01s, environment 3ms, typecheck 663ms)
+
+PNPM_PREPACK_EXACT_FINAL=PASS
+$ pnpm exec eslint --no-cache <exact final changed files>
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+CHANGED_FILE_LINT_EXACT_FINAL=PASS
+$ pnpm run check (exact final)
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @libar-dev/agent-harness-kit@0.2.0 check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> pnpm run type-check && pnpm run lint
+
+
+> @libar-dev/agent-harness-kit@0.2.0 type-check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> tsc --noEmit
+
+
+> @libar-dev/agent-harness-kit@0.2.0 lint /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> eslint . --cache --cache-location .eslint-custom.cache
+
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/src/lifecycle/subagent-stop.ts
+  328:18  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/tests/senpi-trust-writer.test.ts
+  132:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  160:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  180:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  291:17  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  295:18  warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+  329:20  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  336:9   warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+✖ 8 problems (0 errors, 8 warnings)
+
+PNPM_CHECK_EXACT_FINAL=PASS
+$ pnpm prepack (exact final test split)
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @libar-dev/agent-harness-kit@0.2.0 prepack /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> pnpm run clean && pnpm run check && pnpm run build && pnpm run test:run
+
+
+> @libar-dev/agent-harness-kit@0.2.0 clean /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> rm -rf dist
+
+
+> @libar-dev/agent-harness-kit@0.2.0 check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> pnpm run type-check && pnpm run lint
+
+
+> @libar-dev/agent-harness-kit@0.2.0 type-check /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> tsc --noEmit
+
+
+> @libar-dev/agent-harness-kit@0.2.0 lint /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> eslint . --cache --cache-location .eslint-custom.cache
+
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/src/lifecycle/subagent-stop.ts
+  328:18  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+/Users/darkomijic/dev-libar/libar-agent-harness-kit/tests/senpi-trust-writer.test.ts
+  132:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  160:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  180:11  warning  Unsafe assignment of an `any` value                                                                  @typescript-eslint/no-unsafe-assignment
+  291:17  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  295:18  warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+  329:20  warning  Unsafe type assertion: type 'Record<string, unknown>' is more narrow than the original type          @typescript-eslint/no-unsafe-type-assertion
+  336:9   warning  Unsafe type assertion: type 'WriteSenpiHookTrustEntryOptions' is more narrow than the original type  @typescript-eslint/no-unsafe-type-assertion
+
+✖ 8 problems (0 errors, 8 warnings)
+
+
+> @libar-dev/agent-harness-kit@0.2.0 build /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> tsc --project tsconfig.build.json && esbuild src/forwarder/hook-forwarder.ts --bundle --platform=node --format=esm --target=node18 --outfile=dist/standalone/hook-forwarder.mjs && esbuild src/forwarder/hook-forwarder-senpi.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/standalone/hook-forwarder-senpi.mjs && node scripts/chmod-bins.mjs
+
+
+  dist/standalone/hook-forwarder.mjs  511.5kb
+
+⚡ Done in 11ms
+
+  dist/standalone/hook-forwarder-senpi.mjs  2.1kb
+
+⚡ Done in 8ms
+
+> @libar-dev/agent-harness-kit@0.2.0 test:run /Users/darkomijic/dev-libar/libar-agent-harness-kit
+> vitest run
+
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.7 /Users/darkomijic/dev-libar/libar-agent-harness-kit
+
+[2026-08-22T18:02:12.344Z] ERROR: Timeout waiting for Senpi hook stdin input
+{}
+{}
+{}
+
+ Test Files  94 passed (94)
+      Tests  2249 passed (2249)
+Type Errors  no errors
+   Start at  20:02:10
+   Duration  10.16s (transform 2.47s, setup 0ms, import 5.15s, tests 21.30s, environment 3ms, typecheck 637ms)
+
+PNPM_PREPACK_EXACT_FINAL_SPLIT=PASS
+
+LOCAL RUNTIME
+node=v26.7.0 pnpm=10.4.1
+No native Node 24 executable/version manager was present; exact Node 22/24 required from GitHub matrix for pushed SHA.
+
+MANUAL QA
+Public listSenpiSessions over 9 real candidates: maximum active scanner gates=4; 9 listings returned in deterministic path order.
+Oversized header and later record returned isolated invalid listings with typed codes; no process rejection/crash.
