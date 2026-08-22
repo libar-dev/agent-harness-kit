@@ -60,6 +60,6 @@ Unslop every reply, commit message, PR body, and new doc. Skill: `~/.agents/skil
 
 Commits are recovery boundaries. A plan's commit strategy authorizes commits on that work branch. Otherwise ask. Push only when asked. No `git stash`.
 
-Before a push, the remote must be `git@github.com:<owner>/<repo>.git` and `gh auth status` must report `Git operations protocol: ssh`. Ask before changing remotes or credentials.
+Push over the existing remote and protocol - HTTPS + gh token works here. Treat SSH + key checks as a fallback only when HTTPS/token auth fails (the old ssh-first rule came from a Fedora machine where tokens kept breaking, not this one). Ask before changing remotes or credentials.
 
 The user owns `~/dev-admin/oh-my-openagent` and `~/.omo/omo.jsonc`. Inspect and report. Do not checkout, pull, build, install, or edit OmO unless asked.
