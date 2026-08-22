@@ -1,5 +1,5 @@
 // allow: SIZE_OK — one deterministic fixture covers the watcher lifecycle.
-import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, link, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -392,9 +392,11 @@ describe('watchSenpiSession', () => {
     expect(closed).toEqual({ type: 'closed' });
   });
 
-  it('keeps the checkpoint across deletion and resets only after replacement', async () => {
+  it('keeps the checkpoint across deletion and resets a same-inode replacement', async () => {
     const file = await makeTemporaryFile();
+    const replacement = `${file}.replacement`;
     await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
+    await link(file, replacement);
     const running = await startWatch(file);
     expect(recordKeys(running.events[0])).toEqual(['a1']);
 
@@ -423,12 +425,10 @@ describe('watchSenpiSession', () => {
     const resetDelivered = running.waitForEvent(
       event => event.type === 'result'
     );
-    await reconcileEdit(running, () =>
-      writeFile(
-        file,
-        `${headerLine()}${messageLine('a1', null, 'first')}${messageLine('a2', 'a1', 'second')}`
-      )
-    );
+    await reconcileEdit(running, async () => {
+      await link(replacement, file);
+      await appendFile(file, messageLine('a2', 'a1', 'second'));
+    });
     await resetDelivered;
 
     const results = resultEvents(running.events);

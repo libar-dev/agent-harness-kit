@@ -149,6 +149,7 @@ export async function* watchSenpiSession(
   const pollIntervalMs = options.pollMs ?? 0;
   let lastRevision: number | null = null;
   let lastByteOffset: number | null = null;
+  let replacementPending = false;
   let wakeReason: 'change' | 'quiet' | 'poll' | null = null;
   let resumeWait: (() => void) | undefined;
   let coalesceHandle: NodeJS.Timeout | number | null = null;
@@ -246,7 +247,11 @@ export async function* watchSenpiSession(
 
   const reconcile = async (): Promise<SenpiSessionTailResult | null> => {
     try {
-      const result = await tailSenpiSession(sessionPath, tailOptions);
+      const result = await tailSenpiSession(
+        sessionPath,
+        replacementPending ? { ...tailOptions, fromStart: true } : tailOptions
+      );
+      replacementPending = false;
       options.onCycle?.({ type: 'reconciled', source: 'present' });
       return result;
     } catch (error: unknown) {
@@ -254,6 +259,7 @@ export async function* watchSenpiSession(
         error instanceof Error &&
         error.message.startsWith(MISSING_SOURCE_PREFIX)
       ) {
+        replacementPending = true;
         options.onCycle?.({ type: 'reconciled', source: 'missing' });
         return null;
       }
