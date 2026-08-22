@@ -91,6 +91,7 @@ export type {
   SenpiSessionWatchEvent,
   SenpiSessionWatchOptions,
   SenpiWatchClock,
+  SenpiWatchCycle,
 } from './watch.js';
 
 export { commitSenpiSessionCheckpoint } from './checkpoint.js';

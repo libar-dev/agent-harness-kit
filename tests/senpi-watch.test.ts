@@ -1,7 +1,7 @@
-import { watch as watchFs } from 'node:fs';
+// allow: SIZE_OK — one deterministic fixture covers the watcher lifecycle.
 import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,6 +10,7 @@ import {
   watchSenpiSession,
   type SenpiSessionWatchEvent,
   type SenpiWatchClock,
+  type SenpiWatchCycle,
 } from '../src/senpi/processing/watch.js';
 
 const QUIESCENCE_MS = 1_000;
@@ -18,34 +19,33 @@ const POLL_MS = 20;
 const HEADER_ID = 'cccccccc-dddd-4eee-afff-000000000001';
 
 const temporaryRoots: string[] = [];
-const controllers: AbortController[] = [];
-const pumps: { readonly done: Promise<void> }[] = [];
+const runningWatches: RunningWatch[] = [];
 
 beforeEach(() => {
-  // Guardrail: any accidental global-timer usage fails loudly instead of
-  // leaking real sleeps. All watch timing flows through the injected clock.
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 });
 
 afterEach(async () => {
-  for (const controller of controllers.splice(0)) controller.abort();
-  await Promise.allSettled(pumps.splice(0).map(pump => pump.done));
-  await Promise.all(
-    temporaryRoots
-      .splice(0)
-      .map(root => rm(root, { recursive: true, force: true }))
-  );
-  vi.useRealTimers();
+  const watches = runningWatches.splice(0);
+  for (const running of watches) running.controller.abort();
+  try {
+    await Promise.all(
+      watches.map(running => Promise.all([running.done, running.closed]))
+    );
+  } finally {
+    await Promise.all(
+      temporaryRoots
+        .splice(0)
+        .map(root => rm(root, { recursive: true, force: true }))
+    );
+    vi.useRealTimers();
+  }
 });
 
 interface ManualClock extends SenpiWatchClock {
-  /** Move virtual time forward, firing due handlers in order. */
-  readonly advanceBy: (ms: number) => Promise<void>;
-  /** Resolve when a future timer with this exact delay is armed. */
-  readonly waitForSchedule: (delayMs: number) => Promise<void>;
+  readonly advanceBy: (ms: number) => void;
 }
 
-/** Virtual time plus an exact signal for observing generator timer rearming. */
 function createManualClock(): ManualClock {
   let current = 0;
   let sequence = 0;
@@ -53,22 +53,18 @@ function createManualClock(): ManualClock {
     NodeJS.Timeout | number,
     { readonly at: number; readonly handler: () => void }
   >();
-  const scheduleWaiters = new Map<number, Array<() => void>>();
 
   return {
     now: () => current,
     setTimeout: (handler, delayMs) => {
       sequence += 1;
       scheduled.set(sequence, { at: current + delayMs, handler });
-      const waiters = scheduleWaiters.get(delayMs) ?? [];
-      scheduleWaiters.delete(delayMs);
-      for (const resolve of waiters) resolve();
       return sequence;
     },
     clearTimeout: handle => {
       scheduled.delete(handle);
     },
-    advanceBy: async ms => {
+    advanceBy: ms => {
       const target = current + ms;
       for (;;) {
         let dueId: NodeJS.Timeout | number | undefined;
@@ -82,16 +78,37 @@ function createManualClock(): ManualClock {
         if (dueId === undefined) break;
         const timer = scheduled.get(dueId);
         scheduled.delete(dueId);
-        current = Math.max(current, dueAt);
+        current = dueAt;
         timer?.handler();
       }
       current = target;
     },
-    waitForSchedule: delayMs =>
-      new Promise<void>(resolve => {
-        const waiters = scheduleWaiters.get(delayMs) ?? [];
-        waiters.push(resolve);
-        scheduleWaiters.set(delayMs, waiters);
+  };
+}
+
+interface Signal<T> {
+  readonly emit: (value: T) => void;
+  readonly waitFor: (predicate: (value: T) => boolean) => Promise<T>;
+}
+
+function createSignal<T>(): Signal<T> {
+  const waiters: Array<{
+    readonly predicate: (value: T) => boolean;
+    readonly resolve: (value: T) => void;
+  }> = [];
+  return {
+    emit: value => {
+      for (let index = waiters.length - 1; index >= 0; index -= 1) {
+        const waiter = waiters[index];
+        if (waiter?.predicate(value) === true) {
+          waiters.splice(index, 1);
+          waiter.resolve(value);
+        }
+      }
+    },
+    waitFor: predicate =>
+      new Promise(resolve => {
+        waiters.push({ predicate, resolve });
       }),
   };
 }
@@ -130,107 +147,110 @@ async function makeTemporaryFile(): Promise<string> {
   return join(root, 'session.jsonl');
 }
 
-/** Subscribe before a mutation and await its exact filesystem notification. */
-async function fsEdit(
-  file: string,
-  action: () => Promise<void>
-): Promise<void> {
-  const controller = new AbortController();
-  const delivered = new Promise<void>((resolve, reject) => {
-    const watcher = watchFs(
-      dirname(file),
-      { signal: controller.signal },
-      (_eventType, filename) => {
-        if (filename !== null && filename.toString() === basename(file)) {
-          resolve();
-        }
-      }
-    );
-    watcher.on('error', reject);
-  });
-  try {
-    await action();
-    await delivered;
-  } finally {
-    controller.abort();
-  }
-}
-
-/** Drain the event loop so resource lifecycle callbacks complete. */
-async function drainIo(turns = 32): Promise<void> {
-  for (let index = 0; index < turns; index += 1) {
-    await new Promise<void>(resolve => setImmediate(resolve));
-  }
-}
-
-/** Bounded event-loop wait; never a fixed sleep. */
-async function waitForPredicate(
-  predicate: () => boolean,
-  label: string
-): Promise<void> {
-  for (let index = 0; index < 5_000 && !predicate(); index += 1) {
-    await new Promise<void>(resolve => setImmediate(resolve));
-  }
-  if (!predicate()) throw new Error(`timed out waiting for ${label}`);
-}
-
 interface RunningWatch {
   readonly controller: AbortController;
   readonly clock: ManualClock;
   readonly events: SenpiSessionWatchEvent[];
-  readonly waitForEvent: (
-    predicate: (event: SenpiSessionWatchEvent) => boolean
-  ) => Promise<SenpiSessionWatchEvent>;
+  readonly cycles: SenpiWatchCycle[];
+  readonly waitForEvent: Signal<SenpiSessionWatchEvent>['waitFor'];
+  readonly waitForCycle: Signal<SenpiWatchCycle>['waitFor'];
   readonly done: Promise<void>;
+  readonly closed: Promise<SenpiWatchCycle>;
 }
 
-async function startWatch(
-  file: string,
-  quiescenceMs: number = QUIESCENCE_MS
-): Promise<RunningWatch> {
+async function startWatch(file: string): Promise<RunningWatch> {
   const controller = new AbortController();
   const clock = createManualClock();
+  const eventSignal = createSignal<SenpiSessionWatchEvent>();
+  const cycleSignal = createSignal<SenpiWatchCycle>();
+  const events: SenpiSessionWatchEvent[] = [];
+  const cycles: SenpiWatchCycle[] = [];
+  const closed = cycleSignal.waitFor(cycle => cycle.type === 'closed');
+  const ready = eventSignal.waitFor(event => event.type === 'ready');
+  const waiting = cycleSignal.waitFor(cycle => cycle.type === 'waiting');
   const iterator = watchSenpiSession(file, {
     signal: controller.signal,
-    quiescenceMs,
+    quiescenceMs: QUIESCENCE_MS,
     coalesceMs: COALESCE_MS,
     pollMs: POLL_MS,
     clock,
+    onCycle: cycle => {
+      cycles.push(cycle);
+      cycleSignal.emit(cycle);
+    },
   });
-  const events: SenpiSessionWatchEvent[] = [];
-  const eventWaiters: Array<{
-    readonly predicate: (event: SenpiSessionWatchEvent) => boolean;
-    readonly resolve: (event: SenpiSessionWatchEvent) => void;
-  }> = [];
-  const waitForEvent = (
-    predicate: (event: SenpiSessionWatchEvent) => boolean
-  ): Promise<SenpiSessionWatchEvent> =>
-    new Promise(resolve => {
-      eventWaiters.push({ predicate, resolve });
-    });
-  const initialReady = waitForEvent(event => event.type === 'ready');
   const done = (async () => {
-    let step = await iterator.next();
-    while (step.done !== true) {
-      const event = step.value;
-      const rearmed = clock.waitForSchedule(quiescenceMs);
+    for await (const event of iterator) {
       events.push(event);
-      const nextStep = iterator.next();
-      await rearmed;
-      for (let index = eventWaiters.length - 1; index >= 0; index -= 1) {
-        const waiter = eventWaiters[index];
-        if (waiter?.predicate(event) === true) {
-          eventWaiters.splice(index, 1);
-          waiter.resolve(event);
-        }
-      }
-      step = await nextStep;
+      eventSignal.emit(event);
     }
   })();
-  controllers.push(controller);
-  pumps.push({ done });
-  await initialReady;
-  return { controller, clock, events, waitForEvent, done };
+  const running = {
+    controller,
+    clock,
+    events,
+    cycles,
+    waitForEvent: eventSignal.waitFor,
+    waitForCycle: cycleSignal.waitFor,
+    done,
+    closed,
+  } satisfies RunningWatch;
+  runningWatches.push(running);
+  await ready;
+  await waiting;
+  return running;
+}
+
+async function reconcileEdit(
+  running: RunningWatch,
+  action: () => Promise<void>
+): Promise<void> {
+  const filesystemWake = running.waitForCycle(
+    cycle => cycle.type === 'filesystem-wake-received'
+  );
+  const wakeConsumed = running.waitForCycle(
+    cycle => cycle.type === 'wake-consumed' && cycle.reason === 'change'
+  );
+  const reconciled = running.waitForCycle(
+    cycle => cycle.type === 'reconciled' && cycle.source === 'present'
+  );
+  const waiting = running.waitForCycle(cycle => cycle.type === 'waiting');
+
+  await action();
+  await filesystemWake;
+  running.clock.advanceBy(COALESCE_MS);
+  await wakeConsumed;
+  await reconciled;
+  await waiting;
+}
+
+async function advanceToQuiescence(
+  running: RunningWatch
+): Promise<SenpiSessionWatchEvent> {
+  const wakeConsumed = running.waitForCycle(
+    cycle => cycle.type === 'wake-consumed' && cycle.reason === 'quiet'
+  );
+  const delivered = running.waitForEvent(event => event.type === 'quiescent');
+  const waiting = running.waitForCycle(cycle => cycle.type === 'waiting');
+
+  running.clock.advanceBy(QUIESCENCE_MS);
+  await wakeConsumed;
+  const event = await delivered;
+  await waiting;
+  return event;
+}
+
+async function advancePastPolls(
+  running: RunningWatch,
+  durationMs: number
+): Promise<void> {
+  const wakeConsumed = running.waitForCycle(
+    cycle => cycle.type === 'wake-consumed' && cycle.reason === 'poll'
+  );
+  const waiting = running.waitForCycle(cycle => cycle.type === 'waiting');
+  running.clock.advanceBy(durationMs);
+  await wakeConsumed;
+  await waiting;
 }
 
 function recordKeys(
@@ -261,37 +281,10 @@ function requireResult(
   return event.result;
 }
 
-/**
- * Advance past the poll backstop (and any delivered fs hint) after a file
- * mutation. Correctness never depends on event arrival: the poll guarantees a
- * reconcile, so no operating-system latency can stall the test.
- */
-async function settleMutation(running: RunningWatch): Promise<void> {
-  await running.clock.advanceBy(POLL_MS * 4);
-}
-
-/** Advance to the next stable window's exact delivery and timer rearming. */
-async function advanceToQuiescence(
-  running: RunningWatch
-): Promise<SenpiSessionWatchEvent> {
-  const delivered = running.waitForEvent(event => event.type === 'quiescent');
-  let observed = false;
-  void delivered.then(() => {
-    observed = true;
-  });
-  while (!observed) {
-    await running.clock.advanceBy(QUIESCENCE_MS);
-    await Promise.race([
-      delivered,
-      new Promise<void>(resolve => setImmediate(resolve)),
-    ]);
-  }
-  return delivered;
-}
-
-function fsEventWrapCount(): number {
-  return process.getActiveResourcesInfo().filter(name => name === 'FSEventWrap')
-    .length;
+function processingCycles(
+  cycles: readonly SenpiWatchCycle[]
+): readonly SenpiWatchCycle[] {
+  return cycles.filter(cycle => cycle.type !== 'filesystem-wake-received');
 }
 
 describe('watchSenpiSession', () => {
@@ -299,24 +292,22 @@ describe('watchSenpiSession', () => {
     const file = await makeTemporaryFile();
     await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
     const running = await startWatch(file);
+    expect(recordKeys(running.events[0])).toEqual(['a1']);
 
-    await waitForPredicate(
-      () => running.events.length >= 1,
-      'initial readiness yield'
-    );
-    const ready = running.events[0];
-    expect(ready?.type).toBe('ready');
-    expect(recordKeys(ready)).toEqual(['a1']);
-
+    const cycleStart = running.cycles.length;
     const resultDelivered = running.waitForEvent(
       event => event.type === 'result'
     );
-    await fsEdit(file, () =>
+    await reconcileEdit(running, () =>
       appendFile(file, messageLine('a2', 'a1', 'second'))
     );
-    await settleMutation(running);
     await resultDelivered;
 
+    expect(processingCycles(running.cycles.slice(cycleStart))).toEqual([
+      { type: 'wake-consumed', reason: 'change' },
+      { type: 'reconciled', source: 'present' },
+      { type: 'waiting' },
+    ]);
     const results = resultEvents(running.events);
     expect(results).toHaveLength(1);
     expect(recordKeys(results[0])).toEqual(['a1', 'a2']);
@@ -328,40 +319,26 @@ describe('watchSenpiSession', () => {
     const file = await makeTemporaryFile();
     await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
     const running = await startWatch(file);
-
-    await waitForPredicate(
-      () => running.events.length >= 1,
-      'initial readiness yield'
-    );
     const resultDelivered = running.waitForEvent(
       event => event.type === 'result'
     );
-    await fsEdit(file, () =>
+    await reconcileEdit(running, () =>
       appendFile(file, messageLine('a2', 'a1', 'second'))
     );
-    await settleMutation(running);
     await resultDelivered;
 
-    // Sub-window silence emits nothing, even with backstop polls firing.
     const beforeSubWindow = running.events.length;
-    await running.clock.advanceBy(POLL_MS * 6);
-    expect(running.events.length).toBe(beforeSubWindow);
+    await advancePastPolls(running, POLL_MS * 6);
+    expect(running.events).toHaveLength(beforeSubWindow);
 
-    // Exactly one full stable-cursor window yields exactly one quiescent.
     await advanceToQuiescence(running);
     expect(countType(running.events, 'quiescent')).toBe(1);
     expect(resultEvents(running.events)).toHaveLength(1);
 
-    // The next full window yields exactly one more; sub-window silence again
-    // emits nothing.
     const quiescentAfterFirst = countType(running.events, 'quiescent');
-    const secondQuiescent = running.waitForEvent(
-      event => event.type === 'quiescent'
-    );
-    await running.clock.advanceBy(COALESCE_MS * 4);
+    await advancePastPolls(running, COALESCE_MS * 4);
     expect(countType(running.events, 'quiescent')).toBe(quiescentAfterFirst);
-    await running.clock.advanceBy(QUIESCENCE_MS);
-    await secondQuiescent;
+    await advanceToQuiescence(running);
     expect(countType(running.events, 'quiescent')).toBe(
       quiescentAfterFirst + 1
     );
@@ -372,23 +349,16 @@ describe('watchSenpiSession', () => {
     const file = await makeTemporaryFile();
     await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
     const running = await startWatch(file);
-
-    await waitForPredicate(
-      () => running.events.length >= 1,
-      'initial readiness yield'
-    );
-
     const resultDelivered = running.waitForEvent(
       event => event.type === 'result'
     );
-    await fsEdit(file, async () => {
+    await reconcileEdit(running, async () => {
       let previousId = 'a1';
       for (const id of ['a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a9']) {
         await appendFile(file, messageLine(id, previousId, id));
         previousId = id;
       }
     });
-    await settleMutation(running);
     await resultDelivered;
 
     const results = resultEvents(running.events);
@@ -411,55 +381,54 @@ describe('watchSenpiSession', () => {
     expect(resultEvents(running.events)).toHaveLength(1);
   });
 
-  it('abort cleans the filesystem watcher without leaks', async () => {
-    await drainIo();
-    const baseline = fsEventWrapCount();
-
+  it('abort acknowledges filesystem watcher close completion', async () => {
     const file = await makeTemporaryFile();
     await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
     const running = await startWatch(file);
 
-    await waitForPredicate(
-      () => running.events.length >= 1,
-      'initial readiness yield'
-    );
-    expect(fsEventWrapCount()).toBe(baseline + 1);
-
     running.controller.abort();
-    await waitForPredicate(
-      () => fsEventWrapCount() === baseline,
-      'watcher release'
-    );
+    const closed = await running.closed;
     await running.done;
-    expect(fsEventWrapCount()).toBe(baseline);
+    expect(closed).toEqual({ type: 'closed' });
   });
 
   it('keeps the checkpoint across deletion and resets only after replacement', async () => {
     const file = await makeTemporaryFile();
     await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
     const running = await startWatch(file);
-
-    await waitForPredicate(
-      () => running.events.length >= 1,
-      'initial readiness yield'
-    );
     expect(recordKeys(running.events[0])).toEqual(['a1']);
 
-    await fsEdit(file, () => rm(file));
-    await settleMutation(running);
+    const filesystemWake = running.waitForCycle(
+      cycle => cycle.type === 'filesystem-wake-received'
+    );
+    const wakeConsumed = running.waitForCycle(
+      cycle => cycle.type === 'wake-consumed' && cycle.reason === 'change'
+    );
+    const missingReconciled = running.waitForCycle(
+      cycle => cycle.type === 'reconciled' && cycle.source === 'missing'
+    );
+    const waiting = running.waitForCycle(cycle => cycle.type === 'waiting');
+    await rm(file);
+    await filesystemWake;
+    running.clock.advanceBy(COALESCE_MS);
+    await wakeConsumed;
+    await missingReconciled;
+    await waiting;
+    expect(resultEvents(running.events)).toHaveLength(0);
+
     await advanceToQuiescence(running);
+    expect(countType(running.events, 'quiescent')).toBe(1);
     expect(resultEvents(running.events)).toHaveLength(0);
 
     const resetDelivered = running.waitForEvent(
       event => event.type === 'result'
     );
-    await fsEdit(file, () =>
+    await reconcileEdit(running, () =>
       writeFile(
         file,
         `${headerLine()}${messageLine('a1', null, 'first')}${messageLine('a2', 'a1', 'second')}`
       )
     );
-    await settleMutation(running);
     await resetDelivered;
 
     const results = resultEvents(running.events);

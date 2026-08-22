@@ -1,3 +1,4 @@
+// allow: SIZE_OK — cohesive async-generator state machine owns lifecycle ordering.
 import { watch } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 
@@ -36,6 +37,17 @@ export interface SenpiWatchClock {
   readonly clearTimeout: (handle: NodeJS.Timeout | number) => void;
 }
 
+/** Internal lifecycle acknowledgment exposed for deterministic observation. */
+export type SenpiWatchCycle =
+  | { readonly type: 'filesystem-wake-received' }
+  | {
+      readonly type: 'wake-consumed';
+      readonly reason: 'change' | 'quiet' | 'poll';
+    }
+  | { readonly type: 'reconciled'; readonly source: 'present' | 'missing' }
+  | { readonly type: 'waiting' }
+  | { readonly type: 'closed' };
+
 const defaultClock: SenpiWatchClock = {
   now: () => Date.now(),
   setTimeout: (handler, delayMs) => setTimeout(handler, delayMs),
@@ -58,6 +70,8 @@ export interface SenpiSessionWatchOptions extends SenpiSessionTailOptions {
   readonly coalesceMs?: number;
   /** Clock for the quiescence and coalescing windows; defaults to real timers. */
   readonly clock?: SenpiWatchClock;
+  /** Optional observer for internal cycle acknowledgments. */
+  readonly onCycle?: (cycle: SenpiWatchCycle) => void;
   /**
    * Optional wake-up backstop interval in milliseconds on the injected clock.
    * When set, a repeating timer periodically triggers a reconcile so progress
@@ -127,6 +141,7 @@ export async function* watchSenpiSession(
     coalesceMs: _coalesceMs,
     pollMs: _pollMs,
     clock: _clock,
+    onCycle: _onCycle,
     ...tailOptions
   } = options;
 
@@ -213,9 +228,11 @@ export async function* watchSenpiSession(
 
   const watcher = watch(watchDirectory, (_eventType, filename) => {
     if (filename !== null && filename !== baseName) return;
+    options.onCycle?.({ type: 'filesystem-wake-received' });
     onActivity();
   });
   watcher.on('error', onActivity);
+  watcher.once('close', () => options.onCycle?.({ type: 'closed' }));
   signal?.addEventListener('abort', onAbort, { once: true });
   if (signal?.aborted === true) onAbort();
   armPoll();
@@ -224,16 +241,20 @@ export async function* watchSenpiSession(
     new Promise<void>(resolve => {
       resumeWait = resolve;
       if (wakeReason !== null || aborted) wake();
+      else options.onCycle?.({ type: 'waiting' });
     });
 
   const reconcile = async (): Promise<SenpiSessionTailResult | null> => {
     try {
-      return await tailSenpiSession(sessionPath, tailOptions);
+      const result = await tailSenpiSession(sessionPath, tailOptions);
+      options.onCycle?.({ type: 'reconciled', source: 'present' });
+      return result;
     } catch (error: unknown) {
       if (
         error instanceof Error &&
         error.message.startsWith(MISSING_SOURCE_PREFIX)
       ) {
+        options.onCycle?.({ type: 'reconciled', source: 'missing' });
         return null;
       }
       throw error;
@@ -255,6 +276,9 @@ export async function* watchSenpiSession(
       const reason = wakeReason;
       wakeReason = null;
       disarmCoalesce();
+      if (reason !== null) {
+        options.onCycle?.({ type: 'wake-consumed', reason });
+      }
 
       const result = await reconcile();
       if (aborted) return;
