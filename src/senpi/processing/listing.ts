@@ -7,13 +7,11 @@ import {
   getSenpiSessionsRoot,
   listSenpiSessionFiles,
 } from './discovery.js';
-import { mapConcurrentOrdered } from './concurrent-map.js';
+import { scanSenpiCandidates } from './listing-pool.js';
 import {
   readSenpiHeaderLine,
   scanSenpiSessionSummary,
 } from './listing-scan.js';
-
-const DEFAULT_SCAN_CONCURRENCY = 4;
 
 /**
  * Options for session listing.
@@ -24,12 +22,6 @@ const DEFAULT_SCAN_CONCURRENCY = 4;
  */
 export interface SenpiListingOptions {
   readonly agentHome?: string | undefined;
-  /**
-   * Internal synchronization seam for deterministic scanner tests. Production
-   * callers omit it; when supplied, it runs inside the bounded worker slot.
-   * @internal
-   */
-  readonly beforeCandidateScan?: ((path: string) => Promise<void>) | undefined;
 }
 
 /**
@@ -97,7 +89,7 @@ export async function listSenpiSessions(
   options?: SenpiListingOptions
 ): Promise<SenpiSessionListing[]> {
   const dirs = await findSenpiSessionDirs(projectCwd, options?.agentHome);
-  return listFromDirs(dirs, projectCwd, options?.beforeCandidateScan);
+  return listFromDirs(dirs, projectCwd);
 }
 
 /**
@@ -125,25 +117,16 @@ export async function listAllSenpiSessions(
   const dirs = rootEntries
     .filter(entry => entry.isDirectory())
     .map(entry => join(getSenpiSessionsRoot(options?.agentHome), entry.name));
-  return listFromDirs(
-    dirs.sort((a, b) => a.localeCompare(b)),
-    undefined,
-    options?.beforeCandidateScan
-  );
+  return listFromDirs(dirs.sort((a, b) => a.localeCompare(b)));
 }
 
 async function listFromDirs(
   dirs: readonly string[],
-  requiredCwd?: string,
-  beforeCandidateScan?: (path: string) => Promise<void>
+  requiredCwd?: string
 ): Promise<SenpiSessionListing[]> {
   const files = await listSenpiSessionFiles(dirs);
-  const listings = await mapConcurrentOrdered(files, {
-    concurrency: DEFAULT_SCAN_CONCURRENCY,
-    map: async file => {
-      await beforeCandidateScan?.(file);
-      return readSenpiSessionFile(file, requiredCwd);
-    },
+  const listings = await scanSenpiCandidates(files, {
+    read: file => readSenpiSessionFile(file, requiredCwd),
   });
   return listings.filter(
     (listing): listing is SenpiSessionListing => listing !== null
