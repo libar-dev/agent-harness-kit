@@ -28,6 +28,14 @@
       "import": "./dist/grok/processing/index.js",
       "types": "./dist/grok/processing/index.d.ts"
     },
+    "./senpi": {
+      "import": "./dist/senpi/index.js",
+      "types": "./dist/senpi/index.d.ts"
+    },
+    "./senpi/processing": {
+      "import": "./dist/senpi/processing/index.js",
+      "types": "./dist/senpi/processing/index.d.ts"
+    },
     "./validation": {
       "import": "./dist/validation/index.js",
       "types": "./dist/validation/index.d.ts"

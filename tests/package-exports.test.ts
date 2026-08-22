@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import * as rootExports from '../src/index.js';
 import * as lifecycleExports from '../src/lifecycle/index.js';
 import * as processingExports from '../src/processing/index.js';
 import * as grokExports from '../src/grok/index.js';
 import * as grokProcessingExports from '../src/grok/processing/index.js';
+import * as senpiExports from '../src/senpi/index.js';
+import * as senpiProcessingExports from '../src/senpi/processing/index.js';
 import * as validationExports from '../src/validation/index.js';
 
 const repoRoot = process.cwd();
@@ -24,6 +27,14 @@ interface PackageExports {
     readonly types: string;
   };
   readonly './grok/processing'?: {
+    readonly import: string;
+    readonly types: string;
+  };
+  readonly './senpi'?: {
+    readonly import: string;
+    readonly types: string;
+  };
+  readonly './senpi/processing'?: {
     readonly import: string;
     readonly types: string;
   };
@@ -116,6 +127,8 @@ const expectedPackageExportKeys = [
   './processing',
   './grok',
   './grok/processing',
+  './senpi',
+  './senpi/processing',
   './validation',
   './types',
   './utils',
@@ -180,6 +193,48 @@ const expectedGrokRuntimeExports = [
   'GrokHookOutputBuilder',
 ] as const;
 
+const expectedSenpiRuntimeExports = [
+  'AGENT_DIR_ENV_NAMES',
+  'AGENT_HOME_SENTINEL',
+  'HOOK_DECISIONS',
+  'HOOK_INPUT_BRANCHES',
+  'SENPI_HOOK_EVENT_NAMES',
+  'SENPI_UNSUPPORTED_HANDLER_TYPES',
+  'SENPI_UNSUPPORTED_HOOK_EVENT_NAMES',
+  'resolveSenpiAgentHome',
+  'validateSenpiHooksConfig',
+] as const;
+
+const expectedSenpiProcessingRuntimeExports = [
+  'commitSenpiSessionCheckpoint',
+  'computeProjectionMutation',
+  'findSenpiSessionDirs',
+  'foldSenpiBlockChanges',
+  'getSenpiSessionsRoot',
+  'listAllSenpiSessions',
+  'listSenpiSessions',
+  'parseSenpiEntry',
+  'projectSenpiBranch',
+  'reduceSenpiProjection',
+  'resolveSenpiLeaf',
+  'tailSenpiSession',
+  'watchSenpiSession',
+] as const;
+
+const senpiInternalExports = [
+  'JsonlCursor',
+  'JsonlDelta',
+  'JsonlLine',
+  'SENPI_MARKER_VERSION',
+  'SenpiSessionMarker',
+  'createSenpiSessionPathDigest',
+  'evaluateSenpiCheckpointInvalidation',
+  'getSenpiSessionMarkerPath',
+  'parseSenpiSessionMarker',
+  'readJsonlDelta',
+  'readSenpiSessionMarker',
+] as const;
+
 const expectedGrokProcessingRuntimeExports = [
   'commitGrokSessionCheckpoint',
   'encodeGrokCwdDirname',
@@ -225,6 +280,14 @@ describe('package export contract', () => {
     expect(pkg.exports['./grok/processing']).toEqual({
       import: './dist/grok/processing/index.js',
       types: './dist/grok/processing/index.d.ts',
+    });
+    expect(pkg.exports['./senpi']).toEqual({
+      import: './dist/senpi/index.js',
+      types: './dist/senpi/index.d.ts',
+    });
+    expect(pkg.exports['./senpi/processing']).toEqual({
+      import: './dist/senpi/processing/index.js',
+      types: './dist/senpi/processing/index.d.ts',
     });
     expect(pkg.exports['./validation']).toEqual({
       import: './dist/validation/index.js',
@@ -281,6 +344,8 @@ describe('package export contract', () => {
     ).toEqual([]);
     expect(pkg.exports).not.toHaveProperty('./processing/*');
     expect(pkg.exports).not.toHaveProperty('./processing/internal');
+    expect(pkg.exports).not.toHaveProperty('./senpi/*');
+    expect(pkg.exports).not.toHaveProperty('./senpi/processing/*');
   });
 
   it('has source entrypoints for the root and documented barrels', async () => {
@@ -298,6 +363,12 @@ describe('package export contract', () => {
     ).resolves.toBeUndefined();
     await expect(
       access(join(repoRoot, 'src/grok/processing/index.ts'))
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(repoRoot, 'src/senpi/index.ts'))
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(repoRoot, 'src/senpi/processing/index.ts'))
     ).resolves.toBeUndefined();
     await expect(
       access(join(repoRoot, 'src/types/index.ts'))
@@ -337,6 +408,13 @@ describe('package export contract', () => {
       expect(rootExports).not.toHaveProperty(exportName);
     }
     expect(rootExports).not.toHaveProperty('tailGrokSession');
+
+    for (const exportName of expectedSenpiProcessingRuntimeExports) {
+      expect(rootExports).not.toHaveProperty(exportName);
+    }
+    for (const exportName of expectedSenpiRuntimeExports) {
+      expect(rootExports).not.toHaveProperty(exportName);
+    }
   });
 
   it('exports the public Grok hook barrel surface', () => {
@@ -355,6 +433,71 @@ describe('package export contract', () => {
     );
     expect(grokProcessingExports).not.toHaveProperty('readJsonlDelta');
     expect(grokProcessingExports).not.toHaveProperty('JsonlCursor');
+  });
+
+  it('exports the initial public Senpi barrel surface', () => {
+    expect(Object.keys(senpiExports).sort()).toEqual(
+      [...expectedSenpiRuntimeExports].sort()
+    );
+
+    for (const exportName of expectedSenpiRuntimeExports) {
+      expect(senpiExports).toHaveProperty(exportName);
+    }
+    for (const exportName of senpiInternalExports) {
+      expect(senpiExports).not.toHaveProperty(exportName);
+    }
+    for (const exportName of expectedSenpiProcessingRuntimeExports) {
+      expect(senpiExports).not.toHaveProperty(exportName);
+    }
+  });
+
+  it('exports the public Senpi processing barrel without cursor or marker internals', () => {
+    expect(Object.keys(senpiProcessingExports).sort()).toEqual(
+      [...expectedSenpiProcessingRuntimeExports].sort()
+    );
+    expect(senpiProcessingExports).not.toHaveProperty('encodeSenpiCwdDirname');
+    expect(senpiProcessingExports).not.toHaveProperty(
+      'EMPTY_SENPI_BLOCK_REDUCTION_STATE'
+    );
+    for (const exportName of senpiInternalExports) {
+      expect(senpiProcessingExports).not.toHaveProperty(exportName);
+    }
+  });
+
+  it('smoke-imports the senpi package subpaths', async () => {
+    const pkg = await readPackageJson();
+    const senpiExport = pkg.exports['./senpi'];
+    const processingExport = pkg.exports['./senpi/processing'];
+    if (senpiExport === undefined || processingExport === undefined) {
+      throw new Error('senpi package subpaths are missing from exports');
+    }
+
+    const senpi = await import('../src/senpi/index.js');
+    const processing = await import('../src/senpi/processing/index.js');
+    const packageSenpi: unknown = await import(
+      pathToFileURL(join(repoRoot, senpiExport.import)).href
+    );
+    const packageProcessing: unknown = await import(
+      pathToFileURL(join(repoRoot, processingExport.import)).href
+    );
+
+    expect(senpiExport.import).toBe('./dist/senpi/index.js');
+    expect(processingExport.import).toBe('./dist/senpi/processing/index.js');
+    expect(typeof senpi.resolveSenpiAgentHome).toBe('function');
+    expect(typeof processing.parseSenpiEntry).toBe('function');
+    expect(isRecord(packageSenpi)).toBe(true);
+    expect(isRecord(packageProcessing)).toBe(true);
+    if (!isRecord(packageSenpi) || !isRecord(packageProcessing)) {
+      throw new Error('senpi package subpath modules did not resolve');
+    }
+    expect(typeof packageSenpi['resolveSenpiAgentHome']).toBe('function');
+    expect(typeof packageProcessing['parseSenpiEntry']).toBe('function');
+    expect(Object.keys(packageSenpi).sort()).toEqual(
+      [...expectedSenpiRuntimeExports].sort()
+    );
+    expect(Object.keys(packageProcessing).sort()).toEqual(
+      [...expectedSenpiProcessingRuntimeExports].sort()
+    );
   });
 
   it('exports only the ADR-approved runtime processing surface', () => {
