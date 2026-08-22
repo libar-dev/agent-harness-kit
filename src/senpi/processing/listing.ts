@@ -114,6 +114,8 @@ export async function listAllSenpiSessions(
       withFileTypes: true,
     });
   } catch {
+    // Missing or unreadable sessions root (ENOENT/EACCES/etc.) yields [];
+    // conflation is deliberate and matches the empty-on-missing-root design.
     return [];
   }
 

@@ -8,13 +8,13 @@ import { resolveSenpiAgentHome } from '../home.js';
  * `<timestamp>_<uuid>-artifacts/`). Artifact directories never contain
  * session files and are excluded from discovery.
  */
-export const SENPI_ARTIFACTS_SUFFIX = '-artifacts';
+const SENPI_ARTIFACTS_SUFFIX = '-artifacts';
 
 /**
  * Name of the per-project extensions directory stored inside a per-cwd
  * session directory. It holds extension state, never session files.
  */
-export const SENPI_EXTENSIONS_DIRNAME = 'extensions';
+const SENPI_EXTENSIONS_DIRNAME = 'extensions';
 
 /**
  * File suffix of persisted sessions inside a per-cwd session directory.
@@ -111,13 +111,21 @@ export async function listSenpiSessionFiles(
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch {
+      // Missing or unreadable per-cwd dir (ENOENT/EACCES/etc.) is skipped;
+      // conflation is deliberate and matches the empty-on-missing-root design.
       continue;
     }
 
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        // `*-artifacts/` and per-cwd `extensions/` subdirectories hold no
+        // Always skip directories. Named engine-owned exclusions never hold
         // session files; every other directory is equally irrelevant here.
+        if (
+          entry.name.endsWith(SENPI_ARTIFACTS_SUFFIX) ||
+          entry.name === SENPI_EXTENSIONS_DIRNAME
+        ) {
+          continue;
+        }
         continue;
       }
       if (entry.name.endsWith(SENPI_SESSION_FILE_SUFFIX)) {

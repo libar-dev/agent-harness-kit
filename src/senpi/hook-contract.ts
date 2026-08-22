@@ -36,7 +36,8 @@ export interface SenpiHookWireField {
  * - `PostToolUse` has NO `transcript_path` field.
  *
  * The discriminator `event` itself is not repeated per field: it IS the map
- * key. Todo 16 implements the wire schemas strictly against this manifest.
+ * key. Consumed by tests/senpi-upstream-drift.test.ts against
+ * HOOK_INPUT_BRANCHES; hook-wire.ts validates strictly against this manifest.
  */
 export const HOOK_INPUT_BRANCHES = {
   SessionStart: [
@@ -112,8 +113,8 @@ export const HOOK_INPUT_BRANCHES = {
  * pinned vendored artifacts: `"approve" | "block" | "deny" | "ask"` from
  * `docs/upstream/senpi/hooks/types.d.ts` (`HookOutputWire.decision`) plus
  * `"allow"`, which the vendored output parser accepts beyond the .d.ts
- * union. Drift-pinned to those vendored files; consumed by todo 16's wire
- * schema.
+ * union. Drift-pinned to those vendored files; consumed by hook-wire.ts
+ * (`z.enum(HOOK_DECISIONS)`) and tests/senpi-hook-wire.test.ts.
  */
 export const HOOK_DECISIONS = [
   'approve',
