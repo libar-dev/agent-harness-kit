@@ -1,0 +1,8 @@
+{
+  "event": "Stop",
+  "stopReason": "end_turn",
+  "cwd": "/project",
+  "hook_event_name": "Stop",
+  "session_id": "sess-stop-0007",
+  "transcript_path": "/project/.senpi/transcript.jsonl"
+}

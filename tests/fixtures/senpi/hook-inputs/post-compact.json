@@ -1,0 +1,10 @@
+{
+  "event": "PostCompact",
+  "reason": "context_window_exceeded",
+  "cwd": "/project",
+  "accepted": true,
+  "hook_event_name": "PostCompact",
+  "request_id": "req-post-compact-0006",
+  "session_id": "sess-post-compact-0006",
+  "will_retry": false
+}

@@ -1,0 +1,8 @@
+{
+  "event": "UserPromptSubmit",
+  "prompt": "Summarize the failing test output.",
+  "cwd": "/project",
+  "session_id": "sess-prompt-submit-0002",
+  "permission_mode": "default",
+  "transcript_path": "/project/.senpi/transcript.jsonl"
+}

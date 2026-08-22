@@ -1,0 +1,11 @@
+{
+  "event": "PostToolUse",
+  "toolName": "read_file",
+  "toolInput": { "path": "/project/src/example.ts" },
+  "toolOutput": { "content": "export const example = 'redacted';", "truncated": false },
+  "cwd": "/project",
+  "session_id": "sess-post-tool-use-0004",
+  "hook_event_name": "PostToolUse",
+  "tool_use_id": "call_post_0004",
+  "observerExtra": { "note": "unknown extras survive parsing" }
+}
