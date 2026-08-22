@@ -1,0 +1,4 @@
+{"type":"session","version":3,"id":"aaaaaaaa-bbbb-4ccc-addd-eeeeeeee0008","timestamp":"2026-01-08T00:00:00.000Z","cwd":"/Users/fixture-user/projects/демо-项目/café"}
+{"type":"message","id":"h1000001","parentId":null,"timestamp":"2026-01-08T00:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"unicode cwd session turn"}],"timestamp":1704672001000}}
+{"type":"session_info","id":"h1000002","parentId":"h1000001","timestamp":"2026-01-08T00:00:02.000Z","name":"fixture-unicode-session-name"}
+{"type":"label","id":"h1000003","parentId":"h1000002","timestamp":"2026-01-08T00:00:03.000Z","targetId":"h1000001","label":"fixture-unicode-label-αβγ"}
