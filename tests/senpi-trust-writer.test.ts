@@ -1,0 +1,410 @@
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, describe, expect, it } from 'vitest';
+
+import {
+  SENPI_HOOKS_STATE_FILENAME,
+  SENPI_PROJECT_CONFIG_DIR,
+  isSenpiCommandHookTrusted,
+  readSenpiHookTrustState,
+  type SenpiTrustCommandHookHandler,
+} from '../src/senpi/trust.js';
+import {
+  SenpiTrustConsentError,
+  SenpiTrustLockError,
+  SenpiTrustStateMalformedError,
+  writeSenpiHookTrustEntry,
+  type WriteSenpiHookTrustEntryOptions,
+} from '../src/senpi/trust-writer.js';
+
+const FIXED_PLATFORM = 'linux' as const;
+
+const CLEANUP_DIRS: string[] = [];
+
+afterEach(() => {
+  while (CLEANUP_DIRS.length > 0) {
+    const dir = CLEANUP_DIRS.pop();
+    if (dir !== undefined) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+function tempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'senpi-trust-writer-'));
+  CLEANUP_DIRS.push(dir);
+  return dir;
+}
+
+let handlerCounter = 0;
+
+function makeHandler(overrides?: {
+  readonly command?: string;
+}): SenpiTrustCommandHookHandler {
+  handlerCounter += 1;
+  const n = handlerCounter;
+  return {
+    event: n % 2 === 0 ? 'PreToolUse' : 'PostToolUse',
+    matcher: 'Bash',
+    groupIndex: n,
+    handlerIndex: 0,
+    config: {
+      type: 'command',
+      command: overrides?.command ?? `node ./hooks/hook-${n}.mjs`,
+    },
+    source: {
+      scope: 'project',
+      sourcePath: `/repo/.senpi/hooks-${n}.json`,
+    },
+  };
+}
+
+function baseOpts(
+  agentHome: string,
+  handler: SenpiTrustCommandHookHandler
+): WriteSenpiHookTrustEntryOptions {
+  return {
+    consent: true,
+    reason: 'explicit user approval via desktop observer setup',
+    handler,
+    scope: 'global',
+    agentHome,
+    cwd: join(agentHome, 'unused-project'),
+    platform: FIXED_PLATFORM,
+  };
+}
+
+function globalStatePath(agentHome: string): string {
+  return join(agentHome, SENPI_HOOKS_STATE_FILENAME);
+}
+
+interface StatSnapshot {
+  readonly mtimeMs: number;
+  readonly ino: number;
+  readonly text: string;
+}
+
+function snapshot(path: string): StatSnapshot {
+  const st = statSync(path);
+  return {
+    mtimeMs: st.mtimeMs,
+    ino: st.ino,
+    text: readFileSync(path, 'utf-8'),
+  };
+}
+
+describe('senpi trust writer - preservation', () => {
+  it('preserves unrelated entries and unknown top-level keys byte-for-byte', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const unrelated = {
+      enabled: true,
+      scope: 'project',
+      sourcePath: '/repo/.senpi/other.json',
+      commandPreview: 'echo keep-me',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      trustedHash: 'sha256:deadbeef',
+      futureField: { nested: ['a', 1] },
+    };
+    const before = {
+      version: 1,
+      customTopLevelKey: { some: 'extension data' },
+      hooks: { hk_unrelated_0_0: unrelated },
+    };
+    writeFileSync(globalStatePath(home), JSON.stringify(before, null, 2));
+
+    const handler = makeHandler();
+    await writeSenpiHookTrustEntry(baseOpts(home, handler));
+
+    const afterText = readFileSync(globalStatePath(home), 'utf-8');
+    const after: typeof before = JSON.parse(afterText);
+    expect(after.version).toBe(1);
+    expect(after.customTopLevelKey).toEqual({ some: 'extension data' });
+    const kept = after.hooks['hk_unrelated_0_0'];
+    expect(kept).toBeDefined();
+    // Serialized value of the untouched entry is unchanged exactly.
+    expect(JSON.stringify(after.hooks['hk_unrelated_0_0'])).toBe(
+      JSON.stringify(unrelated)
+    );
+    // Target entry written alongside.
+    const ids = Object.keys(after.hooks);
+    expect(ids).toHaveLength(2);
+    expect(ids).toContain('hk_unrelated_0_0');
+    void handler;
+  });
+
+  it('updates an existing entry for the same trust id in place', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const handler = makeHandler();
+    await writeSenpiHookTrustEntry(baseOpts(home, handler));
+    const second = await writeSenpiHookTrustEntry(baseOpts(home, handler));
+    const state = readSenpiHookTrustState(globalStatePath(home));
+    expect(state.ok).toBe(true);
+    if (!state.ok) {
+      throw new Error('expected ok');
+    }
+    expect(Object.keys(state.state.hooks)).toHaveLength(1);
+    const reread: {
+      hooks: Record<string, { grantReason?: string }>;
+    } = JSON.parse(readFileSync(globalStatePath(home), 'utf-8'));
+    expect(reread.hooks[second.id]?.grantReason).toBe(
+      'explicit user approval via desktop observer setup'
+    );
+  });
+});
+
+describe('senpi trust writer - locking', () => {
+  it('serializes two concurrent writers; both entries present, no corruption', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const a = makeHandler();
+    const b = makeHandler();
+    const [ra, rb] = await Promise.all([
+      writeSenpiHookTrustEntry(baseOpts(home, a)),
+      writeSenpiHookTrustEntry(baseOpts(home, b)),
+    ]);
+    expect(ra.id).not.toBe(rb.id);
+    const parsed: { version: number; hooks: Record<string, unknown> } =
+      JSON.parse(readFileSync(globalStatePath(home), 'utf-8'));
+    expect(parsed.version).toBe(1);
+    expect(Object.keys(parsed.hooks).sort()).toEqual([ra.id, rb.id].sort());
+  });
+
+  it('retries while an external lock holder holds the lock, then succeeds', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const statePath = globalStatePath(home);
+    const lockPath = `${statePath}.lock`;
+    writeFileSync(lockPath, '999999\n', 'utf-8');
+    // Simulated other-process writer releases shortly; the writer's bounded
+    // retry window (~200 ms) comfortably covers this release.
+    setTimeout(() => {
+      rmSync(lockPath, { force: true });
+    }, 60);
+    const result = await writeSenpiHookTrustEntry(
+      baseOpts(home, makeHandler())
+    );
+    expect(result.path).toBe(statePath);
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  it('fails bounded (no hang) when a lock is held forever, leaving state untouched', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const statePath = globalStatePath(home);
+    writeFileSync(statePath, '{\n  "version": 1,\n  "hooks": {}\n}', 'utf-8');
+    const lockPath = `${statePath}.lock`;
+    writeFileSync(lockPath, '123456\n', 'utf-8');
+    const before = snapshot(statePath);
+    const startedAt = Date.now();
+    await expect(
+      writeSenpiHookTrustEntry(baseOpts(home, makeHandler()))
+    ).rejects.toMatchObject({ name: 'SenpiTrustLockError' });
+    const elapsed = Date.now() - startedAt;
+    // Bounded: 10 attempts x ~20ms must finish well under any hang budget.
+    expect(elapsed).toBeLessThan(5000);
+    expect(existsSync(lockPath)).toBe(true); // foreign lock never deleted
+    expect(snapshot(statePath)).toEqual(before);
+    expect(SenpiTrustLockError.name).toBe('SenpiTrustLockError');
+  });
+
+  it('removes a stale orphaned lock older than the staleness window', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const statePath = globalStatePath(home);
+    const lockPath = `${statePath}.lock`;
+    writeFileSync(lockPath, '1\n', 'utf-8');
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lockPath, old, old);
+    const result = await writeSenpiHookTrustEntry(
+      baseOpts(home, makeHandler())
+    );
+    expect(result.id).toMatch(/^hk_/);
+    expect(existsSync(lockPath)).toBe(false);
+  });
+});
+
+describe('senpi trust writer - fail-closed on malformed state', () => {
+  it.each([
+    ['invalid JSON', '{not-json!!'],
+    ['wrong version', JSON.stringify({ version: 2, hooks: {} })],
+    ['non-object hooks', JSON.stringify({ version: 1, hooks: [] })],
+    [
+      'entry failing validation',
+      JSON.stringify({
+        version: 1,
+        hooks: { hk_bad_0_0: { enabled: 'yes', scope: 'bogus' } },
+      }),
+    ],
+  ])(
+    '%s aborts with typed error and zero mutation',
+    async (_label, content) => {
+      const home = tempDir();
+      mkdirSync(home, { recursive: true });
+      const statePath = globalStatePath(home);
+      writeFileSync(statePath, content, 'utf-8');
+      const before = snapshot(statePath);
+
+      await expect(
+        writeSenpiHookTrustEntry(baseOpts(home, makeHandler()))
+      ).rejects.toMatchObject({ name: 'SenpiTrustStateMalformedError' });
+
+      expect(snapshot(statePath)).toEqual(before);
+      expect(statSync(statePath).ino).toBe(before.ino);
+      // No temp or lock residue.
+      expect(readdirSync(home).sort()).toEqual([SENPI_HOOKS_STATE_FILENAME]);
+    }
+  );
+
+  it('exposes SenpiTrustStateMalformedError as instanceof-checkable class', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    writeFileSync(globalStatePath(home), '][', 'utf-8');
+    const error = await writeSenpiHookTrustEntry(
+      baseOpts(home, makeHandler())
+    ).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(SenpiTrustStateMalformedError);
+  });
+});
+
+describe('senpi trust writer - consent gate', () => {
+  it('consent:false rejects with typed error and zero filesystem effect', async () => {
+    // home points at a path that does NOT exist yet; a compliant rejection
+    // must not even create the agent-home directory.
+    const home = join(tempDir(), 'agent-home');
+    const raw = {
+      ...baseOpts(home, makeHandler()),
+    } as unknown as Record<string, unknown>;
+    raw['consent'] = false;
+    const opts = raw as unknown as WriteSenpiHookTrustEntryOptions;
+
+    await expect(writeSenpiHookTrustEntry(opts)).rejects.toThrow(
+      SenpiTrustConsentError
+    );
+    // Zero effect: not even the agent-home directory was created.
+    expect(existsSync(home)).toBe(false);
+  });
+
+  it('missing reason rejects with typed error and leaves existing state untouched', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const statePath = globalStatePath(home);
+    writeFileSync(statePath, '{\n  "version": 1,\n  "hooks": {}\n}', 'utf-8');
+    const before = snapshot(statePath);
+    const opts = {
+      ...baseOpts(home, makeHandler()),
+      reason: '',
+    };
+
+    await expect(writeSenpiHookTrustEntry(opts)).rejects.toThrow(
+      SenpiTrustConsentError
+    );
+    expect(snapshot(statePath)).toEqual(before);
+    expect(readdirSync(home).sort()).toEqual([SENPI_HOOKS_STATE_FILENAME]);
+  });
+
+  it('whitespace-only reason rejects; absent reason property rejects', async () => {
+    const home = join(tempDir(), 'agent-home');
+    const whitespace = { ...baseOpts(home, makeHandler()), reason: '   ' };
+    await expect(writeSenpiHookTrustEntry(whitespace)).rejects.toThrow(
+      SenpiTrustConsentError
+    );
+
+    const absent = baseOpts(home, makeHandler()) as unknown as Record<
+      string,
+      unknown
+    >;
+    delete absent['reason'];
+    await expect(
+      writeSenpiHookTrustEntry(
+        absent as unknown as WriteSenpiHookTrustEntryOptions
+      )
+    ).rejects.toThrow(SenpiTrustConsentError);
+    expect(existsSync(home)).toBe(false);
+  });
+});
+
+describe('senpi trust writer - round-trip with readers', () => {
+  it('grant then isSenpiCommandHookTrusted true (global scope, 0600)', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const handler = makeHandler();
+    await writeSenpiHookTrustEntry(baseOpts(home, handler));
+
+    const statePath = globalStatePath(home);
+    const st = statSync(statePath);
+    expect(st.mode & 0o777).toBe(0o600);
+
+    const result = readSenpiHookTrustState(statePath);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected ok');
+    }
+    expect(
+      isSenpiCommandHookTrusted(handler, result.state, {
+        platform: FIXED_PLATFORM,
+      })
+    ).toBe(true);
+  });
+
+  it('project scope writes <cwd>/.senpi/hooks-state.json and reads back trusted', async () => {
+    const project = tempDir();
+    mkdirSync(project, { recursive: true });
+    const handler = makeHandler();
+    const opts: WriteSenpiHookTrustEntryOptions = {
+      ...baseOpts(join(project, 'agent-home-unused'), handler),
+      scope: 'project',
+      cwd: project,
+    };
+    await writeSenpiHookTrustEntry(opts);
+
+    const statePath = join(
+      project,
+      SENPI_PROJECT_CONFIG_DIR,
+      SENPI_HOOKS_STATE_FILENAME
+    );
+    expect(existsSync(statePath)).toBe(true);
+    const result = readSenpiHookTrustState(statePath);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected ok');
+    }
+    expect(
+      isSenpiCommandHookTrusted(handler, result.state, {
+        platform: FIXED_PLATFORM,
+      })
+    ).toBe(true);
+    expect(statSync(statePath).mode & 0o777).toBe(0o600);
+  });
+
+  it('records grantReason and hash parity fields on the written entry', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const handler = makeHandler();
+    const result = await writeSenpiHookTrustEntry(baseOpts(home, handler));
+    expect(result.entry.grantReason).toBe(
+      'explicit user approval via desktop observer setup'
+    );
+    expect(result.entry.enabled).toBe(true);
+    expect(result.entry.trustedHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(result.entry.commandPreview).toBe(handler.config.command);
+    expect(typeof result.entry.updatedAt).toBe('string');
+    expect(isNaN(Date.parse(result.entry.updatedAt))).toBe(false);
+  });
+});
