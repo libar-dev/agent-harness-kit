@@ -24,7 +24,10 @@ export { grokEventSchema, parseGrokEvent } from './events.js';
 export type { GrokEvent, GrokEventParseResult } from './events.js';
 
 export {
+  STALE_CHECKPOINT_CONFLICT_CODE,
+  StaleCheckpointConflict,
   commitGrokSessionCheckpoint,
+  isStaleCheckpointConflict,
   tailGrokSession,
   watchGrokSession,
 } from './tail.js';

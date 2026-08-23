@@ -68,6 +68,12 @@ import {
 } from './tail.js';
 
 import {
+  STALE_CHECKPOINT_CONFLICT_CODE,
+  StaleCheckpointConflict,
+  isStaleCheckpointConflict,
+} from './stale-checkpoint-conflict.js';
+
+import {
   type FormatConfig,
   type ExportConfig,
   toMarkdown,
@@ -163,6 +169,9 @@ export {
   resolveProjectPath,
   readExportMarker,
   writeExportMarker,
+  STALE_CHECKPOINT_CONFLICT_CODE,
+  StaleCheckpointConflict,
+  isStaleCheckpointConflict,
 };
 
 /**

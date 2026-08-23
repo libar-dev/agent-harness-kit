@@ -10,6 +10,14 @@ import {
 } from 'node:fs/promises';
 import { basename, delimiter, dirname, join, resolve, sep } from 'node:path';
 
+import { StaleCheckpointConflict } from '../../processing/stale-checkpoint-conflict.js';
+
+export {
+  STALE_CHECKPOINT_CONFLICT_CODE,
+  StaleCheckpointConflict,
+  isStaleCheckpointConflict,
+} from '../../processing/stale-checkpoint-conflict.js';
+
 /** On-disk marker schema version persisted as `markerVersion`. */
 export const SENPI_MARKER_VERSION = 1;
 
@@ -317,8 +325,10 @@ export async function readSenpiSessionMarker(
  * @param checkpoint - Cursor, projection keys, and expected base revision.
  * @param options - Marker destination and root allow-list.
  * @returns After the marker has been replaced.
- * @throws If the checkpoint is stale, malformed, for another path, or the
- *   custom marker directory fails the allowed-root gate.
+ * @throws {@link StaleCheckpointConflict} if `baseRevision` does not match
+ *   the current marker revision. Also throws if the checkpoint is malformed,
+ *   for another path, or the custom marker directory fails the allowed-root
+ *   gate.
  */
 export async function commitSenpiSessionCheckpoint(
   sessionPath: string,
@@ -336,9 +346,10 @@ export async function commitSenpiSessionCheckpoint(
     const existing = await readSenpiSessionMarker(resolvedSessionPath, options);
     const revision = existing.kind === 'valid' ? existing.marker.revision : 0;
     if (checkpoint.baseRevision !== revision) {
-      throw new Error(
-        'Senpi session checkpoint is stale for the current marker'
-      );
+      throw new StaleCheckpointConflict({
+        expectedRevision: checkpoint.baseRevision,
+        actualRevision: revision,
+      });
     }
     const marker: SenpiSessionMarker = {
       sessionPathDigest,

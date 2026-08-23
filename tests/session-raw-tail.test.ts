@@ -16,8 +16,10 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
+  STALE_CHECKPOINT_CONFLICT_CODE,
   commitRawTranscriptSessionCheckpoint,
   getRawTranscriptSessionMarkerPath,
+  isStaleCheckpointConflict,
   tailRawTranscriptSessionRecords,
   watchRawTranscriptSessionRecords,
   type RawTranscriptSessionTailOptions,
@@ -1345,7 +1347,13 @@ describe('session-level raw transcript tail', () => {
         initial.checkpoint,
         commitOptions
       )
-    ).rejects.toThrow(/stale/);
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        isStaleCheckpointConflict(error) &&
+        error.code === STALE_CHECKPOINT_CONFLICT_CODE &&
+        error.expectedRevision === initial.checkpoint.baseRevision &&
+        error.actualRevision === removed.checkpoint.baseRevision + 1
+    );
     const quiet = await tailRawTranscriptSessionRecords(mainPath, tailOptions);
     const mainCheckpoint = must(
       quiet.checkpoint.sources.find(source => source.sourceKind === 'main')
