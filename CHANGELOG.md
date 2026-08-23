@@ -37,6 +37,8 @@ Node 20 and Windows are not supported.
   `dist/standalone/hook-forwarder-senpi.mjs` alongside the existing Claude
   forwarder at `dist/standalone/hook-forwarder.mjs`. `/forwarder` exports the
   pack-relative asset paths and `RUN_HOOK_WRAPPER_SH`; it does not install.
+- Added a packed-tarball clean-consumer CI matrix on Node 22 and 24, plus a
+  Node 20 engine-mismatch job that must surface `engines.node >=22.0.0`.
 - Added Claude Code hook parity for optional `prompt_id`, eight Notification
   types, Stop/SubagentStop background-task and session-cron registries, six
   permission-update variants, the `manual` set-mode alias, `disableAllHooks`,

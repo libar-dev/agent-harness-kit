@@ -10,8 +10,11 @@ bytes.
 
 ## Runtime
 
-`engines.node` is `>=22.0.0`. CI verifies Node 22 and Node 24. Development uses
-Node 24 without raising the consumer floor.
+`engines.node` is `>=22.0.0`. CI verifies Node 22 and Node 24, including a
+clean-consumer job that packs the tarball and installs it with scripts enabled.
+A separate engine-mismatch job installs that tarball under Node 20 and requires
+the declared engine mismatch to be surfaced. Development uses Node 24 without
+raising the consumer floor.
 
 Do not advertise Node 20, browsers, Deno, or Windows.
 
