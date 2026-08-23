@@ -1,22 +1,28 @@
-import { createHash } from 'node:crypto';
-import { open } from 'node:fs/promises';
 import { resolve } from 'node:path';
+
+import {
+  byteCursorChanged,
+  checkpointRevision,
+} from '../../processing/incremental.js';
 
 import {
   commitSenpiSessionCheckpoint,
   createSenpiSessionPathDigest,
-  evaluateSenpiCheckpointInvalidation,
   readSenpiSessionMarker,
   type SenpiSessionCheckpoint,
   type SenpiSessionCheckpointCommitOptions,
-  type SenpiSessionMarker,
+  type SenpiSessionCheckpointState,
 } from './checkpoint.js';
 import {
   EMPTY_SENPI_BLOCK_REDUCTION_STATE,
   reduceSenpiProjection,
   type SenpiBlockChange,
 } from './blocks.js';
-import { readJsonlDelta, type JsonlLine } from './jsonl-cursor.js';
+import {
+  readJsonlDelta,
+  type JsonlCursor,
+  type JsonlLine,
+} from '../../processing/jsonl-cursor.js';
 import { parseSenpiEntry, type SenpiEntryParseResult } from './parse.js';
 import {
   computeProjectionMutation,
@@ -30,8 +36,6 @@ import {
   type SenpiProjectionWarningCode,
 } from './projection.js';
 
-const DIGEST_WINDOW_BYTES = 4096;
-
 /** Options controlling one Senpi session tail pass. */
 export interface SenpiSessionTailOptions extends SenpiSessionCheckpointCommitOptions {
   /** Return a caller-committable checkpoint without writing its marker. */
@@ -42,6 +46,8 @@ export interface SenpiSessionTailOptions extends SenpiSessionCheckpointCommitOpt
   readonly includeOffPath?: boolean;
   /** Maximum bytes accepted in one newline-terminated JSONL line. */
   readonly maxLineBytes?: number;
+  /** Resume from a checkpoint returned by a prior pass. */
+  readonly checkpoint?: SenpiSessionCheckpoint;
 }
 
 /** Stable diagnostic categories produced by tail parsing and projection. */
@@ -107,23 +113,15 @@ interface ParsedLines {
   readonly terminalMalformed: boolean;
 }
 
-interface MarkerObservation {
-  readonly device: string;
-  readonly inode: string;
-  readonly fileSize: number;
-  readonly headDigest: string;
-  readonly boundaryDigest: string;
-  readonly offsetAtLineBoundary: boolean;
-}
-
 /**
  * Tail a Senpi session into its persisted root-to-leaf projection.
  *
- * A valid marker contributes only prior projection keys and revision state;
- * the committed prefix is replayed to rebuild the tree before appended lines
- * are projected. Any stale marker condition causes a byte-zero rebuild and a
- * full splice at index zero. Automatic mode writes only after every complete
- * line parses and projection is complete; manual mode never writes.
+ * A supplied checkpoint contributes its byte cursor and adapter-local parsed
+ * state, so only appended bytes are parsed before the Senpi projector runs.
+ * Marker-only continuation retains the disk-compatible replay path. Any stale
+ * cursor condition causes a byte-zero rebuild and a full splice at index zero.
+ * Automatic mode writes only after every complete line parses and projection
+ * is complete; manual mode never writes.
  *
  * @param file - Senpi session JSONL file.
  * @param options - Cursor, marker, projection, and line-size controls.
@@ -140,36 +138,121 @@ export async function tailSenpiSession(
   const markerOptions = checkpointOptions(options);
   const markerRead = await readSenpiSessionMarker(sessionPath, markerOptions);
   const marker = markerRead.kind === 'valid' ? markerRead.marker : null;
+  const providedCheckpoint = options.checkpoint;
+  const supplied = options.fromStart === true ? undefined : providedCheckpoint;
+  const sessionPathDigest = createSenpiSessionPathDigest(sessionPath);
+  if (
+    supplied !== undefined &&
+    supplied.sessionPathDigest !== sessionPathDigest
+  ) {
+    throw new Error('Senpi session checkpoint does not match the session path');
+  }
   const cursorOptions =
     options.maxLineBytes === undefined
       ? undefined
       : { maxLineBytes: options.maxLineBytes };
-  const full = await readJsonlDelta(sessionPath, null, cursorOptions);
-  if (full.fileSize === null || full.cursor === null) {
+  const restartCheckpoint = providedCheckpoint ?? marker;
+  const priorCursor =
+    options.fromStart === true ? null : checkpointCursor(supplied ?? marker);
+  let delta = await readJsonlDelta(sessionPath, priorCursor, cursorOptions);
+  if (
+    options.fromStart === true &&
+    restartCheckpoint !== null &&
+    restartCheckpoint !== undefined &&
+    delta.cursor !== null
+  ) {
+    delta = {
+      ...delta,
+      cursor: {
+        ...delta.cursor,
+        generation: restartCheckpoint.generation + 1,
+      },
+    };
+  }
+  if (delta.fileSize === null || delta.cursor === null) {
     throw new Error(`Missing required Senpi session source '${sessionPath}'`);
   }
 
-  const parsed = parseLines(full.lines, full.diagnostics);
-  const diagnostics: SenpiTailDiagnostic[] = [...parsed.diagnostics];
-  let reset = marker === null || options.fromStart === true;
+  const reset =
+    options.fromStart === true ||
+    delta.reset ||
+    (supplied === undefined && marker === null);
   let invalidationMessage: string | null = null;
-
-  if (markerRead.kind === 'invalid') {
+  if (markerRead.kind === 'invalid' && supplied === undefined) {
     invalidationMessage = markerRead.error;
-  } else if (marker !== null && options.fromStart !== true) {
-    const observed = await observeMarkerOffset(sessionPath, marker);
-    const invalidation = evaluateSenpiCheckpointInvalidation(marker, observed);
-    if (invalidation.invalidate) {
-      reset = true;
-      invalidationMessage = invalidation.reason ?? 'checkpoint invalidated';
-    } else if (parsed.sessionId !== marker.sessionId) {
-      reset = true;
-      invalidationMessage = 'session header id changed';
-    }
   } else if (options.fromStart === true) {
     invalidationMessage = 'fromStart requested';
+  } else if (delta.reset) {
+    invalidationMessage = 'source identity or committed content changed';
   }
 
+  const includeOffPath = options.includeOffPath === true;
+  const priorState = supplied?.state;
+  const cursorMoved = byteCursorChanged(priorCursor, delta.cursor);
+  if (
+    !reset &&
+    !cursorMoved &&
+    delta.lines.length === 0 &&
+    delta.diagnostics.length === 0 &&
+    priorState?.includeOffPath === includeOffPath
+  ) {
+    if (supplied === undefined) {
+      throw new Error('Incremental Senpi state requires a supplied checkpoint');
+    }
+    const revision = supplied.revision ?? marker?.revision ?? 0;
+    return unchangedResult(
+      supplied,
+      priorState,
+      delta.cursor,
+      delta.fileSize,
+      revision
+    );
+  }
+
+  const fallbackWithoutState = !reset && priorState === undefined;
+  if (fallbackWithoutState) {
+    const full = await readJsonlDelta(sessionPath, null, cursorOptions);
+    if (full.fileSize === null || full.cursor === null) {
+      throw new Error(`Missing required Senpi session source '${sessionPath}'`);
+    }
+    delta = {
+      ...full,
+      cursor: {
+        ...full.cursor,
+        generation: priorCursor?.generation ?? full.cursor.generation,
+      },
+    };
+  }
+
+  const nextCursor = delta.cursor;
+  const fileSize = delta.fileSize;
+  if (nextCursor === null || fileSize === null) {
+    throw new Error(`Missing required Senpi session source '${sessionPath}'`);
+  }
+  const parsedDelta = parseLines(
+    delta.lines,
+    delta.diagnostics,
+    reset ? null : (supplied?.sessionId ?? marker?.sessionId ?? null)
+  );
+  const inputs =
+    reset || fallbackWithoutState
+      ? parsedDelta.inputs
+      : [...(priorState?.inputs ?? []), ...parsedDelta.inputs];
+  const parseDiagnostics: SenpiTailDiagnostic[] =
+    reset || fallbackWithoutState
+      ? [...parsedDelta.diagnostics]
+      : [...(priorState?.parseDiagnostics ?? []), ...parsedDelta.diagnostics];
+  const diagnostics: SenpiTailDiagnostic[] = [...parseDiagnostics];
+  const sessionId =
+    parsedDelta.sessionId ?? supplied?.sessionId ?? marker?.sessionId ?? null;
+  if (
+    reset &&
+    supplied !== undefined &&
+    sessionId !== null &&
+    sessionId !== supplied.sessionId
+  ) {
+    invalidationMessage = 'session header id changed';
+  }
   if (invalidationMessage !== null) {
     diagnostics.push({
       code: 'checkpoint_invalid',
@@ -177,15 +260,21 @@ export async function tailSenpiSession(
     });
   }
 
-  const previousKeys = reset ? [] : (marker?.projectedRecordKeys ?? []);
-  const previousByteOffset = reset ? 0 : (marker?.offset ?? 0);
-  const baseRevision = marker?.revision ?? 0;
-  const rawResolution = resolveSenpiLeaf(parsed.inputs);
-  const terminalInvalid = parsed.terminalMalformed;
+  const baseRevision = supplied?.revision ?? marker?.revision ?? 0;
+  const previousRecords = reset ? [] : (priorState?.records ?? []);
+  const previousKeys = reset
+    ? []
+    : (priorState?.records.map(record => record.key) ??
+      marker?.projectedRecordKeys ??
+      supplied?.projectedRecordKeys ??
+      []);
+  const previousByteOffset = reset ? 0 : (priorCursor?.offset ?? 0);
+  const rawResolution = resolveSenpiLeaf(inputs);
+  const terminalInvalid = parsedDelta.terminalMalformed;
   const projection = terminalInvalid
     ? invalidProjection(rawResolution)
     : projectSenpiBranch(
-        parsed.inputs,
+        inputs,
         rawResolution.leafId,
         options.includeOffPath === undefined
           ? {}
@@ -203,9 +292,8 @@ export async function tailSenpiSession(
   );
 
   const mutation = computeProjectionMutation(previousKeys, projection.records);
-  const stateChanged =
-    reset || mutation !== null || previousByteOffset !== full.cursor.offset;
-  const revision = stateChanged ? baseRevision + 1 : baseRevision;
+  const stateChanged = reset || mutation !== null || cursorMoved;
+  const revision = checkpointRevision(baseRevision, stateChanged);
   const mutations =
     mutation === null
       ? []
@@ -219,28 +307,44 @@ export async function tailSenpiSession(
 
   const previousReduction = reset
     ? { state: EMPTY_SENPI_BLOCK_REDUCTION_STATE }
-    : reducePriorProjection(previousByteOffset, full.lines, marker);
+    : fallbackWithoutState
+      ? reducePriorProjection(
+          priorCursor?.offset ?? 0,
+          delta.lines,
+          marker?.leafId ?? supplied?.leafId ?? null
+        )
+      : reductionFromRecords(previousRecords, projection);
   const reduction = reduceSenpiProjection(previousReduction.state, projection);
-  const generation = reset
-    ? (marker?.generation ?? -1) + 1
-    : (marker?.generation ?? 0);
+  const generation = nextCursor.generation;
+  const state: SenpiSessionCheckpointState = {
+    inputs,
+    records: projection.records,
+    offPath: projection.offPath,
+    parseDiagnostics,
+    diagnostics,
+    includeOffPath,
+  };
   const checkpoint: SenpiSessionCheckpoint = {
-    sessionPathDigest: createSenpiSessionPathDigest(sessionPath),
-    sessionId: parsed.sessionId ?? marker?.sessionId ?? '',
-    device: full.cursor.device,
-    inode: full.cursor.inode,
+    sessionPathDigest,
+    sessionId: sessionId ?? '',
+    device: nextCursor.device,
+    inode: nextCursor.inode,
     generation,
-    offset: full.cursor.offset,
-    lineNumber: full.cursor.lineNumber,
-    headDigest: full.cursor.headDigest,
-    boundaryDigest: full.cursor.boundaryDigest,
-    baseRevision,
+    offset: nextCursor.offset,
+    lineNumber: nextCursor.lineNumber,
+    headDigest: nextCursor.headDigest,
+    boundaryDigest: nextCursor.boundaryDigest,
+    baseRevision: marker?.revision ?? supplied?.baseRevision ?? 0,
     leafId: terminalInvalid ? null : projection.leafId,
     projectedRecordKeys: projection.records.map(record => record.key),
+    revision,
+    state,
   };
 
   const projectionSuccessful =
-    parsed.successful && projection.kind !== 'invalid' && projection.complete;
+    parsedDelta.successful &&
+    projection.kind !== 'invalid' &&
+    projection.complete;
   if (
     options.checkpointMode !== 'manual' &&
     stateChanged &&
@@ -259,13 +363,82 @@ export async function tailSenpiSession(
       ? { kind: 'invalid', leafId: null }
       : tailLeaf(rawResolution),
     previousByteOffset,
-    nextByteOffset: full.cursor.offset,
-    fileSize: full.fileSize,
+    nextByteOffset: nextCursor.offset,
+    fileSize,
     generation,
     revision,
     reset,
     checkpoint,
   };
+}
+function checkpointCursor(
+  checkpoint:
+    | SenpiSessionCheckpoint
+    | {
+        readonly device: string;
+        readonly inode: string;
+        readonly offset: number;
+        readonly lineNumber: number;
+        readonly generation: number;
+        readonly headDigest: string;
+        readonly boundaryDigest: string;
+      }
+    | null
+    | undefined
+): JsonlCursor | null {
+  if (checkpoint === null || checkpoint === undefined) return null;
+  return {
+    device: checkpoint.device,
+    inode: checkpoint.inode,
+    offset: checkpoint.offset,
+    lineNumber: checkpoint.lineNumber,
+    generation: checkpoint.generation,
+    headDigest: checkpoint.headDigest,
+    boundaryDigest: checkpoint.boundaryDigest,
+  };
+}
+
+function unchangedResult(
+  supplied: SenpiSessionCheckpoint,
+  state: SenpiSessionCheckpointState,
+  cursor: JsonlCursor,
+  fileSize: number,
+  revision: number
+): SenpiSessionTailResult {
+  return {
+    records: state.records,
+    mutations: [],
+    changes: [],
+    offPath: state.offPath,
+    diagnostics: state.diagnostics,
+    leaf:
+      supplied.leafId === null
+        ? { kind: 'empty', leafId: null }
+        : { kind: 'resolved', leafId: supplied.leafId },
+    previousByteOffset: cursor.offset,
+    nextByteOffset: cursor.offset,
+    fileSize,
+    generation: cursor.generation,
+    revision,
+    reset: false,
+    checkpoint: { ...supplied, revision, state },
+  };
+}
+
+function reductionFromRecords(
+  records: readonly SenpiProjectionRecord[],
+  current: SenpiProjectionResult
+): ReturnType<typeof reduceSenpiProjection> {
+  const prior: SenpiProjectionResult = {
+    ...current,
+    kind: records.length === 0 ? 'empty' : 'projected',
+    leafId: records.at(-1)?.entryId ?? null,
+    records,
+    offPath: [],
+    warnings: [],
+    complete: true,
+  };
+  return reduceSenpiProjection(EMPTY_SENPI_BLOCK_REDUCTION_STATE, prior);
 }
 
 function checkpointOptions(
@@ -287,7 +460,8 @@ function parseLines(
     readonly lineNumber: number;
     readonly byteStart: number;
     readonly byteEnd: number;
-  }[]
+  }[],
+  priorSessionId: string | null = null
 ): ParsedLines {
   const inputs: SenpiEntryParseResult[] = [];
   const diagnostics: SenpiTailDiagnostic[] = oversized.map(item => ({
@@ -297,7 +471,7 @@ function parseLines(
     byteStart: item.byteStart,
     byteEnd: item.byteEnd,
   }));
-  let sessionId: string | null = null;
+  let sessionId: string | null = priorSessionId;
   let successful = oversized.length === 0;
   let lastMalformedLine = oversized.at(-1)?.lineNumber ?? -1;
 
@@ -359,6 +533,17 @@ function parseLines(
   };
 }
 
+function reducePriorProjection(
+  previousByteOffset: number,
+  lines: readonly JsonlLine[],
+  leafId: string | null
+): ReturnType<typeof reduceSenpiProjection> {
+  const prefixLines = lines.filter(line => line.byteEnd <= previousByteOffset);
+  const prefix = parseLines(prefixLines, []);
+  const prior = projectSenpiBranch(prefix.inputs, leafId);
+  return reduceSenpiProjection(EMPTY_SENPI_BLOCK_REDUCTION_STATE, prior);
+}
+
 function invalidProjection(
   resolution: SenpiLeafResolution
 ): SenpiProjectionResult {
@@ -379,65 +564,4 @@ function tailLeaf(resolution: SenpiLeafResolution): SenpiTailLeaf {
     return { kind: 'resolved', leafId: resolution.leafId };
   }
   return { kind: 'invalid', leafId: resolution.leafId };
-}
-
-function reducePriorProjection(
-  previousByteOffset: number,
-  lines: readonly JsonlLine[],
-  marker: SenpiSessionMarker | null
-): ReturnType<typeof reduceSenpiProjection> {
-  const prefixLines = lines.filter(line => line.byteEnd <= previousByteOffset);
-  const prefix = parseLines(prefixLines, []);
-  const prior = projectSenpiBranch(prefix.inputs, marker?.leafId ?? null);
-  return reduceSenpiProjection(EMPTY_SENPI_BLOCK_REDUCTION_STATE, prior);
-}
-
-async function observeMarkerOffset(
-  path: string,
-  marker: SenpiSessionMarker
-): Promise<MarkerObservation> {
-  const file = await open(path, 'r');
-  try {
-    const stats = await file.stat();
-    const offset = Math.min(marker.offset, stats.size);
-    const headLength = Math.min(offset, DIGEST_WINDOW_BYTES);
-    const boundaryStart = Math.max(0, offset - DIGEST_WINDOW_BYTES);
-    const [head, boundary, preceding] = await Promise.all([
-      readRange(file, 0, headLength),
-      readRange(file, boundaryStart, offset - boundaryStart),
-      marker.offset === 0 || marker.offset > stats.size
-        ? Promise.resolve(Buffer.alloc(0))
-        : readRange(file, marker.offset - 1, 1),
-    ]);
-    return {
-      device: String(stats.dev),
-      inode: String(stats.ino),
-      fileSize: stats.size,
-      headDigest: createHash('sha256').update(head).digest('hex'),
-      boundaryDigest: createHash('sha256').update(boundary).digest('hex'),
-      offsetAtLineBoundary: marker.offset === 0 || preceding[0] === 0x0a,
-    };
-  } finally {
-    await file.close();
-  }
-}
-
-async function readRange(
-  file: Awaited<ReturnType<typeof open>>,
-  position: number,
-  length: number
-): Promise<Buffer> {
-  const buffer = Buffer.alloc(length);
-  let read = 0;
-  while (read < length) {
-    const result = await file.read(
-      buffer,
-      read,
-      length - read,
-      position + read
-    );
-    if (result.bytesRead === 0) break;
-    read += result.bytesRead;
-  }
-  return buffer.subarray(0, read);
 }

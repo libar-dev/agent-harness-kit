@@ -10,7 +10,14 @@ import {
 } from 'node:fs/promises';
 import { basename, delimiter, dirname, join, resolve, sep } from 'node:path';
 
+import { checkpointRevision } from '../../processing/incremental.js';
 import { StaleCheckpointConflict } from '../../processing/stale-checkpoint-conflict.js';
+import type { SenpiEntryParseResult } from './parse.js';
+import type {
+  SenpiOffPathRecord,
+  SenpiProjectionRecord,
+} from './projection.js';
+import type { SenpiTailDiagnostic } from './tail.js';
 
 export {
   STALE_CHECKPOINT_CONFLICT_CODE,
@@ -48,6 +55,16 @@ export interface SenpiSessionMarker {
   readonly markerVersion: typeof SENPI_MARKER_VERSION;
 }
 
+/** Adapter-local semantic state carried between incremental tail passes. */
+export interface SenpiSessionCheckpointState {
+  readonly inputs: readonly SenpiEntryParseResult[];
+  readonly records: readonly SenpiProjectionRecord[];
+  readonly offPath: readonly SenpiOffPathRecord[];
+  readonly parseDiagnostics: readonly SenpiTailDiagnostic[];
+  readonly diagnostics: readonly SenpiTailDiagnostic[];
+  readonly includeOffPath: boolean;
+}
+
 /**
  * Caller-held checkpoint accepted by {@link commitSenpiSessionCheckpoint}.
  *
@@ -67,6 +84,10 @@ export interface SenpiSessionCheckpoint {
   readonly baseRevision: number;
   readonly leafId: string | null;
   readonly projectedRecordKeys: readonly string[];
+  /** Semantic revision produced by the pass that returned this checkpoint. */
+  readonly revision?: number;
+  /** Parsed state used only for caller-supplied incremental continuation. */
+  readonly state?: SenpiSessionCheckpointState;
 }
 
 /** Marker destination and root-gate controls for commit and read. */
@@ -361,7 +382,7 @@ export async function commitSenpiSessionCheckpoint(
       lineNumber: checkpoint.lineNumber,
       headDigest: checkpoint.headDigest,
       boundaryDigest: checkpoint.boundaryDigest,
-      revision: revision + 1,
+      revision: checkpointRevision(revision, true),
       leafId: checkpoint.leafId,
       projectedRecordKeys: [...checkpoint.projectedRecordKeys],
       markerVersion: SENPI_MARKER_VERSION,

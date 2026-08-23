@@ -103,6 +103,7 @@ export {
 export type {
   SenpiSessionCheckpoint,
   SenpiSessionCheckpointCommitOptions,
+  SenpiSessionCheckpointState,
 } from './checkpoint.js';
 
 export { foldSenpiBlockChanges, reduceSenpiProjection } from './blocks.js';

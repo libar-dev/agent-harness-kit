@@ -12,6 +12,14 @@ import {
 import { basename, dirname, join, resolve, sep } from 'node:path';
 
 import {
+  byteCursorsEqual,
+  checkpointRevision,
+} from '../../processing/incremental.js';
+import {
+  createFileWatchScheduler,
+  type FileWatchScheduler,
+} from '../../processing/watch-scheduler.js';
+import {
   reduceGrokRecords,
   type GrokActivity,
   type GrokBlockChange,
@@ -24,7 +32,7 @@ import {
   type JsonlCursor,
   type JsonlDelta,
   type JsonlLine,
-} from './jsonl-cursor.js';
+} from '../../processing/jsonl-cursor.js';
 import { StaleCheckpointConflict } from '../../processing/stale-checkpoint-conflict.js';
 import { parseGrokSessionUpdate } from './updates.js';
 
@@ -58,6 +66,8 @@ export interface GrokSessionTailOptions {
   readonly maxLineBytes?: number;
   /** Include reduced event activity states, defaulting to true. */
   readonly includeActivities?: boolean;
+  /** Resume from a checkpoint returned by a prior pass. */
+  readonly checkpoint?: GrokSessionCheckpoint;
 }
 
 /** Options for watching a Grok session directory. */
@@ -80,11 +90,18 @@ export interface GrokSessionSourceCheckpoint {
   readonly cursor: JsonlCursor | null;
 }
 
+/** Adapter-local semantic state retained alongside neutral source cursors. */
+export interface GrokSessionCheckpointState {
+  readonly records: readonly GrokTailRecord[];
+}
+
 /** Revision-bound checkpoint returned by a successful two-source read. */
 export interface GrokSessionCheckpoint {
   readonly sessionPathDigest: string;
   readonly baseRevision: number;
   readonly sources: readonly GrokSessionSourceCheckpoint[];
+  /** Parsed Grok state used to reduce later deltas without rereading prefixes. */
+  readonly state?: GrokSessionCheckpointState;
 }
 
 /** One parsed, ordered record emitted by a Grok session tail. */
@@ -206,9 +223,20 @@ export async function tailGrokSession(
       ? undefined
       : { maxLineBytes: options.maxLineBytes };
 
+  const suppliedCheckpoint = options.checkpoint;
+  if (
+    suppliedCheckpoint !== undefined &&
+    suppliedCheckpoint.sessionPathDigest !== sessionPathDigest
+  ) {
+    throw new Error('Grok session checkpoint does not match the session path');
+  }
+  const suppliedCursors =
+    suppliedCheckpoint === undefined
+      ? null
+      : checkpointSources(suppliedCheckpoint);
   const markerCursors = {
-    updates: marker?.sources.updates ?? null,
-    events: marker?.sources.events ?? null,
+    updates: suppliedCursors?.updates ?? marker?.sources.updates ?? null,
+    events: suppliedCursors?.events ?? marker?.sources.events ?? null,
   } satisfies Record<GrokTailSourceKind, JsonlCursor | null>;
   const previousCursors = {
     updates: options.fromStart ? null : markerCursors.updates,
@@ -249,10 +277,25 @@ export async function tailGrokSession(
     orderedRecords.map(record => originKey(record.record.origin))
   );
 
-  let reductionRecords: readonly GrokNormalizedRecord[] = orderedRecords.map(
+  const priorStateRecords =
+    options.fromStart === true
+      ? []
+      : (suppliedCheckpoint?.state?.records ?? []);
+  const retainedStateRecords = priorStateRecords.filter(
+    record => !deltas[record.sourceKind].reset
+  );
+  let stateRecords: readonly GrokTailRecord[] = [
+    ...retainedStateRecords,
+    ...orderedRecords,
+  ].sort(compareTailRecords);
+  let reductionRecords: readonly GrokNormalizedRecord[] = stateRecords.map(
     record => record.record
   );
-  if (orderedRecords.length > 0 && hasPriorCommittedBytes(previousCursors)) {
+  if (
+    orderedRecords.length > 0 &&
+    hasPriorCommittedBytes(previousCursors) &&
+    suppliedCheckpoint?.state === undefined
+  ) {
     const [allUpdates, allEvents] = await Promise.all([
       readJsonlDelta(updatePath, null, cursorOptions),
       readJsonlDelta(eventPath, null, cursorOptions),
@@ -267,9 +310,8 @@ export async function tailGrokSession(
         events: eventDelta.cursor?.generation ?? 0,
       }
     );
-    reductionRecords = [...fullParsed.records]
-      .sort(compareTailRecords)
-      .map(record => record.record);
+    stateRecords = [...fullParsed.records].sort(compareTailRecords);
+    reductionRecords = stateRecords.map(record => record.record);
   }
 
   const reduction = reduceGrokRecords(reductionRecords);
@@ -291,6 +333,7 @@ export async function tailGrokSession(
       sourceKind,
       cursor: deltas[sourceKind].cursor,
     })),
+    state: { records: stateRecords },
   };
   const sources = sourceKinds().map(sourceKind =>
     sourceResult(
@@ -382,7 +425,7 @@ export async function commitGrokSessionCheckpoint(
     await writePrivateJson(markerPath, {
       version: MARKER_VERSION,
       sessionPathDigest,
-      revision: revision + 1,
+      revision: checkpointRevision(revision, true),
       sources: nextSources,
     } satisfies GrokSessionMarker);
   });
@@ -410,8 +453,20 @@ export async function* watchGrokSession(
   let tailOptions: GrokSessionTailOptions = initialTailOptions;
   let changed = false;
   let wake: (() => void) | undefined;
-  let queued = false;
   let watchError: Error | undefined;
+  const wakeScheduler: FileWatchScheduler = createFileWatchScheduler(
+    () => {
+      const resolveWake = wake;
+      wake = undefined;
+      resolveWake?.();
+    },
+    {
+      schedule(handler): undefined {
+        queueMicrotask(handler);
+        return undefined;
+      },
+    }
+  );
 
   const watcher = watch(resolvedSessionDir, (_eventType, filename) => {
     const name = filename?.toString();
@@ -419,14 +474,7 @@ export async function* watchGrokSession(
       return;
     }
     changed = true;
-    if (wake === undefined || queued) return;
-    queued = true;
-    queueMicrotask(() => {
-      queued = false;
-      const resolveWake = wake;
-      wake = undefined;
-      resolveWake?.();
-    });
+    if (wake !== undefined) wakeScheduler.request();
   });
   watcher.on('error', error => {
     watchError = error;
@@ -448,10 +496,12 @@ export async function* watchGrokSession(
       resolvedSessionDir,
       tailOptions
     );
-    if (tailOptions.fromStart === true) {
-      const { fromStart: _fromStart, ...remainingOptions } = tailOptions;
-      tailOptions = remainingOptions;
-    }
+    const {
+      fromStart: _fromStart,
+      checkpoint: _checkpoint,
+      ...remainingOptions
+    } = tailOptions;
+    tailOptions = { ...remainingOptions, checkpoint: initialResult.checkpoint };
     yield initialResult;
 
     while (signal?.aborted !== true) {
@@ -472,6 +522,7 @@ export async function* watchGrokSession(
     }
   } finally {
     signal?.removeEventListener('abort', abort);
+    wakeScheduler.cancel();
     watcher.close();
   }
 }
@@ -945,16 +996,7 @@ function cursorsEqual(
   left: JsonlCursor | null,
   right: JsonlCursor | null
 ): boolean {
-  if (left === null || right === null) return left === right;
-  return (
-    left.device === right.device &&
-    left.inode === right.inode &&
-    left.offset === right.offset &&
-    left.lineNumber === right.lineNumber &&
-    left.generation === right.generation &&
-    left.headDigest === right.headDigest &&
-    left.boundaryDigest === right.boundaryDigest
-  );
+  return byteCursorsEqual(left, right);
 }
 
 async function withMarkerLock<T>(
