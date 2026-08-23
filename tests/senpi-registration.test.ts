@@ -151,7 +151,12 @@ describe('writeSenpiHooksConfig', () => {
       'observe-hook'
     );
 
-    await writeSenpiHooksConfig(target, document);
+    await writeSenpiHooksConfig({
+      consent: true,
+      reason: 'registration unit test write',
+      target: { filePath: target },
+      document,
+    });
 
     const written: unknown = JSON.parse(await readFile(target, 'utf8'));
     expect(written).toEqual(document);
@@ -169,10 +174,12 @@ describe('writeSenpiHooksConfig', () => {
     const target = join(blocker, 'hooks.json');
 
     await expect(
-      writeSenpiHooksConfig(
-        target,
-        buildSenpiHooksRegistration(['Stop'], 'observe-hook')
-      )
+      writeSenpiHooksConfig({
+        consent: true,
+        reason: 'registration unit test write failure',
+        target: { filePath: target },
+        document: buildSenpiHooksRegistration(['Stop'], 'observe-hook'),
+      })
     ).rejects.toThrow();
 
     expect(await readdir(dir)).toEqual(['blocker']);

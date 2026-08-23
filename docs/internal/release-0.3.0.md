@@ -26,9 +26,9 @@ Documented package subpaths:
 | `./pre-tool-use` `./post-tool-use` `./lifecycle` | Claude reference handlers |
 | `./processing` | Claude session parse, export, and raw transcript tail |
 | `./grok` `./grok/processing` | Attach-only Grok Build observe/hook surface |
-| `./senpi` `./senpi/processing` | Attach-only OmO-native (senpi) observe/hook surface |
+| `./senpi` `./senpi/processing` | Attach-only OmO-native (senpi) observe/hook surface. Mutating register/trust helpers are consent-gated library primitives, not a Cockpit integration. |
 | `./endpoint-discovery` | Hook-endpoint file contract |
-| `./forwarder` | POSIX wrapper asset for the standalone forwarders |
+| `./forwarder` | Standalone forwarder asset paths and POSIX wrapper string. Not an install. |
 
 Packed bytes must include compiled runtime (`.js`), declarations (`.d.ts`),
 `LICENSE`, `README.md`, `CHANGELOG.md`, and the standalone forwarders:
@@ -49,7 +49,10 @@ Claude `/processing` remains a separate session pipeline. There is no public
 plugin ABI and no shared cross-harness `SessionBlock`.
 
 This package is a library. It does not ship a Cockpit (or any other) product
-integration, daemon, or UI.
+integration, daemon, or UI. Cockpit is observe-only for OmO/Senpi: it must not
+register hooks, grant trust, install the Senpi forwarder, or enforce a Senpi
+Stop gate. Callers of mutating primitives own consent, the target directory,
+and uninstall.
 
 ## Provenance (do not run until authorized)
 

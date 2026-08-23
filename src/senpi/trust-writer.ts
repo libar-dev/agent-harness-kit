@@ -132,6 +132,34 @@ export interface WriteSenpiHookTrustEntryResult {
 }
 
 /**
+ * Options for {@link removeSenpiHookTrustEntry}.
+ *
+ * @property consent - MUST be the literal `true`. Calling the remover IS
+ * the revoke act.
+ * @property reason - Non-empty justification for the revoke.
+ * @property handler - Executable command handler identity whose trust id
+ * is removed.
+ * @property scope - Storage scope selecting the state file.
+ * @property agentHome - Agent home directory (used for `global` scope).
+ * @property cwd - Project working directory (used for `project` scope).
+ */
+export interface RemoveSenpiHookTrustEntryOptions {
+  readonly consent: true;
+  readonly reason: string;
+  readonly handler: SenpiTrustCommandHookHandler;
+  readonly scope: SenpiHookTrustStorageScope;
+  readonly agentHome: string;
+  readonly cwd: string;
+}
+
+/** Result of a consented trust-entry removal. */
+export interface RemoveSenpiHookTrustEntryResult {
+  readonly path: string;
+  readonly id: string;
+  readonly removed: boolean;
+}
+
+/**
  * Trust entry shape produced by this writer: the vendored HookTrustEntry
  * fields plus the recorded `grantReason` consent justification.
  */
@@ -206,6 +234,82 @@ export async function writeSenpiHookTrustEntry(
     hooks[id] = entry;
     atomicWriteState(statePath, serializeState(root, hooks));
     return { path: statePath, id, entry };
+  });
+}
+
+/**
+ * Perform an EXPLICIT, caller-authorized removal of ONE command-hook trust
+ * entry from the scoped `hooks-state.json` document.
+ *
+ * CONSENT CONTRACT: calling this function IS the revoke act. It must only
+ * be invoked directly on behalf of an explicitly-revoking user action.
+ * Cockpit product integration is observe-only and must not call this helper.
+ *
+ * Missing files are a successful no-op (`removed: false`) and do not create
+ * directories. When the last entry is removed and no unknown top-level keys
+ * remain, the state file itself is deleted so a grant/revoke cycle is a
+ * reversible file delta.
+ *
+ * @param opts - Consent-gated options; see
+ * {@link RemoveSenpiHookTrustEntryOptions}.
+ * @returns The state path, trust id, and whether an entry was removed.
+ */
+export async function removeSenpiHookTrustEntry(
+  opts: RemoveSenpiHookTrustEntryOptions
+): Promise<RemoveSenpiHookTrustEntryResult> {
+  if (!isRecord(opts) || opts['consent'] !== true) {
+    throw new SenpiTrustConsentError(
+      'removeSenpiHookTrustEntry requires explicit consent:true - calling it IS the approval act'
+    );
+  }
+  const reason = opts['reason'];
+  const handler = opts['handler'];
+  const scope = opts['scope'];
+  const agentHome = opts['agentHome'];
+  const cwd = opts['cwd'];
+  if (typeof reason !== 'string' || reason.trim() === '') {
+    throw new SenpiTrustConsentError(
+      'removeSenpiHookTrustEntry requires a non-empty reason string recorded with the revoke'
+    );
+  }
+  if (handler === undefined || scope === undefined) {
+    throw new SenpiTrustConsentError(
+      'removeSenpiHookTrustEntry requires an explicit handler and scope target'
+    );
+  }
+  if (typeof agentHome !== 'string' || typeof cwd !== 'string') {
+    throw new SenpiTrustConsentError(
+      'removeSenpiHookTrustEntry requires an explicit agentHome and cwd target'
+    );
+  }
+
+  const statePath = resolveStatePath(
+    scope as SenpiHookTrustStorageScope,
+    agentHome,
+    cwd
+  );
+  const id = senpiHookTrustId(handler as SenpiTrustCommandHookHandler);
+  if (!existsSync(statePath)) {
+    return { path: statePath, id, removed: false };
+  }
+
+  return withStateLock(statePath, () => {
+    if (!existsSync(statePath)) {
+      return { path: statePath, id, removed: false };
+    }
+    const { root, hooks } = readRawStateForUpdate(statePath);
+    const existed = Object.prototype.hasOwnProperty.call(hooks, id);
+    delete hooks[id];
+    const leftoverIds = Object.keys(hooks);
+    const leftoverRootKeys = Object.keys(root).filter(
+      key => key !== 'version' && key !== 'hooks'
+    );
+    if (leftoverIds.length === 0 && leftoverRootKeys.length === 0) {
+      rmSync(statePath, { force: true });
+      return { path: statePath, id, removed: existed };
+    }
+    atomicWriteState(statePath, serializeState(root, hooks));
+    return { path: statePath, id, removed: existed };
   });
 }
 

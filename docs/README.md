@@ -22,7 +22,7 @@
 | [Types](reference/types.md) | Full type catalogue — inputs, outputs, tools, config |
 | [Environment Variables](reference/environment-variables.md) | Every `CLAUDE_HOOK_*` variable with type, default, and description |
 | [Grok Adapter](reference/grok-adapter.md) | Grok Build envelopes, settings, and session processing (attach-only) |
-| [Senpi Adapter](reference/senpi-adapter.md) | OmO-native (senpi) envelopes, settings, trust gate, and session processing (attach-only) |
+| [Senpi Adapter](reference/senpi-adapter.md) | OmO-native (senpi) envelopes, consent-gated register/trust, forwarder assets, and session processing. Cockpit is observe-only. |
 
 ## Architecture & Internal
 
