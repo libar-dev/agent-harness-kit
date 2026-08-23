@@ -125,6 +125,13 @@ The package exposes several sub-paths so you only import what you need:
 | `@libar-dev/agent-harness-kit/pre-tool-use` | Reference PreToolUse handlers |
 | `@libar-dev/agent-harness-kit/post-tool-use` | Reference PostToolUse handlers |
 | `@libar-dev/agent-harness-kit/lifecycle` | Reference lifecycle handlers |
+| `@libar-dev/agent-harness-kit/processing` | Claude session parse, export, and raw transcript tailing |
+| `@libar-dev/agent-harness-kit/grok` | Attach-only Grok Build hook I/O |
+| `@libar-dev/agent-harness-kit/grok/processing` | Grok session discovery and tailing |
+| `@libar-dev/agent-harness-kit/senpi` | Attach-only OmO-native (senpi) hook I/O and trust helpers |
+| `@libar-dev/agent-harness-kit/senpi/processing` | Senpi session discovery, projection, and tailing |
+| `@libar-dev/agent-harness-kit/endpoint-discovery` | Hook-endpoint file contract |
+| `@libar-dev/agent-harness-kit/forwarder` | Standalone forwarder wrapper asset |
 
 ## What Next?
 

@@ -11,8 +11,29 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-23
+
+First public contract freeze. This release documents the Claude, Grok, and
+Senpi library surfaces that ship in the package. It is not a desktop product
+integration and does not publish itself; npm publication with provenance is a
+separate owner-authorized step.
+
+Supported runtime: Node.js `>=22.0.0`. Development and CI also run on Node 24.
+Node 20 and Windows are not supported.
+
 ### Added
 
+- Added the attach-only Grok Build surface on `/grok` (hook validation, output
+  builder, runner, JSON/TOML settings) and `/grok/processing` (discovery, parse,
+  tail, watch, checkpoint commit, block reduction).
+- Added the attach-only OmO-native (senpi) surface on `/senpi` (agent-home
+  resolution, hook wire/validation, output builder, runner, read-only trust
+  inspection, consent-gated trust writer, observe-only hooks.json registration)
+  and `/senpi/processing` (discovery, listing, parse, projection, tail, watch,
+  checkpoint commit, native block reduction).
+- Added the standalone Senpi hook forwarder at
+  `dist/standalone/hook-forwarder-senpi.mjs` alongside the existing Claude
+  forwarder at `dist/standalone/hook-forwarder.mjs`.
 - Added Claude Code hook parity for optional `prompt_id`, eight Notification
   types, Stop/SubagentStop background-task and session-cron registries, six
   permission-update variants, the `manual` set-mode alias, `disableAllHooks`,
@@ -30,6 +51,8 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ### Changed
 
+- Package version is exact `0.3.0`. `publishConfig.provenance` is enabled so
+  the owner-gated release workflow can attest the npm tarball.
 - Notification output is restricted to universal hook fields.
 - Stop and SubagentStop block outputs require a present `reason` string (empty
   string accepted) and remain distinct from non-error `additionalContext`
@@ -49,6 +72,18 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
   schemas instead of using `.strict()`.
 - `sessionStartContext(options)` preserves empty strings and empty `watchPaths`
   via presence checks rather than truthiness.
+
+### Compatibility
+
+- Runtime floor remains Node.js `>=22.0.0`. It is not raised and not broadened.
+- Grok and Senpi are observe/attach contracts only. This library does not spawn,
+  drive, Commit, or translate Claude hook scripts to those engines.
+- Claude `/processing` stays the session parse/tail/export surface. Marker
+  helpers remain public; JSONL cursor internals and Senpi marker-schema helpers
+  stay unexported and resolve as `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+- There is no public plugin ABI and no shared cross-harness `SessionBlock`.
+- This package is a library. It does not ship a Cockpit (or any other) product
+  integration, daemon, or UI.
 
 ### Fixed
 
@@ -180,4 +215,7 @@ Development milestone for `@libar-dev/claude-code-hooks` before the first public
 - Exact `--format raw-records` payloads and `rawLine` bytes are gated behind the explicit
   `--unsafe-raw-unredacted` opt-in; without it, raw records are redacted.
 
+[Unreleased]: https://github.com/libar-dev/agent-harness-kit/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/libar-dev/agent-harness-kit/releases/tag/v0.3.0
+[0.2.0]: https://github.com/libar-dev/agent-harness-kit/releases/tag/v0.2.0
 [0.1.0]: https://github.com/libar-dev/agent-harness-kit/releases/tag/v0.1.0

@@ -1,6 +1,6 @@
 # Agent harness kit
 
-`@libar-dev/agent-harness-kit` is a TypeScript library for Claude Code hooks, session export/tail CLIs, and a Grok Build adapter. Claude Code has 30 hook events. `CLAUDE.md` is a symlink to this file. Edit this file.
+`@libar-dev/agent-harness-kit` is a TypeScript library for Claude Code hooks, session export/tail CLIs, and attach-only Grok Build and OmO-native (senpi) observe adapters. Claude Code has 30 hook events. `CLAUDE.md` is a symlink to this file. Edit this file.
 
 ## `any`
 
