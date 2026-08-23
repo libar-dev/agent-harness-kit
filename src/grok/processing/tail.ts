@@ -25,7 +25,14 @@ import {
   type JsonlDelta,
   type JsonlLine,
 } from './jsonl-cursor.js';
+import { StaleCheckpointConflict } from '../../processing/stale-checkpoint-conflict.js';
 import { parseGrokSessionUpdate } from './updates.js';
+
+export {
+  STALE_CHECKPOINT_CONFLICT_CODE,
+  StaleCheckpointConflict,
+  isStaleCheckpointConflict,
+} from '../../processing/stale-checkpoint-conflict.js';
 
 const MARKER_VERSION = 1;
 const STALE_MARKER_LOCK_MS = 30_000;
@@ -166,8 +173,6 @@ interface ParsedLine {
   readonly record?: GrokTailRecord;
   readonly diagnostic?: GrokTailDiagnostic;
 }
-
-class StaleGrokSessionCheckpointError extends Error {}
 
 /**
  * Tail updates.jsonl and events.jsonl as one revisioned session stream.
@@ -348,7 +353,9 @@ export async function tailGrokSession(
  * @param checkpoint - Checkpoint returned by `tailGrokSession`.
  * @param options - Marker destination and root allow-list.
  * @returns After the marker has been atomically replaced.
- * @throws If the checkpoint is stale, malformed, unsafe, or for another path.
+ * @throws {@link StaleCheckpointConflict} if `baseRevision` does not match
+ *   the current marker revision. Also throws if the checkpoint is malformed,
+ *   unsafe, or for another path.
  */
 export async function commitGrokSessionCheckpoint(
   sessionDir: string,
@@ -366,9 +373,10 @@ export async function commitGrokSessionCheckpoint(
     const marker = await readGrokSessionMarker(markerPath, sessionPathDigest);
     const revision = marker?.revision ?? 0;
     if (checkpoint.baseRevision !== revision) {
-      throw new StaleGrokSessionCheckpointError(
-        'Grok session checkpoint is stale for the current marker'
-      );
+      throw new StaleCheckpointConflict({
+        expectedRevision: checkpoint.baseRevision,
+        actualRevision: revision,
+      });
     }
     validateCheckpointProgression(marker, nextSources);
     await writePrivateJson(markerPath, {

@@ -44,6 +44,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { buildToolNameMap } from './denoiser.js';
 import { decomposeHistoryLine } from './block-decomposition.js';
 import { compareStrings } from './ordering.js';
+import { StaleCheckpointConflict } from './stale-checkpoint-conflict.js';
 import {
   safeValidateRawHistoryLine,
   safeValidateRawTranscriptPayloadMetadata,
@@ -334,8 +335,6 @@ interface RawTranscriptSessionLockOwner {
   readonly createdAt: number;
 }
 
-class StaleRawTranscriptSessionCheckpointError extends Error {}
-
 const SESSION_MARKER_LOCK_OWNER_FILE = 'owner.json';
 const SESSION_MARKER_LOCK_ACQUIRE_TIMEOUT_MS = 5000;
 const SESSION_MARKER_LOCK_STALE_MS = 30_000;
@@ -553,7 +552,7 @@ export async function tailRawTranscriptSessionRecords(
         checkpoint
       );
     } catch (error) {
-      if (!(error instanceof StaleRawTranscriptSessionCheckpointError)) {
+      if (!(error instanceof StaleCheckpointConflict)) {
         throw error;
       }
     }
@@ -586,7 +585,8 @@ export async function tailRawTranscriptSessionRecords(
  * @param checkpoint - Checkpoint returned with that result.
  * @param options - Marker directory and allow-list controls used for tailing.
  * @returns A promise that resolves after the atomic marker replacement.
- * @throws If the checkpoint has another path identity, is stale, is invalid,
+ * @throws {@link StaleCheckpointConflict} if the checkpoint revision is stale.
+ * @throws If the checkpoint has another path identity, is invalid,
  *   or contains an unsafe offset or generation transition.
  */
 export async function commitRawTranscriptSessionCheckpoint(
@@ -881,9 +881,10 @@ async function mutateRawTranscriptSessionMarker(
     const nextMarkers = rawTranscriptSessionCheckpointToMarkers(checkpoint);
     const currentRevision = existingMarker?.revision ?? 0;
     if (checkpoint.baseRevision !== currentRevision) {
-      throw new StaleRawTranscriptSessionCheckpointError(
-        'Session checkpoint is stale for the current marker'
-      );
+      throw new StaleCheckpointConflict({
+        expectedRevision: checkpoint.baseRevision,
+        actualRevision: currentRevision,
+      });
     }
     validateRawTranscriptCheckpointProgression(existingMarker, nextMarkers);
 

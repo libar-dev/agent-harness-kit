@@ -94,7 +94,12 @@ export type {
   SenpiWatchCycle,
 } from './watch.js';
 
-export { commitSenpiSessionCheckpoint } from './checkpoint.js';
+export {
+  STALE_CHECKPOINT_CONFLICT_CODE,
+  StaleCheckpointConflict,
+  commitSenpiSessionCheckpoint,
+  isStaleCheckpointConflict,
+} from './checkpoint.js';
 export type {
   SenpiSessionCheckpoint,
   SenpiSessionCheckpointCommitOptions,
