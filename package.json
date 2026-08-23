@@ -1,9 +1,9 @@
 {
   "name": "@libar-dev/agent-harness-kit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "packageManager": "pnpm@10.4.1",
   "type": "module",
-  "description": "Agent harness toolkit — Claude Code hooks today, harness-agnostic future. Typed session export, tail tooling, and 30 hook event handlers with Zod validation.",
+  "description": "Agent harness toolkit for Claude Code hooks plus attach-only Grok Build and OmO-native (senpi) observe adapters. Typed session processing, standalone hook forwarders, and Zod-validated hook I/O.",
   "sideEffects": false,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -151,6 +151,8 @@
   ],
   "keywords": [
     "claude-code",
+    "grok",
+    "senpi",
     "hooks",
     "typescript",
     "ai",
@@ -168,7 +170,8 @@
   },
   "homepage": "https://github.com/libar-dev/agent-harness-kit#readme",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "pnpm": {
     "onlyBuiltDependencies": [

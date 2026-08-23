@@ -1,11 +1,11 @@
 # @libar-dev/agent-harness-kit
 
-> **Today: a Claude Code toolkit. Future: harness-agnostic.**
+> Claude Code hooks, plus attach-only Grok Build and OmO-native (senpi) observe adapters.
 >
-> This library currently targets [Claude Code hooks](https://docs.anthropic.com/en/docs/claude-code/hooks). The long-term goal is to generalize the harness layer so the same validators, builders, and session tooling work across multiple agent platforms. Claude-specific API names (event names, CLI binaries) will remain stable.
+> This library validates hook I/O and reads on-disk session files. It does not start, drive, or Commit external engines, and it is not a desktop product integration. Claude-specific API names (event names, CLI binaries) remain stable and are not translated to Grok or Senpi.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![npm version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/libar-dev/agent-harness-kit/releases)
+[![npm version](https://img.shields.io/badge/version-0.3.0-blue)](https://github.com/libar-dev/agent-harness-kit/releases)
 [![Node ≥22](https://img.shields.io/badge/node-%3E%3D22-green)](package.json)
 
 TypeScript library for [Claude Code hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) with strict types, Zod-validated inputs, and a fluent output builder for all 30 hook events.
@@ -81,6 +81,12 @@ echo '{"hook_event_name":"PreToolUse","session_id":"s1","transcript_path":"/tmp/
 | `@libar-dev/agent-harness-kit/post-tool-use` | Reference handlers: Prettier formatter, TypeScript checker |
 | `@libar-dev/agent-harness-kit/lifecycle` | Reference handlers: setup, session start/end, notifications, message display, stop, subagents, elicitation |
 | `@libar-dev/agent-harness-kit/processing` | Session parsing, full-history reads, structured exports, and multi-source raw transcript tailing |
+| `@libar-dev/agent-harness-kit/grok` | Attach-only Grok Build hook validation, output builder, and runner |
+| `@libar-dev/agent-harness-kit/grok/processing` | Grok session discovery, parse, tail, watch, and checkpoint commit |
+| `@libar-dev/agent-harness-kit/senpi` | Attach-only OmO-native (senpi) hooks, trust inspection, and registration helpers |
+| `@libar-dev/agent-harness-kit/senpi/processing` | Senpi session discovery, projection, tail, watch, and checkpoint commit |
+| `@libar-dev/agent-harness-kit/endpoint-discovery` | Validated hook-endpoint file contract and URL helpers |
+| `@libar-dev/agent-harness-kit/forwarder` | Managed POSIX wrapper asset for the standalone hook forwarders |
 
 ## Documentation
 
@@ -115,7 +121,7 @@ pnpm run build        # compile src/ → dist/ (publish only)
 
 ## Status
 
-Version `0.1.0` is the initial npm release candidate. The public API is stable but may change before the first published release. Pin to a commit hash if you depend on this from another project.
+Version `0.3.0` is the public contract freeze: Claude hooks and processing, attach-only Grok and Senpi observe adapters, and standalone forwarders. Runtime support is Node.js 22 and newer. Publishing to npm with provenance is a separate owner-authorized step; see [Release 0.3.0](docs/internal/release-0.3.0.md).
 
 ## Contributing
 
