@@ -4,10 +4,13 @@
  * Final `/senpi` surface: agent-home resolution, session v3 types,
  * hooks-config validation, vendored hook-contract manifest, hook wire
  * schemas and validators, command runner, output builder, read-only
- * trust inspection, consent-gated trust writer, and observe-only
- * hooks.json registration helpers. This barrel is now complete; later
- * work must not add wildcard re-exports. Cursor and checkpoint marker
- * internals are never exported from this package.
+ * trust inspection, consent-gated trust write/revoke, and observe-only
+ * hooks.json register/inspect/unregister helpers. Mutating primitives
+ * require an explicit options object and never run at import. This
+ * barrel is now complete; later work must not add wildcard re-exports.
+ * Cursor and checkpoint marker internals are never exported from this
+ * package. Library capability is not Cockpit product integration;
+ * Cockpit remains observe-only and must not call these writers.
  *
  * Do not import this surface from the kit root barrel.
  */
@@ -86,8 +89,11 @@ export type {
 export { SenpiHookOutputBuilder } from './output-builder.js';
 
 export {
+  SENPI_HOOKS_STATE_FILENAME,
+  SENPI_PROJECT_CONFIG_DIR,
   isSenpiCommandHookTrusted,
   readSenpiHookTrustState,
+  resolveSenpiHookTrustStatePath,
   senpiHashCommandHook,
   senpiHookTrustId,
 } from './trust.js';
@@ -108,20 +114,35 @@ export {
   SenpiTrustConsentError,
   SenpiTrustLockError,
   SenpiTrustStateMalformedError,
+  removeSenpiHookTrustEntry,
   writeSenpiHookTrustEntry,
 } from './trust-writer.js';
 export type {
+  RemoveSenpiHookTrustEntryOptions,
+  RemoveSenpiHookTrustEntryResult,
   WriteSenpiHookTrustEntryOptions,
   WriteSenpiHookTrustEntryResult,
   WrittenSenpiHookTrustEntry,
 } from './trust-writer.js';
 
 export {
+  SENPI_HOOKS_CONFIG_FILENAME,
+  SenpiHooksConsentError,
   buildSenpiHooksRegistration,
+  readSenpiHooksConfig,
+  removeSenpiHooksConfig,
+  resolveSenpiHooksConfigPath,
   writeSenpiHooksConfig,
 } from './registration.js';
 export type {
+  ReadSenpiHooksConfigOptions,
+  RemoveSenpiHooksConfigOptions,
+  RemoveSenpiHooksConfigResult,
+  SenpiHooksConfigReadResult,
+  SenpiHooksConfigTarget,
   SenpiHooksRegistrationDocument,
   SenpiHooksRegistrationGroup,
   SenpiHooksRegistrationHandler,
+  WriteSenpiHooksConfigOptions,
+  WriteSenpiHooksConfigResult,
 } from './registration.js';

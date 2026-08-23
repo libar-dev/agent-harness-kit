@@ -12,6 +12,7 @@ import * as grokExports from '../src/grok/index.js';
 import * as grokProcessingExports from '../src/grok/processing/index.js';
 import * as senpiExports from '../src/senpi/index.js';
 import * as senpiProcessingExports from '../src/senpi/processing/index.js';
+import * as forwarderExports from '../src/forwarder/index.js';
 import * as validationExports from '../src/validation/index.js';
 
 const repoRoot = process.cwd();
@@ -214,10 +215,14 @@ const expectedSenpiRuntimeExports = [
   'AGENT_HOME_SENTINEL',
   'HOOK_DECISIONS',
   'HOOK_INPUT_BRANCHES',
+  'SENPI_HOOKS_CONFIG_FILENAME',
+  'SENPI_HOOKS_STATE_FILENAME',
   'SENPI_HOOK_EVENT_NAMES',
+  'SENPI_PROJECT_CONFIG_DIR',
   'SENPI_UNSUPPORTED_HANDLER_TYPES',
   'SENPI_UNSUPPORTED_HOOK_EVENT_NAMES',
   'SenpiHookOutputBuilder',
+  'SenpiHooksConsentError',
   'SenpiTrustConsentError',
   'SenpiTrustLockError',
   'SenpiTrustStateMalformedError',
@@ -226,8 +231,13 @@ const expectedSenpiRuntimeExports = [
   'isSenpiCommandHookTrusted',
   'outputSenpiJson',
   'readSenpiHookTrustState',
+  'readSenpiHooksConfig',
   'readSenpiStdinJson',
+  'removeSenpiHookTrustEntry',
+  'removeSenpiHooksConfig',
   'resolveSenpiAgentHome',
+  'resolveSenpiHookTrustStatePath',
+  'resolveSenpiHooksConfigPath',
   'senpiHashCommandHook',
   'senpiHookInputSchema',
   'senpiHookOutputSchema',
@@ -256,6 +266,12 @@ const expectedSenpiProcessingRuntimeExports = [
   'resolveSenpiLeaf',
   'tailSenpiSession',
   'watchSenpiSession',
+] as const;
+
+const expectedForwarderRuntimeExports = [
+  'RUN_HOOK_WRAPPER_SH',
+  'STANDALONE_HOOK_FORWARDER_ASSET',
+  'STANDALONE_SENPI_HOOK_FORWARDER_ASSET',
 ] as const;
 
 const senpiInternalExports = [
@@ -501,6 +517,21 @@ describe('package export contract', () => {
     for (const exportName of expectedSenpiProcessingRuntimeExports) {
       expect(senpiExports).not.toHaveProperty(exportName);
     }
+  });
+
+  it('exports the public forwarder asset contract', () => {
+    expect(Object.keys(forwarderExports).sort()).toEqual(
+      [...expectedForwarderRuntimeExports].sort()
+    );
+    expect(forwarderExports.STANDALONE_HOOK_FORWARDER_ASSET).toBe(
+      'dist/standalone/hook-forwarder.mjs'
+    );
+    expect(forwarderExports.STANDALONE_SENPI_HOOK_FORWARDER_ASSET).toBe(
+      'dist/standalone/hook-forwarder-senpi.mjs'
+    );
+    expect(forwarderExports.RUN_HOOK_WRAPPER_SH.startsWith('#!/bin/sh')).toBe(
+      true
+    );
   });
 
   it('exports the public Senpi processing barrel without cursor or marker internals', () => {

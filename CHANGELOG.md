@@ -28,12 +28,15 @@ Node 20 and Windows are not supported.
   tail, watch, checkpoint commit, block reduction).
 - Added the attach-only OmO-native (senpi) surface on `/senpi` (agent-home
   resolution, hook wire/validation, output builder, runner, read-only trust
-  inspection, consent-gated trust writer, observe-only hooks.json registration)
-  and `/senpi/processing` (discovery, listing, parse, projection, tail, watch,
-  checkpoint commit, native block reduction).
+  inspection, consent-gated trust grant/revoke, observe-only hooks.json
+  register/inspect/unregister) and `/senpi/processing` (discovery, listing,
+  parse, projection, tail, watch, checkpoint commit, native block reduction).
+  Mutating primitives require `{ consent: true, reason, target }` and never
+  run at module import.
 - Added the standalone Senpi hook forwarder at
   `dist/standalone/hook-forwarder-senpi.mjs` alongside the existing Claude
-  forwarder at `dist/standalone/hook-forwarder.mjs`.
+  forwarder at `dist/standalone/hook-forwarder.mjs`. `/forwarder` exports the
+  pack-relative asset paths and `RUN_HOOK_WRAPPER_SH`; it does not install.
 - Added Claude Code hook parity for optional `prompt_id`, eight Notification
   types, Stop/SubagentStop background-task and session-cron registries, six
   permission-update variants, the `manual` set-mode alias, `disableAllHooks`,
@@ -83,7 +86,8 @@ Node 20 and Windows are not supported.
   stay unexported and resolve as `ERR_PACKAGE_PATH_NOT_EXPORTED`.
 - There is no public plugin ABI and no shared cross-harness `SessionBlock`.
 - This package is a library. It does not ship a Cockpit (or any other) product
-  integration, daemon, or UI.
+  integration, daemon, or UI. Cockpit is observe-only for OmO/Senpi and must
+  not call kit hook/trust writers or install the Senpi forwarder.
 
 ### Fixed
 

@@ -197,25 +197,51 @@ Agent home resolution for consumers is `resolveSenpiAgentHome(options?)`:
 
 ### Trust gate
 
-Trust inspection is read-only by default:
+Trust inspection is read-only and never writes:
 
-| Export                     | Purpose                                                              |
-| -------------------------- | -------------------------------------------------------------------- |
-| `readSenpiHookTrustState`  | Read `hooks-state.json` without writing                              |
-| `isSenpiCommandHookTrusted`| Compare live handler hash to a stored grant                          |
-| `senpiHookTrustId`         | Pure id: `hk_<sourceKeyHash>_<event>_<groupIndex>_<handlerIndex>`    |
-| `senpiHashCommandHook`     | Pure content hash `sha256:<hex>` over the canonical command identity |
+| Export                            | Purpose                                                              |
+| --------------------------------- | -------------------------------------------------------------------- |
+| `readSenpiHookTrustState`         | Read `hooks-state.json` without writing                              |
+| `isSenpiCommandHookTrusted`       | Compare live handler hash to a stored grant                          |
+| `senpiHookTrustId`                | Pure id: `hk_<sourceKeyHash>_<event>_<groupIndex>_<handlerIndex>`    |
+| `senpiHashCommandHook`            | Pure content hash `sha256:<hex>` over the canonical command identity |
+| `resolveSenpiHookTrustStatePath`  | Resolve global `<agentHome>/hooks-state.json` or project `<cwd>/.senpi/hooks-state.json` |
+| `SENPI_HOOKS_STATE_FILENAME`      | `hooks-state.json`                                                   |
+| `SENPI_PROJECT_CONFIG_DIR`        | `.senpi`                                                             |
 
-Storage paths (engine parity): global `<agentHome>/hooks-state.json`, project `<cwd>/.senpi/hooks-state.json`.
+Storage paths (engine parity): global `<agentHome>/hooks-state.json`, project `<cwd>/.senpi/hooks-state.json`. Path helpers never default to `~/.omo`.
 
-Writing trust is consent-gated. `writeSenpiHookTrustEntry` is the approval act itself: callers must pass `consent: true` and a non-empty `reason` before any filesystem access. Failures raise `SenpiTrustConsentError`, `SenpiTrustStateMalformedError`, or `SenpiTrustLockError`. The writer locks, preserves unknown entries, replaces atomically, and is fail-closed on malformed state.
+Mutation is explicit and opt-in. `writeSenpiHookTrustEntry` and `removeSenpiHookTrustEntry` are the grant/revoke acts themselves: callers must pass an options object with `consent: true`, a non-empty `reason`, and an explicit handler/scope/`agentHome`/`cwd` target before any filesystem access. Nothing runs at module import. Failures raise `SenpiTrustConsentError`, `SenpiTrustStateMalformedError`, or `SenpiTrustLockError`. The writer locks, preserves unknown entries, replaces atomically, and is fail-closed on malformed state. Removing the last entry (with no unknown top-level keys) deletes the state file so a grant/revoke cycle is a reversible file delta.
 
-Observe-only registration helpers (never write trust):
+The caller owns consent, the target directory, and uninstall. These helpers are library capability, not a Cockpit product integration. **Cockpit is observe-only** and must not grant or revoke trust.
 
-| Export                         | Purpose                                                          |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `buildSenpiHooksRegistration`  | Build a command-only hooks.json document for a subset of events  |
-| `writeSenpiHooksConfig`        | Atomic write of that document                                    |
+### Hooks registration
+
+Observe-only registration helpers never write trust and never enable gates:
+
+| Export                          | Purpose                                                          |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `buildSenpiHooksRegistration`   | Pure builder for a command-only hooks.json document              |
+| `resolveSenpiHooksConfigPath`   | Resolve `{ filePath }` / global `<agentHome>/hooks.json` / project `<cwd>/.senpi/hooks.json` |
+| `readSenpiHooksConfig`          | Inspect a target; missing file → `{ ok: true, document: null }`  |
+| `writeSenpiHooksConfig`         | Consent-gated atomic write of that document                      |
+| `removeSenpiHooksConfig`        | Consent-gated unregister (deletes the file; missing is a no-op)  |
+| `SENPI_HOOKS_CONFIG_FILENAME`   | `hooks.json`                                                     |
+| `SenpiHooksConsentError`        | Thrown before any write when consent, reason, or target is omitted |
+
+`writeSenpiHooksConfig` and `removeSenpiHooksConfig` require `{ consent: true, reason, target }`. Positional paths are rejected before any filesystem access. `target` is `{ filePath }`, `{ scope: "global", agentHome }`, or `{ scope: "project", cwd }`. The caller supplies the isolated home; the library never writes `~/.omo` unless that path is passed in explicitly.
+
+### Standalone forwarder assets
+
+`@libar-dev/agent-harness-kit/forwarder` exports pack-relative asset paths. It does not install anything.
+
+| Export                                     | Purpose |
+| ------------------------------------------ | ------- |
+| `STANDALONE_HOOK_FORWARDER_ASSET`          | `dist/standalone/hook-forwarder.mjs` (Claude) |
+| `STANDALONE_SENPI_HOOK_FORWARDER_ASSET`    | `dist/standalone/hook-forwarder-senpi.mjs` (Senpi observe-only) |
+| `RUN_HOOK_WRAPPER_SH`                      | POSIX wrapper string for Claude endpoint-discovery consumers |
+
+The Senpi standalone forwarder POSTs a valid envelope to `SENPI_HOOK_FORWARD_URL` and always exits 0 with empty stdout. It never emits a gate decision. Shipping the asset is not an install. Cockpit must not install this forwarder or define a Senpi Stop policy.
 
 ## Session layout and processing APIs
 
@@ -338,7 +364,15 @@ Do not rename kit APIs to `Omo*`. Downstream product layers may brand as OmO whi
 
 ## Cockpit seam
 
-Cross-repo integration for the desktop observer lives outside this package. The execution brief is [`plans/omo-native-adapter/cockpit-phase-c.md`](../../plans/omo-native-adapter/cockpit-phase-c.md): harness id `omo`, dynamic import of `/senpi` and `/senpi/processing`, lossy block map from `SenpiSessionBlock`, session-end via `watchSenpiSession` quiescence (no SessionEnd event), and the merge gate that the kit PR lands only after Phase C is tested against it.
+**Cockpit is observe-only for OmO/Senpi.** This package is a library. Library capability is not product integration.
+
+| Layer | Allowed | Forbidden |
+| ----- | ------- | --------- |
+| Kit `/senpi` and `/senpi/processing` | Resolve home, list/tail/watch sessions, validate hook I/O, inspect trust, build a hooks.json document | Spawn, drive, Commit, RPC |
+| Kit mutating primitives (`writeSenpiHooksConfig`, `removeSenpiHooksConfig`, `writeSenpiHookTrustEntry`, `removeSenpiHookTrustEntry`) | Explicit owner/operator tools that pass `{ consent: true, reason, target }` against a directory they own | Module-import side effects; defaulting to `~/.omo`; silent install |
+| Cockpit product | Dynamic import of observe APIs; read session files for the open project | Register hooks, grant/revoke trust, install the Senpi forwarder, enforce a Senpi Stop gate, write OmO config |
+
+The caller of a mutating primitive owns consent, the target path, and uninstall. Cockpit must not be that caller. Cross-repo product wiring lives outside this package.
 
 ## Senpi vs Claude / Grok (no unification)
 
