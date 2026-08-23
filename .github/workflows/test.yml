@@ -46,3 +46,71 @@ jobs:
 
       - name: Run build
         run: pnpm run build
+
+  clean-consumer:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        run: pnpm run build
+
+      - name: Pack and exercise clean consumer
+        run: node scripts/clean-consumer.mjs --mode happy
+
+  engine-mismatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+
+      - name: Set up Node.js for pack
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        run: pnpm run build
+
+      - name: Pack release candidate
+        run: |
+          mkdir -p "$RUNNER_TEMP/kit-pack"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/kit-pack"
+          echo "TARBALL=$(ls "$RUNNER_TEMP/kit-pack"/*.tgz)" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Surface declared engine mismatch
+        run: node scripts/clean-consumer.mjs --mode engine-mismatch --tarball "$TARBALL"
