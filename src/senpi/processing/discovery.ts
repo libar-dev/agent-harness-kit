@@ -1,6 +1,9 @@
-import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import {
+  readDiscoveryDirectory,
+  sortDiscoveredPaths,
+} from '../../processing/discovery-primitives.js';
 import { resolveSenpiAgentHome } from '../home.js';
 
 /**
@@ -78,17 +81,12 @@ export async function findSenpiSessionDirs(
   const sessionsRoot = getSenpiSessionsRoot(agentHome);
   const encoded = encodeSenpiCwdDirname(projectCwd);
 
-  let entries;
-  try {
-    entries = await readdir(sessionsRoot, { withFileTypes: true });
-  } catch {
-    return [];
-  }
+  const entries = await readDiscoveryDirectory(sessionsRoot);
 
   const matches = entries
     .filter(entry => entry.isDirectory() && entry.name === encoded)
     .map(entry => join(sessionsRoot, entry.name));
-  return matches.sort((left, right) => left.localeCompare(right));
+  return sortDiscoveredPaths(matches);
 }
 
 /**
@@ -107,14 +105,7 @@ export async function listSenpiSessionFiles(
 ): Promise<string[]> {
   const files: string[] = [];
   for (const dir of sessionDirs) {
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      // Missing or unreadable per-cwd dir (ENOENT/EACCES/etc.) is skipped;
-      // conflation is deliberate and matches the empty-on-missing-root design.
-      continue;
-    }
+    const entries = await readDiscoveryDirectory(dir);
 
     for (const entry of entries) {
       if (entry.isDirectory()) {
@@ -133,5 +124,5 @@ export async function listSenpiSessionFiles(
       }
     }
   }
-  return files.sort((left, right) => left.localeCompare(right));
+  return sortDiscoveredPaths(files);
 }

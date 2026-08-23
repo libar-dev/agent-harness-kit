@@ -1,9 +1,14 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
 import { blake3 } from '@noble/hashes/blake3.js';
 import { z } from 'zod';
+
+import {
+  readDiscoveryDirectory,
+  sortDiscoveredPaths,
+} from '../../processing/discovery-primitives.js';
 
 const MAX_DIRNAME_BYTES = 255;
 const LONG_CWD_SLUG_LENGTH = 40;
@@ -112,12 +117,7 @@ export async function findGrokSessionDirs(
   const sessionsRoot = join(getGrokHome(env), 'sessions');
   const encodedCwd = encodeGrokCwdDirname(cwd);
 
-  let cwdEntries;
-  try {
-    cwdEntries = await readdir(sessionsRoot, { withFileTypes: true });
-  } catch {
-    return [];
-  }
+  const cwdEntries = await readDiscoveryDirectory(sessionsRoot);
 
   const matchingCwdDirs: string[] = [];
   for (const entry of cwdEntries) {
@@ -133,12 +133,7 @@ export async function findGrokSessionDirs(
 
   const sessionDirs: string[] = [];
   for (const cwdDir of matchingCwdDirs) {
-    let entries;
-    try {
-      entries = await readdir(cwdDir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
+    const entries = await readDiscoveryDirectory(cwdDir);
 
     for (const entry of entries) {
       if (entry.isDirectory()) {
@@ -150,7 +145,7 @@ export async function findGrokSessionDirs(
     }
   }
 
-  return sessionDirs.sort((left, right) => left.localeCompare(right));
+  return sortDiscoveredPaths(sessionDirs);
 }
 
 /**

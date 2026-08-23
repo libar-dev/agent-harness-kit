@@ -2,6 +2,7 @@
 import { watch } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 
+import { createFileWatchScheduler } from '../../processing/watch-scheduler.js';
 import {
   tailSenpiSession,
   type SenpiSessionTailOptions,
@@ -152,7 +153,7 @@ export async function* watchSenpiSession(
   let replacementPending = false;
   let wakeReason: 'change' | 'quiet' | 'poll' | null = null;
   let resumeWait: (() => void) | undefined;
-  let coalesceHandle: NodeJS.Timeout | number | null = null;
+  let continuationCheckpoint = tailOptions.checkpoint;
   let quiescenceHandle: NodeJS.Timeout | number | null = null;
   let pollHandle: NodeJS.Timeout | number | null = null;
 
@@ -185,12 +186,18 @@ export async function* watchSenpiSession(
     }, quiescenceMs);
   };
 
-  const disarmCoalesce = (): void => {
-    if (coalesceHandle !== null) {
-      clock.clearTimeout(coalesceHandle);
-      coalesceHandle = null;
+  const coalescer = createFileWatchScheduler(
+    () => {
+      markWake('change');
+      wake();
+    },
+    {
+      schedule: handler => clock.setTimeout(handler, coalesceMs),
+      cancel: handle => clock.clearTimeout(handle),
     }
-  };
+  );
+
+  const disarmCoalesce = (): void => coalescer.cancel();
 
   const disarmPoll = (): void => {
     if (pollHandle !== null) {
@@ -212,12 +219,7 @@ export async function* watchSenpiSession(
 
   const onActivity = (): void => {
     disarmQuiescence();
-    if (coalesceHandle !== null) return;
-    coalesceHandle = clock.setTimeout(() => {
-      coalesceHandle = null;
-      markWake('change');
-      wake();
-    }, coalesceMs);
+    coalescer.request();
   };
 
   const onAbort = (): void => {
@@ -247,10 +249,14 @@ export async function* watchSenpiSession(
 
   const reconcile = async (): Promise<SenpiSessionTailResult | null> => {
     try {
-      const result = await tailSenpiSession(
-        sessionPath,
-        replacementPending ? { ...tailOptions, fromStart: true } : tailOptions
-      );
+      const result = await tailSenpiSession(sessionPath, {
+        ...tailOptions,
+        ...(continuationCheckpoint === undefined
+          ? {}
+          : { checkpoint: continuationCheckpoint }),
+        ...(replacementPending ? { fromStart: true } : {}),
+      });
+      continuationCheckpoint = result.checkpoint;
       replacementPending = false;
       options.onCycle?.({ type: 'reconciled', source: 'present' });
       return result;

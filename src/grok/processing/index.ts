@@ -32,6 +32,7 @@ export type {
   GrokCheckpointStatus,
   GrokSessionCheckpoint,
   GrokSessionCheckpointCommitOptions,
+  GrokSessionCheckpointState,
   GrokSessionSourceCheckpoint,
   GrokSessionTailOptions,
   GrokSessionTailResult,

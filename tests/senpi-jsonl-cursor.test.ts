@@ -46,7 +46,7 @@ vi.mock('node:fs/promises', async importOriginal => {
 import {
   readJsonlDelta,
   type JsonlCursor,
-} from '../src/senpi/processing/jsonl-cursor.js';
+} from '../src/processing/jsonl-cursor.js';
 
 const mib = 1024 * 1024;
 const scanChunkBytes = 64 * 1024;
