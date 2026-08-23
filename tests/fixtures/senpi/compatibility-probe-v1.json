@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "subject": "pi-senpi-sanitized-fixture-v1",
+  "evaluatedAt": "2026-08-23T00:00:00.000Z",
+  "checkpointMode": "manual",
+  "sessionFixture": "tests/fixtures/senpi/synthetic-branch-switch.jsonl",
+  "rewriteFixture": "tests/fixtures/senpi/synthetic-retained-tail-compaction.jsonl"
+}

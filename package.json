@@ -96,6 +96,7 @@
     "fix:all": "prettier --write 'src/**/*.{ts,tsx,js,jsx,json,md}' || echo 'Prettier encountered syntax errors but continuing...' && pnpm run lint:fix || echo 'ESLint fixes completed with potential errors'",
     "validate": "pnpm run check",
     "senpi:smoke": "tsx scripts/senpi-live-smoke.mts",
+    "senpi:compatibility": "tsx scripts/senpi-compatibility-probe.mts",
     "consumer:matrix": "node scripts/clean-consumer.mjs --matrix",
     "consumer:happy": "node scripts/clean-consumer.mjs --mode happy",
     "validate:dev": "pnpm run check",
