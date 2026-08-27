@@ -1,15 +1,14 @@
-import { createHash, randomUUID } from 'node:crypto';
-import {
-  mkdir,
-  open,
-  readFile,
-  rename,
-  rm,
-  stat,
-  unlink,
-} from 'node:fs/promises';
-import { basename, delimiter, dirname, join, resolve, sep } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
 
+import { withMarkerLock } from '../../internal/marker-lock.js';
+import {
+  createMarkerPathDigest,
+  hasErrorCode,
+  resolveAllowedMarkerDir,
+  sanitizeMarkerBase,
+  writePrivateJson,
+} from '../../internal/marker-store.js';
 import { checkpointRevision } from '../../internal/incremental.js';
 import { StaleCheckpointConflict } from '../../processing/stale-checkpoint-conflict.js';
 import type { SenpiEntryParseResult } from './parse.js';
@@ -28,7 +27,6 @@ export {
 /** On-disk marker schema version persisted as `markerVersion`. */
 export const SENPI_MARKER_VERSION = 1;
 
-const STALE_MARKER_LOCK_MS = 30_000;
 const MARKER_ROOTS_ENV = 'SENPI_TAIL_MARKER_ROOTS';
 
 /**
@@ -149,7 +147,7 @@ export type SenpiSessionMarkerParseResult =
  * @returns Hex digest used as `sessionPathDigest` and in the marker filename.
  */
 export function createSenpiSessionPathDigest(sessionPath: string): string {
-  return createHash('sha256').update(resolve(sessionPath)).digest('hex');
+  return createMarkerPathDigest(sessionPath);
 }
 
 /**
@@ -177,7 +175,12 @@ export function getSenpiSessionMarkerPath(
   const dir =
     options.markerDir === undefined
       ? resolve(dirname(resolvedSessionPath), '.tail-markers')
-      : resolveAllowedMarkerDir(options.markerDir, options.allowedMarkerRoots);
+      : resolveAllowedMarkerDir(options.markerDir, {
+          allowedMarkerRoots: options.allowedMarkerRoots,
+          rootsEnvVar: MARKER_ROOTS_ENV,
+          emptyRootsMessage:
+            'Custom markerDir requires allowedMarkerRoots (or SENPI_TAIL_MARKER_ROOTS) to include an allowed root',
+        });
   const digest = createSenpiSessionPathDigest(resolvedSessionPath);
   const base = sanitizeMarkerBase(basename(resolvedSessionPath, '.jsonl'));
   return join(dir, `senpi-${base}-${digest.slice(0, 16)}.json`);
@@ -363,32 +366,39 @@ export async function commitSenpiSessionCheckpoint(
   }
   validateCheckpointFields(checkpoint);
   const markerPath = getSenpiSessionMarkerPath(resolvedSessionPath, options);
-  await withMarkerLock(markerPath, async () => {
-    const existing = await readSenpiSessionMarker(resolvedSessionPath, options);
-    const revision = existing.kind === 'valid' ? existing.marker.revision : 0;
-    if (checkpoint.baseRevision !== revision) {
-      throw new StaleCheckpointConflict({
-        expectedRevision: checkpoint.baseRevision,
-        actualRevision: revision,
-      });
-    }
-    const marker: SenpiSessionMarker = {
-      sessionPathDigest,
-      sessionId: checkpoint.sessionId,
-      device: checkpoint.device,
-      inode: checkpoint.inode,
-      generation: checkpoint.generation,
-      offset: checkpoint.offset,
-      lineNumber: checkpoint.lineNumber,
-      headDigest: checkpoint.headDigest,
-      boundaryDigest: checkpoint.boundaryDigest,
-      revision: checkpointRevision(revision, true),
-      leafId: checkpoint.leafId,
-      projectedRecordKeys: [...checkpoint.projectedRecordKeys],
-      markerVersion: SENPI_MARKER_VERSION,
-    };
-    await writePrivateJson(markerPath, marker);
-  });
+  await withMarkerLock(
+    markerPath,
+    async () => {
+      const existing = await readSenpiSessionMarker(
+        resolvedSessionPath,
+        options
+      );
+      const revision = existing.kind === 'valid' ? existing.marker.revision : 0;
+      if (checkpoint.baseRevision !== revision) {
+        throw new StaleCheckpointConflict({
+          expectedRevision: checkpoint.baseRevision,
+          actualRevision: revision,
+        });
+      }
+      const marker: SenpiSessionMarker = {
+        sessionPathDigest,
+        sessionId: checkpoint.sessionId,
+        device: checkpoint.device,
+        inode: checkpoint.inode,
+        generation: checkpoint.generation,
+        offset: checkpoint.offset,
+        lineNumber: checkpoint.lineNumber,
+        headDigest: checkpoint.headDigest,
+        boundaryDigest: checkpoint.boundaryDigest,
+        revision: checkpointRevision(revision, true),
+        leafId: checkpoint.leafId,
+        projectedRecordKeys: [...checkpoint.projectedRecordKeys],
+        markerVersion: SENPI_MARKER_VERSION,
+      };
+      await writePrivateJson(markerPath, marker);
+    },
+    { lockedLabel: 'Senpi session marker' }
+  );
 }
 
 function validateCheckpointFields(checkpoint: SenpiSessionCheckpoint): void {
@@ -410,124 +420,6 @@ function validateCheckpointFields(checkpoint: SenpiSessionCheckpoint): void {
   }
 }
 
-function resolveAllowedMarkerDir(
-  markerDir: string,
-  explicitRoots?: readonly string[]
-): string {
-  const resolvedDir = resolve(markerDir);
-  const roots =
-    explicitRoots !== undefined
-      ? normalizeAllowedMarkerRoots(explicitRoots)
-      : parseAllowedMarkerRoots();
-  if (roots.length === 0) {
-    throw new Error(
-      'Custom markerDir requires allowedMarkerRoots (or SENPI_TAIL_MARKER_ROOTS) to include an allowed root'
-    );
-  }
-  if (!roots.some(root => isWithinPath(resolvedDir, root))) {
-    throw new Error(
-      `Marker directory '${resolvedDir}' is outside allowed marker roots`
-    );
-  }
-  return resolvedDir;
-}
-
-function normalizeAllowedMarkerRoots(
-  roots: readonly string[]
-): readonly string[] {
-  return roots
-    .map(root => root.trim())
-    .filter(root => root.length > 0)
-    .map(root => resolve(root));
-}
-
-function parseAllowedMarkerRoots(): readonly string[] {
-  const raw = process.env[MARKER_ROOTS_ENV];
-  if (raw === undefined || raw.trim() === '') return [];
-  return raw
-    .split(delimiter)
-    .map(root => root.trim())
-    .filter(root => root.length > 0)
-    .map(root => resolve(root));
-}
-
-function isWithinPath(child: string, parent: string): boolean {
-  const parentPrefix = parent.endsWith(sep) ? parent : `${parent}${sep}`;
-  return child === parent || child.startsWith(parentPrefix);
-}
-
-function sanitizeMarkerBase(raw: string): string {
-  const sanitized = raw
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return sanitized.length === 0 || sanitized === '.' || sanitized === '..'
-    ? 'session'
-    : sanitized;
-}
-
-async function withMarkerLock<T>(
-  markerPath: string,
-  action: () => Promise<T>
-): Promise<T> {
-  const lockPath = `${markerPath}.lock`;
-  await mkdir(dirname(markerPath), { recursive: true, mode: 0o700 });
-  try {
-    await mkdir(lockPath, { mode: 0o700 });
-  } catch (error: unknown) {
-    if (!hasErrorCode(error, 'EEXIST')) throw error;
-    if (!(await removeStaleMarkerLock(lockPath))) {
-      throw new Error(`Senpi session marker is locked: '${markerPath}'`);
-    }
-    try {
-      await mkdir(lockPath, { mode: 0o700 });
-    } catch (retryError: unknown) {
-      if (hasErrorCode(retryError, 'EEXIST')) {
-        throw new Error(`Senpi session marker is locked: '${markerPath}'`);
-      }
-      throw retryError;
-    }
-  }
-  try {
-    return await action();
-  } finally {
-    await rm(lockPath, { recursive: true, force: true });
-  }
-}
-
-async function removeStaleMarkerLock(lockPath: string): Promise<boolean> {
-  try {
-    const stats = await stat(lockPath);
-    if (Date.now() - stats.mtimeMs <= STALE_MARKER_LOCK_MS) {
-      return false;
-    }
-    await rm(lockPath, { recursive: true, force: true });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function writePrivateJson(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const temporaryPath = join(
-    dirname(path),
-    `.${basename(path)}.${randomUUID()}.tmp`
-  );
-  try {
-    const file = await open(temporaryPath, 'wx', 0o600);
-    try {
-      await file.writeFile(JSON.stringify(value, null, 2));
-      await file.sync();
-    } finally {
-      await file.close();
-    }
-    await rename(temporaryPath, path);
-  } catch (error: unknown) {
-    await unlink(temporaryPath).catch(() => undefined);
-    throw error;
-  }
-}
-
 function parseProjectedRecordKeys(
   value: unknown
 ): readonly string[] | undefined {
@@ -546,13 +438,4 @@ function isSafeNonnegativeInteger(value: unknown): value is number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function hasErrorCode(error: unknown, code: string): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    error.code === code
-  );
 }

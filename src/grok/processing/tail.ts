@@ -1,20 +1,18 @@
-import { createHash, randomUUID } from 'node:crypto';
 import { watch } from 'node:fs';
-import {
-  mkdir,
-  open,
-  readFile,
-  rename,
-  rm,
-  stat,
-  unlink,
-} from 'node:fs/promises';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { basename, join, resolve } from 'node:path';
 
 import {
   byteCursorsEqual,
   checkpointRevision,
 } from '../../internal/incremental.js';
+import { withMarkerLock } from '../../internal/marker-lock.js';
+import {
+  createMarkerPathDigest,
+  resolveAllowedMarkerDir,
+  sanitizeMarkerBase,
+  writePrivateJson,
+} from '../../internal/marker-store.js';
 import {
   createFileWatchScheduler,
   type FileWatchScheduler,
@@ -43,7 +41,6 @@ export {
 } from '../../processing/stale-checkpoint-conflict.js';
 
 const MARKER_VERSION = 1;
-const STALE_MARKER_LOCK_MS = 30_000;
 const SOURCE_FILENAMES = {
   updates: 'updates.jsonl',
   events: 'events.jsonl',
@@ -412,23 +409,27 @@ export async function commitGrokSessionCheckpoint(
   }
   const nextSources = checkpointSources(checkpoint);
   const markerPath = getGrokSessionMarkerPath(resolvedSessionDir, options);
-  await withMarkerLock(markerPath, async () => {
-    const marker = await readGrokSessionMarker(markerPath, sessionPathDigest);
-    const revision = marker?.revision ?? 0;
-    if (checkpoint.baseRevision !== revision) {
-      throw new StaleCheckpointConflict({
-        expectedRevision: checkpoint.baseRevision,
-        actualRevision: revision,
-      });
-    }
-    validateCheckpointProgression(marker, nextSources);
-    await writePrivateJson(markerPath, {
-      version: MARKER_VERSION,
-      sessionPathDigest,
-      revision: checkpointRevision(revision, true),
-      sources: nextSources,
-    } satisfies GrokSessionMarker);
-  });
+  await withMarkerLock(
+    markerPath,
+    async () => {
+      const marker = await readGrokSessionMarker(markerPath, sessionPathDigest);
+      const revision = marker?.revision ?? 0;
+      if (checkpoint.baseRevision !== revision) {
+        throw new StaleCheckpointConflict({
+          expectedRevision: checkpoint.baseRevision,
+          actualRevision: revision,
+        });
+      }
+      validateCheckpointProgression(marker, nextSources);
+      await writePrivateJson(markerPath, {
+        version: MARKER_VERSION,
+        sessionPathDigest,
+        revision: checkpointRevision(revision, true),
+        sources: nextSources,
+      } satisfies GrokSessionMarker);
+    },
+    { lockedLabel: 'Grok session marker' }
+  );
 }
 
 /**
@@ -811,7 +812,7 @@ function sourceResult(
 }
 
 function createSessionPathDigest(sessionDir: string): string {
-  return createHash('sha256').update(resolve(sessionDir)).digest('hex');
+  return createMarkerPathDigest(sessionDir);
 }
 
 function getGrokSessionMarkerPath(
@@ -821,49 +822,17 @@ function getGrokSessionMarkerPath(
   const markerDir =
     options.markerDir === undefined
       ? resolve(sessionDir, '.tail-markers')
-      : resolveAllowedMarkerDir(options.markerDir, options.allowedMarkerRoots);
+      : resolveAllowedMarkerDir(options.markerDir, {
+          allowedMarkerRoots: options.allowedMarkerRoots ?? [],
+          emptyRootsMessage:
+            'Custom markerDir requires allowedMarkerRoots to include an allowed root',
+        });
   const digest = createSessionPathDigest(sessionDir);
   const sessionName = sanitizeMarkerBase(basename(sessionDir));
   return join(
     markerDir,
     `${sessionName}-${digest.slice(0, 16)}.grok-session.json`
   );
-}
-
-function resolveAllowedMarkerDir(
-  markerDir: string,
-  allowedMarkerRoots?: readonly string[]
-): string {
-  const resolvedDir = resolve(markerDir);
-  const roots = (allowedMarkerRoots ?? [])
-    .map(root => root.trim())
-    .filter(root => root.length > 0)
-    .map(root => resolve(root));
-  if (roots.length === 0) {
-    throw new Error(
-      'Custom markerDir requires allowedMarkerRoots to include an allowed root'
-    );
-  }
-  if (!roots.some(root => isWithinPath(resolvedDir, root))) {
-    throw new Error(
-      `Marker directory '${resolvedDir}' is outside allowed marker roots`
-    );
-  }
-  return resolvedDir;
-}
-
-function isWithinPath(child: string, parent: string): boolean {
-  const prefix = parent.endsWith(sep) ? parent : `${parent}${sep}`;
-  return child === parent || child.startsWith(prefix);
-}
-
-function sanitizeMarkerBase(raw: string): string {
-  const sanitized = raw
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return sanitized.length === 0 || sanitized === '.' || sanitized === '..'
-    ? 'session'
-    : sanitized;
 }
 
 async function readGrokSessionMarker(
@@ -999,69 +968,6 @@ function cursorsEqual(
   return byteCursorsEqual(left, right);
 }
 
-async function withMarkerLock<T>(
-  markerPath: string,
-  action: () => Promise<T>
-): Promise<T> {
-  const lockPath = `${markerPath}.lock`;
-  await mkdir(dirname(markerPath), { recursive: true, mode: 0o700 });
-  try {
-    await mkdir(lockPath, { mode: 0o700 });
-  } catch (error: unknown) {
-    if (!hasErrorCode(error, 'EEXIST')) throw error;
-    if (!(await removeStaleMarkerLock(lockPath))) {
-      throw new Error(`Grok session marker is locked: '${markerPath}'`);
-    }
-    try {
-      await mkdir(lockPath, { mode: 0o700 });
-    } catch (retryError: unknown) {
-      if (hasErrorCode(retryError, 'EEXIST')) {
-        throw new Error(`Grok session marker is locked: '${markerPath}'`);
-      }
-      throw retryError;
-    }
-  }
-  try {
-    return await action();
-  } finally {
-    await rm(lockPath, { recursive: true, force: true });
-  }
-}
-
-async function removeStaleMarkerLock(lockPath: string): Promise<boolean> {
-  try {
-    const stats = await stat(lockPath);
-    if (Date.now() - stats.mtimeMs <= STALE_MARKER_LOCK_MS) {
-      return false;
-    }
-    await rm(lockPath, { recursive: true, force: true });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function writePrivateJson(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const temporaryPath = join(
-    dirname(path),
-    `.${basename(path)}.${randomUUID()}.tmp`
-  );
-  try {
-    const file = await open(temporaryPath, 'wx', 0o600);
-    try {
-      await file.writeFile(JSON.stringify(value, null, 2));
-      await file.sync();
-    } finally {
-      await file.close();
-    }
-    await rename(temporaryPath, path);
-  } catch (error: unknown) {
-    await unlink(temporaryPath).catch(() => undefined);
-    throw error;
-  }
-}
-
 function hasPriorCommittedBytes(
   cursors: Readonly<Record<GrokTailSourceKind, JsonlCursor | null>>
 ): boolean {
@@ -1092,8 +998,4 @@ function isSafeNonnegativeInteger(value: unknown): value is number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function hasErrorCode(error: unknown, code: string): boolean {
-  return isRecord(error) && error['code'] === code;
 }
