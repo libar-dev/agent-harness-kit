@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import {
   byteCursorChanged,
   checkpointRevision,
-} from '../../processing/incremental.js';
+} from '../../internal/incremental.js';
 
 import {
   commitSenpiSessionCheckpoint,
@@ -22,7 +22,7 @@ import {
   readJsonlDelta,
   type JsonlCursor,
   type JsonlLine,
-} from '../../processing/jsonl-cursor.js';
+} from '../../internal/jsonl-cursor.js';
 import { parseSenpiEntry, type SenpiEntryParseResult } from './parse.js';
 import {
   computeProjectionMutation,

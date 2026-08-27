@@ -2,7 +2,7 @@
 import { watch } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 
-import { createFileWatchScheduler } from '../../processing/watch-scheduler.js';
+import { createFileWatchScheduler } from '../../internal/watch-scheduler.js';
 import {
   tailSenpiSession,
   type SenpiSessionTailOptions,

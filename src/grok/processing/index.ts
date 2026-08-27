@@ -67,3 +67,5 @@ export type {
   GrokToolUseBlock,
   GrokUserTextBlock,
 } from './blocks.js';
+
+export type { JsonlCursor } from '../../internal/jsonl-cursor.js';

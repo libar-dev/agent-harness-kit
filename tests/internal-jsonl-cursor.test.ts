@@ -46,17 +46,17 @@ vi.mock('node:fs/promises', async importOriginal => {
 import {
   readJsonlDelta,
   type JsonlCursor,
-} from '../src/processing/jsonl-cursor.js';
+} from '../src/internal/jsonl-cursor.js';
 
 const mib = 1024 * 1024;
 const scanChunkBytes = 64 * 1024;
 
-describe('Senpi JSONL cursor', () => {
+describe('internal JSONL cursor', () => {
   let fixtureRoot: string;
 
   beforeAll(async () => {
     fixtureRoot = await fsPromises.mkdtemp(
-      join(tmpdir(), 'senpi-jsonl-cursor-')
+      join(tmpdir(), 'internal-jsonl-cursor-')
     );
   });
 

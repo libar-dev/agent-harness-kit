@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import {
   readDiscoveryDirectory,
   sortDiscoveredPaths,
-} from '../../processing/discovery-primitives.js';
+} from '../../internal/discovery-primitives.js';
 import { resolveSenpiAgentHome } from '../home.js';
 
 /**

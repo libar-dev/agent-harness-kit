@@ -10,7 +10,7 @@ import {
 } from 'node:fs/promises';
 import { basename, delimiter, dirname, join, resolve, sep } from 'node:path';
 
-import { checkpointRevision } from '../../processing/incremental.js';
+import { checkpointRevision } from '../../internal/incremental.js';
 import { StaleCheckpointConflict } from '../../processing/stale-checkpoint-conflict.js';
 import type { SenpiEntryParseResult } from './parse.js';
 import type {

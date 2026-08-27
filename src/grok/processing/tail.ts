@@ -14,11 +14,11 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import {
   byteCursorsEqual,
   checkpointRevision,
-} from '../../processing/incremental.js';
+} from '../../internal/incremental.js';
 import {
   createFileWatchScheduler,
   type FileWatchScheduler,
-} from '../../processing/watch-scheduler.js';
+} from '../../internal/watch-scheduler.js';
 import {
   reduceGrokRecords,
   type GrokActivity,
@@ -32,7 +32,7 @@ import {
   type JsonlCursor,
   type JsonlDelta,
   type JsonlLine,
-} from '../../processing/jsonl-cursor.js';
+} from '../../internal/jsonl-cursor.js';
 import { StaleCheckpointConflict } from '../../processing/stale-checkpoint-conflict.js';
 import { parseGrokSessionUpdate } from './updates.js';
 

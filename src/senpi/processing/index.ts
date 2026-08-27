@@ -120,3 +120,5 @@ export type {
   SenpiSessionBlock,
   SenpiSessionBlockBase,
 } from './blocks.js';
+
+export type { JsonlCursor } from '../../internal/jsonl-cursor.js';

@@ -8,7 +8,7 @@ import { z } from 'zod';
 import {
   readDiscoveryDirectory,
   sortDiscoveredPaths,
-} from '../../processing/discovery-primitives.js';
+} from '../../internal/discovery-primitives.js';
 
 const MAX_DIRNAME_BYTES = 255;
 const LONG_CWD_SLUG_LENGTH = 40;
