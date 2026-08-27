@@ -1,5 +1,5 @@
 import type { SenpiUserMessage } from '../types.js';
-import { readBoundedLines } from './bounded-lines.js';
+import { readBoundedLines } from '../../internal/bounded-lines.js';
 import { parseSenpiEntry } from './parse.js';
 
 /**

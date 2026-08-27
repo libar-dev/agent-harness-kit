@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { readBoundedLines } from '../src/senpi/processing/bounded-lines.js';
+import { readBoundedLines } from '../src/internal/bounded-lines.js';
 import {
   encodeSenpiCwdDirname,
   getSenpiSessionsRoot,
