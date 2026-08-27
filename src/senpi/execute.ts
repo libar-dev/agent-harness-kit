@@ -34,6 +34,7 @@ import {
   stdout as processStdout,
 } from 'node:process';
 
+import { readBoundedTimedStdin } from '../internal/stdin.js';
 import {
   senpiEventSupportsSystemMessage,
   validateSenpiHookInput,
@@ -227,44 +228,15 @@ export async function readSenpiStdinJson(
 async function readSenpiStdinText(
   options: SenpiStdinReadOptions
 ): Promise<string> {
-  const source = options.stdin ?? (processStdin as AsyncIterable<Buffer>);
-  const exitFn = options.exit ?? exit;
-  const maxBytes = options.maxStdinBytes ?? DEFAULT_STDIN_MAX_BYTES;
-  const chunks: Buffer[] = [];
-  let totalBytes = 0;
-
-  let rejectOnTimeout: ((error: Error) => void) | undefined;
-  const stderrSink = options.stderr ?? processStderr;
-  const timeout = setTimeout(() => {
-    stderrSink.write(
-      `[${new Date().toISOString()}] ERROR: Timeout waiting for Senpi hook stdin input\n`
-    );
-    exitFn(1);
-    rejectOnTimeout?.(new SenpiStdinTimeoutError());
-  }, options.stdinTimeoutMs ?? DEFAULT_STDIN_TIMEOUT_MS);
-
-  try {
-    await Promise.race([
-      (async () => {
-        // Truncation policy: stop consuming as soon as the byte cap is
-        // reached. Whatever the source still holds is abandoned unread.
-        for await (const chunk of source) {
-          chunks.push(chunk);
-          totalBytes += chunk.byteLength;
-          if (totalBytes >= maxBytes) {
-            break;
-          }
-        }
-      })(),
-      new Promise<never>((_resolve, reject) => {
-        rejectOnTimeout = reject;
-      }),
-    ]);
-
-    return Buffer.concat(chunks).toString('utf-8');
-  } finally {
-    clearTimeout(timeout);
-  }
+  return readBoundedTimedStdin({
+    stdin: options.stdin ?? (processStdin as AsyncIterable<Buffer>),
+    maxBytes: options.maxStdinBytes ?? DEFAULT_STDIN_MAX_BYTES,
+    timeoutMs: options.stdinTimeoutMs ?? DEFAULT_STDIN_TIMEOUT_MS,
+    stderr: options.stderr ?? processStderr,
+    exit: options.exit ?? exit,
+    timeoutMessage: 'Timeout waiting for Senpi hook stdin input',
+    createTimeoutError: () => new SenpiStdinTimeoutError(),
+  });
 }
 
 /**
