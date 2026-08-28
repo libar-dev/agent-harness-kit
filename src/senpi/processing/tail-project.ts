@@ -8,12 +8,16 @@ import {
   reduceSenpiProjection,
 } from './blocks.js';
 import type { InternalSenpiSessionCheckpointState } from './checkpoint-internal-types.js';
-import { commitSenpiSessionCheckpointInternal } from './checkpoint-write.js';
 import {
   projectSenpiBranch,
   resolveSenpiLeaf,
   type SenpiProjectionResult,
 } from './projection.js';
+import {
+  persistSenpiTailCheckpoint,
+  senpiProjectionExceedsResultLimit,
+} from './tail-checkpoint-status.js';
+import { throwMissingSenpiSessionSource } from './missing-session-source.js';
 import { hasUnsafeProjectionFailure, invalidProjection } from './tail-parse.js';
 import type { SenpiProjectRequest } from './tail-project-request.js';
 import { reductionFromRecords, tailLeaf } from './tail-projection-result.js';
@@ -118,9 +122,7 @@ export async function projectAndCommit(
   const nextCursor = delta.cursor;
   const fileSize = delta.fileSize;
   if (nextCursor === null || fileSize === null) {
-    throw new Error(
-      `Missing required Senpi session source '${args.sessionPath}'`
-    );
+    throwMissingSenpiSessionSource(args.sessionPath);
   }
   const stateChanged =
     mutation !== null || byteCursorChanged(args.priorCursor, nextCursor);
@@ -184,17 +186,20 @@ export async function projectAndCommit(
     diagnostics.some(
       item => item.code === 'missing_parent' || item.code === 'duplicate_id'
     );
-  if (
-    args.options.checkpointMode !== 'manual' &&
-    stateChanged &&
-    !blocksCommit
-  ) {
-    await commitSenpiSessionCheckpointInternal(
-      args.sessionPath,
-      checkpoint,
-      args.markerOptions
-    );
-  }
+  const exceedsResultLimit = senpiProjectionExceedsResultLimit(
+    visibleRecords,
+    args.options.maxResultBytes,
+    args.options.maxResultRecords
+  );
+  const checkpointStatus = await persistSenpiTailCheckpoint({
+    sessionPath: args.sessionPath,
+    checkpoint,
+    markerOptions: args.markerOptions,
+    checkpointMode: args.options.checkpointMode,
+    stateChanged,
+    blocksCommit,
+    exceedsResultLimit,
+  });
   return {
     records: visibleRecords,
     mutations,
@@ -215,5 +220,6 @@ export async function projectAndCommit(
     scannedLines: delta.scannedLines,
     ...tailPositionFields(args.priorCursor, nextCursor, baseRevision, revision),
     checkpoint,
+    checkpointStatus,
   };
 }

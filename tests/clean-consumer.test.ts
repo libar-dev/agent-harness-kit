@@ -4,7 +4,10 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 
-import type { SenpiTailPosition } from '../src/senpi/processing/index.js';
+import type {
+  SenpiCheckpointStatus,
+  SenpiTailPosition,
+} from '../src/senpi/processing/index.js';
 
 const repoRoot = process.cwd();
 const execFileAsync = promisify(execFile);
@@ -71,6 +74,22 @@ describe('clean consumer matrix contract', () => {
     };
 
     expect(position.offset).toBeTypeOf('number');
+  });
+
+  it('type-exports the Senpi checkpoint status from the public barrel', () => {
+    const committed: SenpiCheckpointStatus = { status: 'committed' };
+    const failed: SenpiCheckpointStatus = {
+      status: 'failed',
+      error: 'EACCES',
+    };
+    const deferred: SenpiCheckpointStatus = {
+      status: 'deferred',
+      reason: 'projection_limit',
+    };
+
+    expect(committed.status).toBe('committed');
+    expect(failed.error).toBeTypeOf('string');
+    expect(deferred.reason).toBe('projection_limit');
   });
 
   it('encodes Node 22 and 24 packed-consumer jobs in CI', async () => {

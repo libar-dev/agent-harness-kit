@@ -27,7 +27,9 @@ const ownedSources = [
   'src/senpi/processing/checkpoint-read.ts',
   'src/senpi/processing/checkpoint-types.ts',
   'src/senpi/processing/checkpoint-write.ts',
+  'src/senpi/processing/missing-session-source.ts',
   'src/senpi/processing/tail.ts',
+  'src/senpi/processing/tail-checkpoint-status.ts',
   'src/senpi/processing/tail-parse.ts',
   'src/senpi/processing/tail-project-request.ts',
   'src/senpi/processing/tail-project.ts',
@@ -109,6 +111,6 @@ describe('todo 5 export documentation', () => {
       }
     }
     expect(missing).toEqual([]);
-    expect(covered).toBe(239);
+    expect(covered).toBe(247);
   });
 });

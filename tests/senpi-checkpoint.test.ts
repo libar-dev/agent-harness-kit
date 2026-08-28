@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -245,5 +252,26 @@ describe('Senpi checkpoint markers', () => {
         pending: { kind: 'discarding_oversized' },
       }).kind
     ).toBe('invalid');
+  });
+
+  it('explicit commitSenpiSessionCheckpoint still rejects on write failure', async () => {
+    if (process.platform === 'win32' || process.getuid?.() === 0) return;
+    const checkpoint = sampleCheckpoint(sessionPath);
+    await commitSenpiSessionCheckpoint(sessionPath, checkpoint, {
+      markerDir,
+      allowedMarkerRoots: [tmp],
+    });
+    await chmod(markerDir, 0o555);
+    try {
+      await expect(
+        commitSenpiSessionCheckpoint(
+          sessionPath,
+          { ...checkpoint, baseRevision: 1 },
+          { markerDir, allowedMarkerRoots: [tmp] }
+        )
+      ).rejects.toMatchObject({ code: 'EACCES' });
+    } finally {
+      await chmod(markerDir, 0o700);
+    }
   });
 });

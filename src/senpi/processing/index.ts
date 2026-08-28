@@ -78,6 +78,7 @@ export type {
 
 export { tailSenpiSession } from './tail.js';
 export type {
+  SenpiCheckpointStatus,
   SenpiSessionSpliceMutation,
   SenpiSessionTailOptions,
   SenpiSessionTailResult,

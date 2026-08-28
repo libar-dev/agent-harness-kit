@@ -8,6 +8,7 @@ import type { SenpiSessionTailResult } from '../src/senpi/processing/tail.js';
 import {
   watchSenpiSession,
   type SenpiSessionWatchEvent,
+  type SenpiSessionWatchOptions,
   type SenpiWatchCycle,
 } from '../src/senpi/processing/watch.js';
 
@@ -101,7 +102,13 @@ export interface RunningWatch {
 }
 
 /** Test fixture contract consumed by event-driven watch regression cases. */
-export async function startWatch(file: string): Promise<RunningWatch> {
+export async function startWatch(
+  file: string,
+  extra: Omit<
+    SenpiSessionWatchOptions,
+    'signal' | 'clock' | 'onCycle' | 'quiescenceMs' | 'coalesceMs' | 'pollMs'
+  > = {}
+): Promise<RunningWatch> {
   const controller = new AbortController();
   const clock = createManualClock();
   const eventSignal = createSignal<SenpiSessionWatchEvent>();
@@ -112,6 +119,7 @@ export async function startWatch(file: string): Promise<RunningWatch> {
   const ready = eventSignal.waitFor(event => event.type === 'ready');
   const waiting = cycleSignal.waitFor(cycle => cycle.type === 'waiting');
   const iterator = watchSenpiSession(file, {
+    ...extra,
     signal: controller.signal,
     quiescenceMs: QUIESCENCE_MS,
     coalesceMs: COALESCE_MS,

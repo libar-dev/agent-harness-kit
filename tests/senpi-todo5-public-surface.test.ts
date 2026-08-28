@@ -20,7 +20,7 @@ describe('todo 5 public declaration surface', () => {
     expect(cursor).toContain('readonly maxScanLines?: number;');
   });
 
-  it('exposes approved todo 6 fields without pre-landing todo 7', async () => {
+  it('exposes approved todo 6 and todo 7 public tail fields', async () => {
     const [tail, checkpoint, barrel] = await Promise.all([
       declaration('senpi/processing/tail-types.d.ts'),
       declaration('senpi/processing/checkpoint-types.d.ts'),
@@ -38,6 +38,8 @@ describe('todo 5 public declaration surface', () => {
       'readonly previousPosition: SenpiTailPosition;',
       'readonly nextPosition: SenpiTailPosition;',
       'readonly moved: boolean;',
+      'readonly checkpointStatus: SenpiCheckpointStatus;',
+      'export type SenpiCheckpointStatus',
     ]) {
       expect(tail).toContain(required);
     }
@@ -48,7 +50,6 @@ describe('todo 5 public declaration surface', () => {
       'budgetBytes',
       'budgetLines',
       'remedies',
-      'checkpointStatus',
     ]) {
       expect(tail).not.toContain(forbidden);
     }
@@ -60,6 +61,7 @@ describe('todo 5 public declaration surface', () => {
     ]) {
       expect(checkpoint).not.toContain(forbidden);
     }
+    expect(barrel).toContain('SenpiCheckpointStatus');
     expect(barrel).not.toContain('tailSenpiSessionInternal');
     expect(barrel).not.toContain('watchSenpiSessionInternal');
     expect(barrel).not.toContain('InternalSenpi');

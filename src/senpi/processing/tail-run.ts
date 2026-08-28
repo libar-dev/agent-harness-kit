@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { byteCursorChanged } from '../../internal/incremental.js';
 import { readJsonlDelta } from '../../internal/jsonl-cursor.js';
 import { seedAcceptedGraph } from './accepted-graph.js';
+import { throwMissingSenpiSessionSource } from './missing-session-source.js';
 import { restoreInternalCheckpoint } from './checkpoint-carrier.js';
 import { createSenpiSessionPathDigest } from './checkpoint-path.js';
 import { readSenpiSessionMarkerInternal } from './checkpoint-read.js';
@@ -119,7 +120,7 @@ export async function tailSenpiSessionInternal(
     provided
   );
   if (delta.fileSize === null || delta.cursor === null) {
-    throw new Error(`Missing required Senpi session source '${sessionPath}'`);
+    throwMissingSenpiSessionSource(sessionPath);
   }
   if (delta.reset && invalidationMessage === null) {
     invalidationMessage = 'source identity or committed content changed';
@@ -144,7 +145,8 @@ export async function tailSenpiSessionInternal(
       supplied.revision ?? marker?.revision ?? 0,
       delta.scanStatus,
       delta.scannedBytes,
-      delta.scannedLines
+      delta.scannedLines,
+      options.checkpointMode
     );
   }
 
@@ -178,9 +180,7 @@ export async function tailSenpiSessionInternal(
         cursorOptions(limits)
       );
       if (full.fileSize === null || full.cursor === null) {
-        throw new Error(
-          `Missing required Senpi session source '${sessionPath}'`
-        );
+        throwMissingSenpiSessionSource(sessionPath);
       }
       if (
         full.scanStatus.status === 'complete' &&

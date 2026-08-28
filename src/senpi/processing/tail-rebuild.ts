@@ -46,7 +46,8 @@ export async function finishRebuild(
       supplied,
       outcome,
       includeOffPath,
-      invalidationMessage
+      invalidationMessage,
+      options.checkpointMode
     );
   }
   const generation =

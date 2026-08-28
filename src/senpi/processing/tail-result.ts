@@ -14,6 +14,7 @@ import {
   type SenpiProjectionMutation,
   type SenpiProjectionRecord,
 } from './projection.js';
+import { unwrittenCheckpointStatus } from './tail-checkpoint-status.js';
 import type { rebuildFromZero } from './tail-resume.js';
 import type {
   SenpiSessionTailResult,
@@ -81,7 +82,8 @@ export function deferredResult(
     { kind: 'deferred' }
   >,
   includeOffPath: boolean,
-  invalidationMessage: string | null
+  invalidationMessage: string | null,
+  checkpointMode?: 'automatic' | 'manual'
 ): SenpiSessionTailResult {
   const diagnostics: SenpiTailDiagnostic[] = [...outcome.parsed.diagnostics];
   if (invalidationMessage !== null) {
@@ -156,6 +158,7 @@ export function deferredResult(
       revision
     ),
     checkpoint,
+    checkpointStatus: unwrittenCheckpointStatus(checkpointMode),
   };
 }
 
@@ -207,7 +210,8 @@ export function unchangedResult(
   revision: number,
   scanStatus: JsonlScanStatus,
   scannedBytes: number,
-  scannedLines: number
+  scannedLines: number,
+  checkpointMode?: 'automatic' | 'manual'
 ): SenpiSessionTailResult {
   return {
     records: state.records,
@@ -230,6 +234,7 @@ export function unchangedResult(
     scannedLines,
     ...tailPositionFields(cursor, cursor, revision, revision),
     checkpoint: { ...supplied, revision, state },
+    checkpointStatus: unwrittenCheckpointStatus(checkpointMode),
   };
 }
 

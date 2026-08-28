@@ -3,6 +3,7 @@ import { basename, dirname, resolve } from 'node:path';
 
 import { createFileWatchScheduler } from '../../internal/watch-scheduler.js';
 import { publicTailResult } from './checkpoint-carrier.js';
+import { SenpiMissingSessionSourceError } from './missing-session-source.js';
 import { tailSenpiSessionInternal } from './tail-run.js';
 import type { SenpiInternalSessionTailOptions } from './tail-run-support.js';
 import type {
@@ -14,12 +15,6 @@ import type {
 const DEFAULT_QUIESCENCE_MS = 30_000;
 /** Default window that coalesces filesystem wake-up storms, in milliseconds. */
 const DEFAULT_COALESCE_MS = 10;
-/**
- * Prefix of the error `tailSenpiSession` throws while the session file is
- * absent. A matching failure is absorbed by the watch loop instead of ending
- * iteration, so a deleted file never discards the retained checkpoint.
- */
-const MISSING_SOURCE_PREFIX = 'Missing required Senpi session source';
 
 /**
  * Injectable time source driving the quiescence and coalescing windows.
@@ -117,7 +112,9 @@ export type SenpiSessionWatchEvent =
  * an unchanged file never suppress quiescence.
  *
  * Missing-file contract: while the file is absent the retained checkpoint is
- * kept untouched and nothing is yielded; a reset is emitted only after the
+ * kept untouched and nothing is yielded. Only
+ * {@link SenpiMissingSessionSourceError} is absorbed; every other reconcile
+ * error rethrows and ends iteration. A reset is emitted only after the
  * replacement file is actually observed by `tailSenpiSession` (its own
  * invalidation predicate decides). Aborting the signal or closing iteration
  * releases the filesystem watcher. An optional `pollMs` backstop reconciles
@@ -275,10 +272,7 @@ export async function* watchSenpiSessionInternal(
       options.onCycle?.({ type: 'reconciled', source: 'present' });
       return result;
     } catch (error: unknown) {
-      if (
-        error instanceof Error &&
-        error.message.startsWith(MISSING_SOURCE_PREFIX)
-      ) {
+      if (error instanceof SenpiMissingSessionSourceError) {
         replacementPending = true;
         options.onCycle?.({ type: 'reconciled', source: 'missing' });
         return null;

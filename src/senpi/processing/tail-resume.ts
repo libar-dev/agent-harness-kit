@@ -9,6 +9,7 @@ import {
   SENPI_REBUILD_MAX_PASSES,
   type SenpiAcceptedGraphEntry,
 } from './accepted-graph.js';
+import { throwMissingSenpiSessionSource } from './missing-session-source.js';
 import type { SenpiEntryParseResult } from './parse.js';
 import { parseLines, type ParsedLines } from './tail-parse.js';
 import type { SenpiTailDiagnostic } from './tail.js';
@@ -128,7 +129,7 @@ export async function rebuildFromZero(
       maxScanLines: Math.min(limits.maxScanLines, remainingLines),
     });
     if (delta.fileSize === null || delta.cursor === null) {
-      throw new Error(`Missing required Senpi session source '${sessionPath}'`);
+      throwMissingSenpiSessionSource(sessionPath);
     }
     fileSize = delta.fileSize;
     reset = reset || delta.reset;
@@ -162,7 +163,7 @@ export async function rebuildFromZero(
   }
 
   if (cursor === null) {
-    throw new Error(`Missing required Senpi session source '${sessionPath}'`);
+    throwMissingSenpiSessionSource(sessionPath);
   }
   return {
     kind: 'deferred',

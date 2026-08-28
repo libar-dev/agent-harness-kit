@@ -1,10 +1,21 @@
-import { appendFile, link, rm, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  link,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { watchSenpiSession } from '../src/senpi/processing/watch.js';
+import { createManualClock } from './senpi-watch-clock-utils.js';
 import {
   COALESCE_MS,
   POLL_MS,
+  QUIESCENCE_MS,
   advancePastPolls,
   advanceToQuiescence,
   countType,
@@ -174,5 +185,81 @@ describe('watchSenpiSession', () => {
     expect(requireResult(results[0]).reset).toBe(true);
     expect(recordKeys(results[0])).toEqual(['a1', 'a2']);
     expect(requireResult(results[0]).generation).toBe(1);
+  });
+
+  it('survives automatic checkpoint failure and keeps iterating', async () => {
+    if (process.platform === 'win32' || process.getuid?.() === 0) return;
+    const file = await makeTemporaryFile();
+    const markerDir = join(dirname(file), 'markers');
+    await mkdir(markerDir, { recursive: true });
+    await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
+    const running = await startWatch(file, {
+      markerDir,
+      allowedMarkerRoots: [dirname(file)],
+    });
+    expect(running.events[0]?.type).toBe('ready');
+    const ready = running.events[0];
+    if (ready?.type !== 'ready' || ready.result === null) {
+      throw new Error('expected an initial ready result');
+    }
+    expect(ready.result.checkpointStatus).toEqual({ status: 'committed' });
+
+    await chmod(markerDir, 0o555);
+    try {
+      const resultDelivered = running.waitForEvent(
+        event => event.type === 'result'
+      );
+      await reconcileEdit(running, () =>
+        appendFile(file, messageLine('a2', 'a1', 'second'))
+      );
+      await resultDelivered;
+      const results = resultEvents(running.events);
+      expect(results).toHaveLength(1);
+      expect(requireResult(results[0]).checkpointStatus.status).toBe('failed');
+      expect(recordKeys(results[0])).toEqual(['a1', 'a2']);
+      await advanceToQuiescence(running);
+      expect(countType(running.events, 'quiescent')).toBe(1);
+    } finally {
+      await chmod(markerDir, 0o700);
+    }
+  });
+
+  it('does not match missing sources by message prefix', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const source = await readFile(
+      new URL('../src/senpi/processing/watch.ts', import.meta.url),
+      'utf8'
+    );
+    expect(source).not.toContain('MISSING_SOURCE_PREFIX');
+    expect(source).toContain('SenpiMissingSessionSourceError');
+    expect(source).toContain('instanceof');
+  });
+
+  it('propagates a non-missing-source reconcile error and ends iteration', async () => {
+    if (process.platform === 'win32' || process.getuid?.() === 0) return;
+    const file = await makeTemporaryFile();
+    await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
+    const controller = new AbortController();
+    const clock = createManualClock();
+    const iterator = watchSenpiSession(file, {
+      signal: controller.signal,
+      clock,
+      pollMs: POLL_MS,
+      quiescenceMs: QUIESCENCE_MS,
+      coalesceMs: COALESCE_MS,
+    });
+    const first = await iterator.next();
+    expect(first.done).toBe(false);
+    expect(first.value?.type).toBe('ready');
+    await chmod(file, 0o000);
+    try {
+      const next = iterator.next();
+      clock.advanceBy(POLL_MS);
+      await expect(next).rejects.toMatchObject({ code: 'EACCES' });
+    } finally {
+      await chmod(file, 0o600);
+      controller.abort();
+      await iterator.next().catch(() => undefined);
+    }
   });
 });

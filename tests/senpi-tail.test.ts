@@ -1,5 +1,7 @@
 import {
   appendFile,
+  chmod,
+  mkdir,
   mkdtemp,
   readFile,
   rename,
@@ -8,11 +10,12 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  commitSenpiSessionCheckpoint,
   getSenpiSessionMarkerPath,
   readSenpiSessionMarker,
 } from '../src/senpi/processing/checkpoint.js';
@@ -62,6 +65,54 @@ function compaction(parentId: string): string {
     tokensBefore: 100,
     retainedTail: [],
   });
+}
+
+function sessionHeader(): string {
+  return `${JSON.stringify({
+    type: 'session',
+    version: 3,
+    id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    timestamp: '2026-01-01T00:00:00.000Z',
+    cwd: '/tmp/senpi-tail',
+  })}\n`;
+}
+
+function sessionMessage(
+  id: string,
+  parentId: string | null,
+  text: string
+): string {
+  return `${JSON.stringify({
+    type: 'message',
+    id,
+    parentId,
+    timestamp: '2026-01-01T00:00:01.000Z',
+    message: {
+      role: 'user',
+      content: [{ type: 'text', text }],
+      timestamp: 1704067201000,
+    },
+  })}\n`;
+}
+
+function skipPermissionCases(): boolean {
+  return process.platform === 'win32' || process.getuid?.() === 0;
+}
+
+async function markerOptions(sessionPath: string): Promise<{
+  readonly markerDir: string;
+  readonly options: {
+    readonly markerDir: string;
+    readonly allowedMarkerRoots: readonly string[];
+  };
+}> {
+  const root = dirname(sessionPath);
+  const markerDir = join(root, 'markers');
+  await mkdir(markerDir, { recursive: true });
+  return {
+    markerDir,
+    options: { markerDir, allowedMarkerRoots: [root] },
+  };
 }
 
 describe('tailSenpiSession integration', () => {
@@ -466,5 +517,82 @@ describe('tailSenpiSession integration', () => {
       ])
     );
     expect(partial.nextByteOffset).toBeLessThan(partial.fileSize);
+  });
+
+  it('returns failed checkpointStatus when automatic commit hits EACCES and replays after restore', async () => {
+    if (skipPermissionCases()) return;
+    const path = await temporarySession(
+      `${sessionHeader()}${sessionMessage('a1', null, 'first')}`
+    );
+    const { markerDir, options } = await markerOptions(path);
+    const first = await tailSenpiSession(path, options);
+    expect(first.records).toHaveLength(1);
+    const markerPath = getSenpiSessionMarkerPath(path, options);
+    const before = await readFile(markerPath);
+    await appendFile(path, sessionMessage('a2', 'a1', 'second'));
+    await chmod(markerDir, 0o555);
+    let failed: Awaited<ReturnType<typeof tailSenpiSession>>;
+    try {
+      failed = await tailSenpiSession(path, {
+        ...options,
+        checkpoint: first.checkpoint,
+      });
+      expect(failed.records.map(record => record.key)).toEqual(['a1', 'a2']);
+      expect(failed.checkpointStatus).toEqual(
+        expect.objectContaining({ status: 'failed' })
+      );
+      if (failed.checkpointStatus.status !== 'failed') {
+        throw new Error('expected automatic checkpoint failure');
+      }
+      expect(failed.checkpointStatus.error).toContain('EACCES');
+      expect(await readFile(markerPath)).toEqual(before);
+      await expect(
+        commitSenpiSessionCheckpoint(path, failed.checkpoint, options)
+      ).rejects.toMatchObject({ code: 'EACCES' });
+      expect(await readFile(markerPath)).toEqual(before);
+    } finally {
+      await chmod(markerDir, 0o700);
+    }
+
+    const replay = await tailSenpiSession(path, options);
+    expect(replay.records.map(record => record.key)).toEqual(['a1', 'a2']);
+    expect(replay.checkpointStatus).toEqual({ status: 'committed' });
+    expect(await readFile(markerPath)).not.toEqual(before);
+  });
+
+  it('defers projection-limit results without moving the marker', async () => {
+    const path = await temporarySession(
+      `${sessionHeader()}${sessionMessage('a1', null, 'first')}`
+    );
+    const { options } = await markerOptions(path);
+    const committed = await tailSenpiSession(path, options);
+    expect(committed.checkpointStatus).toEqual({ status: 'committed' });
+    const markerPath = getSenpiSessionMarkerPath(path, options);
+    const before = await readFile(markerPath);
+    await appendFile(
+      path,
+      `${sessionMessage('a2', 'a1', 'second')}${sessionMessage('a3', 'a2', 'third')}`
+    );
+    const deferred = await tailSenpiSession(path, {
+      ...options,
+      checkpoint: committed.checkpoint,
+      maxResultRecords: 1,
+      maxResultBytes: 32,
+    });
+    expect(deferred.checkpointStatus).toEqual({
+      status: 'deferred',
+      reason: 'projection_limit',
+    });
+    expect(await readFile(markerPath)).toEqual(before);
+  });
+
+  it('throws a typed missing-source error with a stable code', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'senpi-tail-missing-'));
+    temporaryRoots.push(root);
+    const path = join(root, 'missing.jsonl');
+    await expect(tailSenpiSession(path)).rejects.toMatchObject({
+      name: 'SenpiMissingSessionSourceError',
+      code: 'missing_session_source',
+    });
   });
 });

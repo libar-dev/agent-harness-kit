@@ -65,6 +65,17 @@ export interface SenpiTailPosition {
   readonly projectionRevision: number;
 }
 
+/** Outcome of checkpoint handling after one Senpi tail pass. */
+export type SenpiCheckpointStatus =
+  | { readonly status: 'committed' }
+  | { readonly status: 'unchanged' }
+  | { readonly status: 'manual' }
+  | { readonly status: 'failed'; readonly error: string }
+  | {
+      readonly status: 'deferred';
+      readonly reason: 'invalid_projection' | 'projection_limit';
+    };
+
 /** Result of one bounded Senpi cursor, projection, and reduction pass. */
 export interface SenpiSessionTailResult {
   readonly records: readonly SenpiProjectionRecord[];
@@ -86,4 +97,5 @@ export interface SenpiSessionTailResult {
   readonly nextPosition: SenpiTailPosition;
   readonly moved: boolean;
   readonly checkpoint: SenpiSessionCheckpoint;
+  readonly checkpointStatus: SenpiCheckpointStatus;
 }
