@@ -1,11 +1,4 @@
-import {
-  mkdir,
-  lstat,
-  readdir,
-  readFile,
-  unlink,
-  utimes,
-} from 'node:fs/promises';
+import { mkdir, lstat, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import {
@@ -18,9 +11,6 @@ import {
 
 /** Lock directories older than this age are treated as abandoned. */
 export const DEFAULT_STALE_MARKER_LOCK_MS = 30_000;
-
-const VERSION2_TOKEN_NAME_PATTERN =
-  /^owner\.([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
 
 /**
  * Identity captured for stale-lock reclamation hooks.
@@ -105,7 +95,6 @@ export async function withMarkerLock<T>(
   const lockedMessage = `${options.lockedLabel} is locked: '${markerPath}'`;
 
   await mkdir(dirname(markerPath), { recursive: true, mode: 0o700 });
-  await alignStaleDirectoryTokenMtimes(lockPath, staleLockMs);
 
   let claimIdentity: MarkerLockIdentity | undefined;
   try {
@@ -145,7 +134,6 @@ export async function withMarkerLock<T>(
           return false;
         }
         if (!identitiesMatch(first, second)) return false;
-        if (Date.now() - second.mtimeMs <= staleLockMs) return false;
         claimIdentity = second;
         return true;
       },
@@ -155,75 +143,6 @@ export async function withMarkerLock<T>(
       throw new Error(lockedMessage);
     }
     throw error;
-  }
-}
-
-/**
- * Previous marker locks used directory mtime as the staleness clock. Tests
- * (and the three-party schedules) still age the lock directory with `utimes`.
- * The core expires tokens by file mtime, so a stale directory's capturable
- * tokens are aligned to the directory clock before acquire. Malformed
- * `owner.json` is dropped only when the directory is already stale, matching
- * the previous "unreadable owner.json is a legacy occupant" rule that the
- * core's fail-closed parser would otherwise refuse.
- */
-async function alignStaleDirectoryTokenMtimes(
-  lockPath: string,
-  staleLockMs: number
-): Promise<void> {
-  let dirStats: { readonly isDirectory: boolean; readonly mtimeMs: number };
-  try {
-    const stats = await lstat(lockPath);
-    dirStats = { isDirectory: stats.isDirectory(), mtimeMs: stats.mtimeMs };
-  } catch {
-    return;
-  }
-  if (!dirStats.isDirectory) return;
-  if (Date.now() - dirStats.mtimeMs <= staleLockMs) return;
-
-  let names: readonly string[];
-  try {
-    names = await readdir(lockPath);
-  } catch {
-    return;
-  }
-  const past = new Date(dirStats.mtimeMs);
-  for (const name of names) {
-    const tokenPath = join(lockPath, name);
-    if (name === 'owner.json') {
-      await prepareLegacyOwnerJson(lockPath, tokenPath, past);
-      continue;
-    }
-    if (!VERSION2_TOKEN_NAME_PATTERN.test(name)) continue;
-    try {
-      await utimes(tokenPath, past, past);
-    } catch {
-      // no-excuse-ok: catch — token vanished or is not utimes-able mid-race
-    }
-  }
-}
-
-async function prepareLegacyOwnerJson(
-  lockPath: string,
-  tokenPath: string,
-  past: Date
-): Promise<void> {
-  try {
-    const raw = await readFile(tokenPath, 'utf8');
-    if (isCapturableLegacyDocument(parseJson(raw))) {
-      await utimes(tokenPath, past, past);
-      return;
-    }
-  } catch {
-    // no-excuse-ok: catch — unreadable or non-JSON owner.json is legacy debris
-  }
-  try {
-    await unlink(tokenPath);
-    // Unlink refreshes the directory clock; restore the stale mtime so the
-    // core's empty-dir reclaim still sees an abandoned lock.
-    await utimes(lockPath, past, past);
-  } catch {
-    // no-excuse-ok: catch — already gone, or unlink raced with another reclaimer
   }
 }
 

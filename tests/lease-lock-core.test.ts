@@ -77,6 +77,21 @@ async function makeStale(path: string): Promise<void> {
   await utimes(path, past, past);
 }
 
+async function overwritePreservingFileIdentity(
+  path: string,
+  contents: string
+): Promise<void> {
+  const before = await stat(path);
+  await writeFile(path, contents, { mode: 0o600 });
+  await utimes(path, before.atime, before.mtime);
+  const after = await stat(path);
+  expect({ dev: after.dev, ino: after.ino, mtimeMs: after.mtimeMs }).toEqual({
+    dev: before.dev,
+    ino: before.ino,
+    mtimeMs: before.mtimeMs,
+  });
+}
+
 function tokenPath(
   lockPath: string,
   ownerId: string = randomUUID(),
@@ -236,20 +251,117 @@ describe('lease-lock core', () => {
     const legacyPath = join(lockPath, 'owner.json');
     await writeFile(legacyPath, JSON.stringify(document), { mode: 0o600 });
     await makeStale(legacyPath);
+    const order: string[] = [];
 
-    const lease = await acquireLeaseLock(lockPath, options());
+    const lease = await acquireLeaseLock(
+      lockPath,
+      options({
+        onAfterExpiredTokensClassified: () => {
+          order.push('classified');
+        },
+        onAfterExpiredTokensUnlinkedBeforeRmdir: async () => {
+          await expectMissing(legacyPath);
+          expect((await stat(lockPath)).isDirectory()).toBe(true);
+          order.push('legacy-unlinked');
+        },
+        onAfterCanonicalMkdirBeforeToken: () => {
+          order.push('canonical-recreated');
+        },
+      })
+    );
     await expectMissing(legacyPath);
+    expect(order).toEqual([
+      'classified',
+      'legacy-unlinked',
+      'canonical-recreated',
+    ]);
     await lease.release();
+  });
+
+  it('aborts stale owner.json capture when bytes change with identical stat identity', async () => {
+    const { lockPath } = await fixture('legacy-token-replaced');
+    await mkdir(lockPath, { mode: 0o700 });
+    const legacyPath = join(lockPath, 'owner.json');
+    await writeFile(legacyPath, JSON.stringify({ nonce: 'stale-owner' }), {
+      mode: 0o600,
+    });
+    await makeStale(legacyPath);
+    const classified = deferred();
+    const resume = deferred();
+    const freshContents = JSON.stringify({ nonce: 'fresh-owner' });
+
+    const acquiring = acquireLeaseLock(
+      lockPath,
+      options({
+        onAfterExpiredTokensClassified: async () => {
+          classified.resolve();
+          await resume.promise;
+        },
+      })
+    );
+    await classified.promise;
+    await overwritePreservingFileIdentity(legacyPath, freshContents);
+    resume.resolve();
+
+    await expect(acquiring).rejects.toBeInstanceOf(LeaseLockBusyError);
+    expect(await readFile(legacyPath, 'utf8')).toBe(freshContents);
+    expect(await readdir(lockPath)).toEqual(['owner.json']);
   });
 
   it('captures a stale legacy non-directory lock without recursive removal', async () => {
     const { lockPath } = await fixture('legacy-file');
     await writeFile(lockPath, 'legacy trust token\n', { mode: 0o600 });
     await makeStale(lockPath);
+    const order: string[] = [];
 
-    const lease = await acquireLeaseLock(lockPath, options());
+    const lease = await acquireLeaseLock(
+      lockPath,
+      options({
+        onAfterExpiredTokensClassified: () => {
+          order.push('classified');
+        },
+        onAfterExpiredTokensUnlinkedBeforeRmdir: async () => {
+          await expectMissing(lockPath);
+          order.push('legacy-unlinked');
+        },
+        onAfterCanonicalMkdirBeforeToken: () => {
+          order.push('canonical-created');
+        },
+      })
+    );
     expect((await stat(lockPath)).isDirectory()).toBe(true);
+    expect(order).toEqual([
+      'classified',
+      'legacy-unlinked',
+      'canonical-created',
+    ]);
     await lease.release();
+  });
+
+  it('aborts stale legacy-file capture when bytes change with identical stat identity', async () => {
+    const { lockPath } = await fixture('legacy-file-replaced');
+    await writeFile(lockPath, 'stale trust token\n', { mode: 0o600 });
+    await makeStale(lockPath);
+    const classified = deferred();
+    const resume = deferred();
+    const freshContents = 'fresh trust token\n';
+
+    const acquiring = acquireLeaseLock(
+      lockPath,
+      options({
+        onAfterExpiredTokensClassified: async () => {
+          classified.resolve();
+          await resume.promise;
+        },
+      })
+    );
+    await classified.promise;
+    await overwritePreservingFileIdentity(lockPath, freshContents);
+    resume.resolve();
+
+    await expect(acquiring).rejects.toBeInstanceOf(LeaseLockBusyError);
+    expect(await readFile(lockPath, 'utf8')).toBe(freshContents);
+    expect((await stat(lockPath)).isFile()).toBe(true);
   });
 
   it.each([

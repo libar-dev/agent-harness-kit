@@ -50,7 +50,11 @@ async function plantLockDir(
   if (options.stale) {
     const staleSeconds = DEFAULT_STALE_MARKER_LOCK_MS / 1000 + 5;
     const past = new Date(Date.now() - staleSeconds * 1000);
-    await utimes(lockPath, past, past);
+    const stalePath =
+      options.nonce === null || options.nonce === undefined
+        ? lockPath
+        : join(lockPath, 'owner.json');
+    await utimes(stalePath, past, past);
   }
 }
 
@@ -82,6 +86,16 @@ async function tokenDirectorySnapshot(
     snapshot[name] = await readFile(join(lockPath, name), 'utf8');
   }
   return snapshot;
+}
+
+async function ageVersion2Token(lockPath: string): Promise<void> {
+  const names = await readdir(lockPath);
+  expect(names).toHaveLength(1);
+  const tokenName = names[0];
+  if (tokenName === undefined) throw new Error('expected one lease token');
+  expect(tokenName).toMatch(/^owner\.[0-9a-f-]{36}\.[0-9a-f-]{36}$/i);
+  const past = new Date(Date.now() - DEFAULT_STALE_MARKER_LOCK_MS - 5_000);
+  await utimes(join(lockPath, tokenName), past, past);
 }
 
 describe('internal marker-lock identity reclamation', () => {
@@ -135,7 +149,7 @@ describe('internal marker-lock identity reclamation', () => {
           });
           const staleSeconds = DEFAULT_STALE_MARKER_LOCK_MS / 1000 + 5;
           const past = new Date(Date.now() - staleSeconds * 1000);
-          await utimes(lockPath, past, past);
+          await utimes(join(lockPath, 'owner.json'), past, past);
         },
       })
     ).rejects.toThrow(`Senpi session marker is locked: '${markerPath}'`);
@@ -299,25 +313,27 @@ describe('internal marker-lock identity reclamation', () => {
     await expect(stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('reclaims a stale lock whose malformed owner is treated as legacy', async () => {
+  it('leaves a stale malformed owner in place', async () => {
     const root = await makeTempRoot('marker-lock-malformed-owner-');
     const markerPath = join(root, 'session.marker.json');
     const lockPath = `${markerPath}.lock`;
     await plantLockDir(lockPath, { nonce: null, stale: false });
-    await writeFile(join(lockPath, 'owner.json'), '{not-json\n', {
+    const ownerPath = join(lockPath, 'owner.json');
+    await writeFile(ownerPath, '{not-json\n', {
       encoding: 'utf8',
       mode: 0o600,
     });
     const staleSeconds = DEFAULT_STALE_MARKER_LOCK_MS / 1000 + 5;
     const past = new Date(Date.now() - staleSeconds * 1000);
-    await utimes(lockPath, past, past);
+    await utimes(ownerPath, past, past);
 
-    const value = await withMarkerLock(markerPath, async () => 'held', {
-      lockedLabel: 'Senpi session marker',
-    });
+    await expect(
+      withMarkerLock(markerPath, async () => 'never', {
+        lockedLabel: 'Senpi session marker',
+      })
+    ).rejects.toThrow(`Senpi session marker is locked: '${markerPath}'`);
 
-    expect(value).toBe('held');
-    await expect(stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(ownerPath, 'utf8')).toBe('{not-json\n');
   });
 
   it('still reclaims a stale legacy lock that has no owner.json', async () => {
@@ -381,8 +397,7 @@ describe('internal marker-lock identity reclamation', () => {
       }
     );
     await aEntered;
-    const past = new Date(Date.now() - DEFAULT_STALE_MARKER_LOCK_MS - 5_000);
-    await utimes(lockPath, past, past);
+    await ageVersion2Token(lockPath);
 
     const ownerB = withMarkerLock(
       markerPath,
@@ -471,8 +486,7 @@ describe('internal marker-lock identity reclamation', () => {
       }
     );
     await aEntered;
-    const past = new Date(Date.now() - DEFAULT_STALE_MARKER_LOCK_MS - 5_000);
-    await utimes(lockPath, past, past);
+    await ageVersion2Token(lockPath);
     const ownerB = withMarkerLock(
       markerPath,
       async () => {

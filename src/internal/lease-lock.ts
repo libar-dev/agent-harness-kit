@@ -1,3 +1,4 @@
+import type { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import {
   closeSync,
@@ -83,15 +84,21 @@ type Stats = {
   readonly isDirectory: boolean;
   readonly isFile: boolean;
 };
+type CapturedFile = {
+  readonly raw: Buffer;
+  readonly stats: Stats;
+};
+type ExpiredFile = {
+  readonly path: string;
+  readonly legacyCapture?: CapturedFile;
+};
 
 interface FileOps {
   mkdir(path: string): Promise<void>;
   stat(path: string): Promise<Stats>;
   lstat(path: string): Promise<Stats>;
   readdir(path: string): Promise<readonly Entry[]>;
-  readAndStat(
-    path: string
-  ): Promise<{ readonly raw: string; readonly stats: Stats }>;
+  readAndStat(path: string): Promise<CapturedFile>;
   writeToken(path: string, contents: string): Promise<Stats>;
   unlink(path: string): Promise<void>;
   rmdir(path: string): Promise<void>;
@@ -110,7 +117,7 @@ const asyncOps: FileOps = {
     const handle = await open(path, 'r');
     try {
       const stats = toStats(await handle.stat());
-      const raw = await handle.readFile('utf8');
+      const raw = await handle.readFile();
       return { raw, stats };
     } finally {
       await handle.close();
@@ -152,7 +159,7 @@ const syncOps: FileOps = {
       const fd = openSync(path, 'r');
       try {
         const stats = toStats(fstatSync(fd));
-        const raw = readFileSync(fd, 'utf8');
+        const raw = readFileSync(fd);
         return { raw, stats };
       } finally {
         closeSync(fd);
@@ -191,7 +198,9 @@ const syncOps: FileOps = {
  * Creates the canonical lock directory if absent, then publishes an
  * `owner.<ownerId>.<leaseId>` token. On `EEXIST`, entries are classified
  * and only captured mtime-expired tokens are unlinked before a
- * non-recursive `rmdir`. Expiry is `now - token.mtimeMs > staleMs`.
+ * non-recursive `rmdir`. Fixed-name legacy objects are re-verified by
+ * dev, inode, mtime, and raw bytes immediately before unlink. Expiry is
+ * `now - token.mtimeMs > staleMs`.
  * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
  *
  * @param lockPath - Canonical lock directory path.
@@ -479,30 +488,31 @@ async function reclaim(
   }
   const now = (options.now ?? Date.now)();
   if (!initial.isDirectory) {
-    if (now - initial.mtimeMs <= options.staleMs) return false;
-    await options.onAfterExpiredTokensClassified?.();
-    let current: Stats;
+    let captured: CapturedFile;
     try {
-      current = await ops.lstat(lockPath);
+      captured = await ops.readAndStat(lockPath);
     } catch (error: unknown) {
       if (hasCode(error, 'ENOENT')) return true;
-      throw error;
+      return false;
     }
     if (
-      current.isDirectory ||
-      current.dev !== initial.dev ||
-      current.ino !== initial.ino ||
-      now - current.mtimeMs <= options.staleMs
+      !captured.stats.isFile ||
+      now - captured.stats.mtimeMs <= options.staleMs
     ) {
+      return false;
+    }
+    await options.onAfterExpiredTokensClassified?.();
+    if (!(await capturedFileStillMatches(lockPath, captured, ops))) {
       return false;
     }
     try {
       await ops.unlink(lockPath);
-      return true;
     } catch (error: unknown) {
       if (hasCode(error, 'ENOENT')) return true;
       throw error;
     }
+    await options.onAfterExpiredTokensUnlinkedBeforeRmdir?.();
+    return true;
   }
 
   let entries: readonly Entry[];
@@ -512,14 +522,14 @@ async function reclaim(
     if (hasCode(error, 'ENOENT')) return true;
     return false;
   }
-  const expired: string[] = [];
+  const expired: ExpiredFile[] = [];
   let hasLive = false;
   for (const entry of entries) {
     if (!entry.isFile) return false;
     const match = TOKEN_NAME_PATTERN.exec(entry.name);
     const isLegacy = entry.name === 'owner.json';
     if (match === null && !isLegacy) return false;
-    let captured: { readonly raw: string; readonly stats: Stats };
+    let captured: CapturedFile;
     try {
       captured = await ops.readAndStat(join(lockPath, entry.name));
     } catch (error: unknown) {
@@ -552,7 +562,10 @@ async function reclaim(
           token: capturedToken,
         })))
     ) {
-      expired.push(capturedPath);
+      expired.push({
+        path: capturedPath,
+        ...(isLegacy ? { legacyCapture: captured } : {}),
+      });
     } else {
       hasLive = true;
     }
@@ -574,7 +587,19 @@ async function reclaim(
     }
     if (now - current.mtimeMs <= options.staleMs) return false;
   }
-  for (const path of expired) await unlinkIfPresent(path, ops);
+  for (const captured of expired) {
+    if (
+      captured.legacyCapture !== undefined &&
+      !(await capturedFileStillMatches(
+        captured.path,
+        captured.legacyCapture,
+        ops
+      ))
+    ) {
+      return false;
+    }
+    await unlinkIfPresent(captured.path, ops);
+  }
   await options.onAfterExpiredTokensUnlinkedBeforeRmdir?.();
   if (hasLive) return false;
   return safeRmdir(lockPath, ops);
@@ -709,9 +734,27 @@ function validateOptions(options: LeaseLockOptions): void {
   }
 }
 
-function parseJson(raw: string): unknown {
+async function capturedFileStillMatches(
+  path: string,
+  captured: CapturedFile,
+  ops: FileOps
+): Promise<boolean> {
   try {
-    return JSON.parse(raw) as unknown;
+    const current = await ops.readAndStat(path);
+    return (
+      current.stats.dev === captured.stats.dev &&
+      current.stats.ino === captured.stats.ino &&
+      current.stats.mtimeMs === captured.stats.mtimeMs &&
+      current.raw.equals(captured.raw)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function parseJson(raw: Buffer): unknown {
+  try {
+    return JSON.parse(raw.toString('utf8')) as unknown;
   } catch {
     return undefined;
   }
