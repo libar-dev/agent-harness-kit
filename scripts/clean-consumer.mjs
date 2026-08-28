@@ -130,8 +130,27 @@ async function ensureDist(repoRoot) {
   }
 }
 
+/**
+ * npm < 11 runs the `prepare` lifecycle script during `npm pack` even with
+ * --ignore-scripts (npm/cli#3080), printing the script banner and build
+ * output into stdout ahead of the JSON report. The JSON array is the final
+ * stdout payload and its top-level `[` is the only line-starting bracket,
+ * so anchor on the last line-initial `[` and fall back to a clean payload.
+ */
+function extractPackJsonArray(raw) {
+  const start = raw.lastIndexOf('\n[');
+  if (start !== -1) {
+    return raw.slice(start + 1);
+  }
+  const trimmed = raw.trimStart();
+  if (trimmed.startsWith('[')) {
+    return trimmed;
+  }
+  throw new Error('npm pack --json output contained no JSON array');
+}
+
 function parsePackRecord(raw) {
-  const parsed = JSON.parse(raw);
+  const parsed = JSON.parse(extractPackJsonArray(raw));
   const record = Array.isArray(parsed) ? parsed[0] : parsed;
   if (!isRecord(record) || typeof record.version !== 'string') {
     throw new Error('npm pack --json did not return a versioned record');

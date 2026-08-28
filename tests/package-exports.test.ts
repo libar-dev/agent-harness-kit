@@ -724,12 +724,31 @@ function specifierForSubpath(subpath: string): string {
     : `@libar-dev/agent-harness-kit/${subpath.slice(2)}`;
 }
 
+/**
+ * npm < 11 runs the `prepare` lifecycle script during `npm pack` even with
+ * --ignore-scripts (npm/cli#3080), printing the script banner and build
+ * output into stdout ahead of the JSON report. The JSON array is the final
+ * stdout payload and its top-level `[` is the only line-starting bracket,
+ * so anchor on the last line-initial `[` and fall back to a clean payload.
+ */
+function extractPackJsonArray(raw: string): string {
+  const start = raw.lastIndexOf('\n[');
+  if (start !== -1) {
+    return raw.slice(start + 1);
+  }
+  const trimmed = raw.trimStart();
+  if (trimmed.startsWith('[')) {
+    return trimmed;
+  }
+  throw new Error('npm pack --json output contained no JSON array');
+}
+
 function parsePackFileList(raw: string): {
   readonly version: string;
   readonly filename: string;
   readonly files: readonly string[];
 } {
-  const parsed: unknown = JSON.parse(raw);
+  const parsed: unknown = JSON.parse(extractPackJsonArray(raw));
   const record: unknown = Array.isArray(parsed) ? parsed[0] : parsed;
   if (!isRecord(record) || typeof record['version'] !== 'string') {
     throw new Error('npm pack --json did not return a versioned record');
