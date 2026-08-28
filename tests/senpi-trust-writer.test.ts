@@ -293,15 +293,15 @@ describe('senpi trust writer - locking', () => {
         writeFileSync(
           `${statePath}.lock`,
           `${JSON.stringify({ token: replacementToken, pid: 424242 })}\n`,
-          'utf-8',
+          'utf-8'
         );
         return 'held';
       },
-      instantClock(),
+      instantClock()
     );
 
     expect(readFileSync(`${statePath}.lock`, 'utf-8')).toContain(
-      replacementToken,
+      replacementToken
     );
   });
 
