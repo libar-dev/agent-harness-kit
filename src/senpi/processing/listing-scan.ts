@@ -60,10 +60,9 @@ interface SummaryAccumulator {
 export async function readSenpiHeaderLine(
   path: string
 ): Promise<string | null> {
-  for await (const line of readBoundedLines(
-    path,
-    SENPI_LISTING_HEADER_MAX_BYTES
-  )) {
+  for await (const line of readBoundedLines(path, {
+    maxLineBytes: SENPI_LISTING_HEADER_MAX_BYTES,
+  })) {
     if (line.kind === 'oversized') {
       throw new SenpiListingDiagnosticError({
         code: 'header-line-too-large',
@@ -86,10 +85,9 @@ export async function scanSenpiSessionSummary(
     lastName: undefined,
   };
 
-  for await (const line of readBoundedLines(
-    path,
-    SENPI_LISTING_RECORD_MAX_BYTES
-  )) {
+  for await (const line of readBoundedLines(path, {
+    maxLineBytes: SENPI_LISTING_RECORD_MAX_BYTES,
+  })) {
     if (line.kind === 'oversized') {
       throw new SenpiListingDiagnosticError({
         code: 'record-line-too-large',

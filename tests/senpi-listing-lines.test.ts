@@ -198,7 +198,9 @@ describe('senpi listing byte boundaries', () => {
 
     // When: the bounded reader streams both lines.
     const lines = [];
-    for await (const line of readBoundedLines(path, HEADER_MAX_BYTES)) {
+    for await (const line of readBoundedLines(path, {
+      maxLineBytes: HEADER_MAX_BYTES,
+    })) {
       lines.push(line);
     }
 
@@ -240,6 +242,270 @@ describe('senpi listing byte boundaries', () => {
     // Then: total size is uncapped and the bounded records remain valid.
     expect(listings).toMatchObject([
       { kind: 'valid', info: { path, id: 'large-session' } },
+    ]);
+  });
+});
+
+describe('senpi listing EOF-tail semantics', () => {
+  it('ignores a valid unterminated final entry so the session stays valid', async () => {
+    // Given: a complete header plus a valid message whose trailing newline is absent.
+    const agentHome = await makeStore();
+    const cwd = '/work/eof-valid-tail';
+    const userMessage = {
+      type: 'message',
+      id: 'msg-1',
+      parentId: null,
+      timestamp: '2026-08-20T10:00:01.000Z',
+      message: { role: 'user', content: 'hello', timestamp: 1_724_155_201_000 },
+    };
+    const path = await writeCandidate({
+      agentHome,
+      cwd,
+      file: 'eof-valid.jsonl',
+      contents: `${JSON.stringify(sessionHeader(cwd, 'eof-valid'))}\n${JSON.stringify(userMessage)}`,
+    });
+
+    // When: listing scans the mid-append file.
+    const listings = await listSenpiSessions(cwd, { agentHome });
+
+    // Then: the unterminated final entry is deferred and the session stays valid.
+    expect(listings).toMatchObject([
+      {
+        kind: 'valid',
+        info: { path, id: 'eof-valid', messageCount: 0, firstMessage: null },
+      },
+    ]);
+  });
+
+  it('does not invalidate on an unterminated malformed final entry', async () => {
+    // Given: a complete header plus a broken JSON fragment without a newline.
+    const agentHome = await makeStore();
+    const cwd = '/work/eof-malformed-tail';
+    const path = await writeCandidate({
+      agentHome,
+      cwd,
+      file: 'eof-malformed.jsonl',
+      contents: `${JSON.stringify(sessionHeader(cwd, 'eof-malformed'))}\n{"type":"message",`,
+    });
+
+    // When: listing scans the file mid-append.
+    const listings = await listSenpiSessions(cwd, { agentHome });
+
+    // Then: the unterminated garbage is ignored and the session stays valid.
+    expect(listings).toMatchObject([
+      { kind: 'valid', info: { path, id: 'eof-malformed' } },
+    ]);
+  });
+
+  it('makes a previously deferred malformed tail invalid after the newline arrives', async () => {
+    // Given: a valid session whose final malformed fragment later gains a newline.
+    const agentHome = await makeStore();
+    const cwd = '/work/eof-malformed-commit';
+    const path = await writeCandidate({
+      agentHome,
+      cwd,
+      file: 'eof-commit.jsonl',
+      contents: `${JSON.stringify(sessionHeader(cwd, 'eof-commit'))}\n{"type":"message",`,
+    });
+    const before = await listSenpiSessions(cwd, { agentHome });
+    expect(before).toMatchObject([{ kind: 'valid', info: { path } }]);
+
+    // When: the writer finishes the line with a newline.
+    const file = await open(path, 'a');
+    try {
+      await file.write('\n');
+    } finally {
+      await file.close();
+    }
+    const after = await listSenpiSessions(cwd, { agentHome });
+
+    // Then: the now-complete malformed line invalidates the session.
+    expect(after).toMatchObject([{ kind: 'invalid', path }]);
+    const invalid = after.find(listing => listing.kind === 'invalid');
+    expect(invalid?.error.message).toMatch(/invalid JSON on line 2/i);
+  });
+
+  it('makes a previously deferred valid entry visible after the newline arrives', async () => {
+    // Given: a valid message fragment waiting on its terminating newline.
+    const agentHome = await makeStore();
+    const cwd = '/work/eof-valid-commit';
+    const userMessage = {
+      type: 'message',
+      id: 'msg-visible',
+      parentId: null,
+      timestamp: '2026-08-20T10:00:01.000Z',
+      message: {
+        role: 'user',
+        content: 'visible-after-newline',
+        timestamp: 1_724_155_201_000,
+      },
+    };
+    const path = await writeCandidate({
+      agentHome,
+      cwd,
+      file: 'eof-visible.jsonl',
+      contents: `${JSON.stringify(sessionHeader(cwd, 'eof-visible'))}\n${JSON.stringify(userMessage)}`,
+    });
+    const before = await listSenpiSessions(cwd, { agentHome });
+    expect(before).toMatchObject([
+      { kind: 'valid', info: { path, messageCount: 0, firstMessage: null } },
+    ]);
+
+    // When: the writer appends the terminating newline.
+    const file = await open(path, 'a');
+    try {
+      await file.write('\n');
+    } finally {
+      await file.close();
+    }
+    const after = await listSenpiSessions(cwd, { agentHome });
+
+    // Then: the completed entry is counted on the next listing.
+    expect(after).toMatchObject([
+      {
+        kind: 'valid',
+        info: {
+          path,
+          messageCount: 1,
+          firstMessage: 'visible-after-newline',
+        },
+      },
+    ]);
+  });
+
+  it('treats complete blank lines and unterminated blank tails as harmless', async () => {
+    // Given: newline-terminated blank lines plus a trailing unterminated blank fragment.
+    const agentHome = await makeStore();
+    const cwd = '/work/eof-blank';
+    const path = await writeCandidate({
+      agentHome,
+      cwd,
+      file: 'eof-blank.jsonl',
+      contents: `${JSON.stringify(sessionHeader(cwd, 'eof-blank'))}\n\n   `,
+    });
+
+    // When: listing scans the file.
+    const listings = await listSenpiSessions(cwd, { agentHome });
+
+    // Then: blanks never flip the session invalid.
+    expect(listings).toMatchObject([
+      { kind: 'valid', info: { path, id: 'eof-blank', messageCount: 0 } },
+    ]);
+  });
+
+  it('emits no oversized diagnostic for an unterminated oversized EOF line until newline', async () => {
+    // Given: a valid header followed by an oversized unterminated record body.
+    const agentHome = await makeStore();
+    const cwd = '/work/eof-oversized';
+    const path = await writeCandidate({
+      agentHome,
+      cwd,
+      file: 'eof-oversized.jsonl',
+      contents: `${JSON.stringify(sessionHeader(cwd, 'eof-oversized'))}\n`,
+    });
+    const file = await open(path, 'a');
+    try {
+      const chunk = Buffer.alloc(1024 * 1024, 0x61);
+      for (let index = 0; index < 17; index += 1) {
+        await file.write(chunk);
+      }
+    } finally {
+      await file.close();
+    }
+    expect((await stat(path)).size).toBeGreaterThan(RECORD_MAX_BYTES);
+
+    // When: listing scans before the oversized line is terminated.
+    const before = await listSenpiSessions(cwd, { agentHome });
+
+    // Then: no diagnostic is emitted and the session stays valid.
+    expect(before).toMatchObject([
+      { kind: 'valid', info: { path, id: 'eof-oversized' } },
+    ]);
+
+    // When: the writer finally terminates the oversized line.
+    const closer = await open(path, 'a');
+    try {
+      await closer.write('\n');
+    } finally {
+      await closer.close();
+    }
+    const after = await listSenpiSessions(cwd, { agentHome });
+
+    // Then: the newline-terminated oversized line is diagnosed.
+    expect(after).toMatchObject([
+      {
+        kind: 'invalid',
+        path,
+        error: {
+          code: 'record-line-too-large',
+          maxLineBytes: RECORD_MAX_BYTES,
+        },
+      },
+    ]);
+  });
+
+  it('yields bounded-line and oversized entries only after observing 0x0a', async () => {
+    // Given: a tiny ceiling and files whose final bytes lack a newline.
+    const agentHome = await makeStore();
+    const unterminatedPath = join(agentHome, 'unterminated.txt');
+    const oversizedPath = join(agentHome, 'oversized-unterminated.txt');
+    await writeFile(unterminatedPath, 'abc');
+    await writeFile(oversizedPath, 'abcdef');
+
+    // When: the bounded reader streams each file.
+    const unterminated = [];
+    for await (const line of readBoundedLines(unterminatedPath, {
+      maxLineBytes: 4,
+    })) {
+      unterminated.push(line);
+    }
+    const oversizedBeforeNewline = [];
+    for await (const line of readBoundedLines(oversizedPath, {
+      maxLineBytes: 4,
+    })) {
+      oversizedBeforeNewline.push(line);
+    }
+
+    // Then: unterminated tails produce neither line nor oversized entries.
+    expect(unterminated).toEqual([]);
+    expect(oversizedBeforeNewline).toEqual([]);
+
+    // When: a newline arrives on the oversized file.
+    const file = await open(oversizedPath, 'a');
+    try {
+      await file.write('\n');
+    } finally {
+      await file.close();
+    }
+    const oversizedAfterNewline = [];
+    for await (const line of readBoundedLines(oversizedPath, {
+      maxLineBytes: 4,
+    })) {
+      oversizedAfterNewline.push(line);
+    }
+
+    // Then: the newline-terminated oversized line is diagnosed once.
+    expect(oversizedAfterNewline).toEqual([
+      { kind: 'oversized', lineNumber: 1 },
+    ]);
+  });
+
+  it('still yields newline-terminated blank and exact-sized lines', async () => {
+    // Given: a file with a blank line and a complete short line.
+    const agentHome = await makeStore();
+    const path = join(agentHome, 'complete-blank.txt');
+    await writeFile(path, '\nok\n');
+
+    // When: the bounded reader streams the file.
+    const lines = [];
+    for await (const line of readBoundedLines(path, { maxLineBytes: 16 })) {
+      lines.push(line);
+    }
+
+    // Then: both newline-terminated lines are emitted, including the blank.
+    expect(lines).toEqual([
+      { kind: 'line', lineNumber: 1, value: '' },
+      { kind: 'line', lineNumber: 2, value: 'ok' },
     ]);
   });
 });

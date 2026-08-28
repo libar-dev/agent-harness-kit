@@ -14,21 +14,29 @@ export type BoundedLine =
       readonly lineNumber: number;
     };
 
+/** Options for a bounded newline scan. */
+export type ReadBoundedLinesOptions = {
+  readonly maxLineBytes: number;
+};
+
 /**
  * Stream a file by newline without retaining more than `maxLineBytes`.
  *
- * Once a line crosses the ceiling its buffered chunks are released and a
- * diagnostic is yielded immediately. Callers that continue consume the
- * remainder in discard mode without receiving a duplicate diagnostic.
+ * Line and oversized entries are yielded only after a `0x0a` byte. An
+ * unterminated EOF tail is deferred with no diagnostic. Once a line crosses
+ * the ceiling its buffered chunks are released; the oversized diagnostic is
+ * still emitted only when that line's newline arrives. Callers that continue
+ * consume the remainder in discard mode without a duplicate diagnostic.
  *
  * @param path - File to stream.
- * @param maxLineBytes - Maximum bytes retained for one line.
- * @yields Complete or trailing lines, or bounded oversized diagnostics.
+ * @param options - Scan limits; `maxLineBytes` is the per-line retention ceiling.
+ * @yields Newline-terminated lines, or bounded oversized diagnostics.
  */
 export async function* readBoundedLines(
   path: string,
-  maxLineBytes: number
+  options: ReadBoundedLinesOptions
 ): AsyncGenerator<BoundedLine> {
+  const { maxLineBytes } = options;
   const file = await open(path, 'r');
   try {
     const readBuffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
@@ -61,7 +69,6 @@ export async function* readBoundedLines(
           if (lineByteLength + segmentLength > maxLineBytes) {
             oversized = true;
             lineChunks = [];
-            yield { kind: 'oversized', lineNumber };
           } else if (segmentLength > 0) {
             lineChunks.push(Buffer.from(segment));
           }
@@ -70,7 +77,9 @@ export async function* readBoundedLines(
 
         if (newlineIndex === bytesRead) break;
 
-        if (!oversized) {
+        if (oversized) {
+          yield { kind: 'oversized', lineNumber };
+        } else {
           yield {
             kind: 'line',
             lineNumber,
@@ -84,14 +93,6 @@ export async function* readBoundedLines(
         chunkOffset = newlineIndex + 1;
       }
       readOffset += bytesRead;
-    }
-
-    if (lineByteLength > 0 && !oversized) {
-      yield {
-        kind: 'line',
-        lineNumber,
-        value: Buffer.concat(lineChunks, lineByteLength).toString('utf8'),
-      };
     }
   } finally {
     await file.close();
