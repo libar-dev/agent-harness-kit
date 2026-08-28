@@ -92,6 +92,14 @@ export interface SenpiTrustWriterClock {
   readonly sleep: (ms: number) => Promise<void>;
 }
 
+/** Test-schedule hooks for observing lock interleavings without changing locking behavior. */
+export interface SenpiTrustLockHooks {
+  readonly onAfterReleaseTokensUnlinkedBeforeRmdir?: () => void | Promise<void>;
+  readonly onAfterExpiredTokensClassified?: () => void | Promise<void>;
+  readonly onAfterExpiredTokensUnlinkedBeforeRmdir?: () => void | Promise<void>;
+  readonly onAfterCanonicalMkdirBeforeToken?: () => void | Promise<void>;
+}
+
 const DEFAULT_TRUST_WRITER_CLOCK: SenpiTrustWriterClock = {
   now: () => Date.now(),
   sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
@@ -549,7 +557,8 @@ function atomicWriteState(path: string, contents: string): void {
 export async function withStateLock<T>(
   statePath: string,
   fn: () => T,
-  clock: SenpiTrustWriterClock
+  clock: SenpiTrustWriterClock,
+  hooks?: SenpiTrustLockHooks
 ): Promise<T> {
   mkdirSync(dirname(statePath), { recursive: true });
   const lockPath = `${statePath}.lock`;
@@ -558,7 +567,10 @@ export async function withStateLock<T>(
   let lastContention = false;
   for (let attempt = 1; attempt <= LOCK_MAX_ATTEMPTS; attempt++) {
     try {
-      ownedToken = acquireLock(lockPath);
+      ownedToken = await acquireLock(
+        lockPath,
+        hooks?.onAfterCanonicalMkdirBeforeToken
+      );
       acquired = true;
       break;
     } catch (error: unknown) {
@@ -579,7 +591,7 @@ export async function withStateLock<T>(
       // private claim, and only then remove. A fresh lock that replaced the
       // stale one between the staleness check and the claim is restored and
       // acquisition retried instead of deleted.
-      if (removeStaleStateLock(lockPath, clock.now)) {
+      if (await removeStaleStateLockWithHooks(lockPath, clock.now, hooks)) {
         continue;
       }
       await clock.sleep(LOCK_RETRY_DELAY_MS);
@@ -595,7 +607,13 @@ export async function withStateLock<T>(
   try {
     return await fn();
   } finally {
-    if (ownedToken !== undefined) releaseStateLock(lockPath, ownedToken);
+    if (ownedToken !== undefined) {
+      await releaseStateLock(
+        lockPath,
+        ownedToken,
+        hooks?.onAfterReleaseTokensUnlinkedBeforeRmdir
+      );
+    }
   }
 }
 
@@ -614,7 +632,11 @@ export async function withStateLock<T>(
  * deleted — it is no longer at the lock path, so it cannot be the lock any
  * acquirer would see, and keeping it would leak a path nothing reclaims.
  */
-function releaseStateLock(lockPath: string, ownedToken: string): void {
+async function releaseStateLock(
+  lockPath: string,
+  ownedToken: string,
+  onAfterReleaseTokensUnlinkedBeforeRmdir?: () => void | Promise<void>
+): Promise<void> {
   const claimedPath = `${lockPath}.release.${randomUUID()}`;
   try {
     renameSync(lockPath, claimedPath);
@@ -622,6 +644,7 @@ function releaseStateLock(lockPath: string, ownedToken: string): void {
     if (isErrnoException(error) && error.code === 'ENOENT') return;
     throw error;
   }
+  await onAfterReleaseTokensUnlinkedBeforeRmdir?.();
   if (claimedTokenIs(claimedPath, ownedToken)) {
     rmSync(claimedPath, { force: true });
     return;
@@ -636,6 +659,33 @@ function releaseStateLock(lockPath: string, ownedToken: string): void {
  * caller's staleness check and the claim — it is restored and acquisition
  * retried rather than deleted).
  */
+async function removeStaleStateLockWithHooks(
+  lockPath: string,
+  now: () => number,
+  hooks?: SenpiTrustLockHooks
+): Promise<boolean> {
+  const claimedPath = `${lockPath}.reclaim.${randomUUID()}`;
+  try {
+    renameSync(lockPath, claimedPath);
+  } catch {
+    return false;
+  }
+  await hooks?.onAfterExpiredTokensUnlinkedBeforeRmdir?.();
+  try {
+    if (now() - statSync(claimedPath).mtimeMs > LOCK_STALE_MS) {
+      await hooks?.onAfterExpiredTokensClassified?.();
+      rmSync(claimedPath, { force: true });
+      return true;
+    }
+    restoreClaimedStateLock(claimedPath, lockPath);
+    return false;
+  } catch (error: unknown) {
+    restoreClaimedStateLock(claimedPath, lockPath);
+    if (isErrnoException(error) && error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
 export function removeStaleStateLock(
   lockPath: string,
   now: () => number
@@ -691,7 +741,10 @@ function restoreClaimedStateLock(claimedPath: string, lockPath: string): void {
   }
 }
 
-function acquireLock(lockPath: string): string {
+async function acquireLock(
+  lockPath: string,
+  onAfterCanonicalMkdirBeforeToken?: () => void | Promise<void>
+): Promise<string> {
   let fd: number;
   try {
     fd = openSync(lockPath, 'wx', 0o600);
@@ -701,8 +754,10 @@ function acquireLock(lockPath: string): string {
     }
     throw error;
   }
-  const token = randomUUID();
+  let token: string;
   try {
+    await onAfterCanonicalMkdirBeforeToken?.();
+    token = randomUUID();
     writeSync(fd, `${JSON.stringify({ token, pid: process.pid })}\n`);
   } finally {
     closeSync(fd);

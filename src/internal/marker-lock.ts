@@ -29,6 +29,11 @@ export type MarkerLockIdentity = {
 export type WithMarkerLockOptions = {
   readonly lockedLabel: string;
   readonly staleLockMs?: number;
+  /** Test-schedule hooks for interleaving tests; they observe lock protocol points only. */
+  readonly onAfterReleaseTokensUnlinkedBeforeRmdir?: () => void | Promise<void>;
+  readonly onAfterExpiredTokensClassified?: () => void | Promise<void>;
+  readonly onAfterExpiredTokensUnlinkedBeforeRmdir?: () => void | Promise<void>;
+  readonly onAfterCanonicalMkdirBeforeToken?: () => void | Promise<void>;
   /**
    * Test-only hook fired after the first identity capture and stale-age check,
    * before the re-stat / nonce re-read that gates unlink.
@@ -79,14 +84,20 @@ export async function withMarkerLock<T>(
   await mkdir(dirname(markerPath), { recursive: true, mode: 0o700 });
   let ownedNonce: string;
   try {
-    ownedNonce = await createExclusiveLockDir(lockPath);
+    ownedNonce = await createExclusiveLockDir(
+      lockPath,
+      options.onAfterCanonicalMkdirBeforeToken
+    );
   } catch (error: unknown) {
     if (!hasErrorCode(error, 'EEXIST')) throw error;
     const reclaimedNonce = await replaceStaleMarkerLock(
       lockPath,
       staleLockMs,
       options.onBeforeStaleUnlink,
-      options.onBeforeStaleClaim
+      options.onBeforeStaleClaim,
+      options.onAfterExpiredTokensClassified,
+      options.onAfterExpiredTokensUnlinkedBeforeRmdir,
+      options.onAfterCanonicalMkdirBeforeToken
     );
     if (reclaimedNonce === false) {
       throw new Error(lockedMessage);
@@ -96,12 +107,20 @@ export async function withMarkerLock<T>(
   try {
     return await action();
   } finally {
-    await releaseOwnedLockDir(lockPath, ownedNonce);
+    await releaseOwnedLockDir(
+      lockPath,
+      ownedNonce,
+      options.onAfterReleaseTokensUnlinkedBeforeRmdir
+    );
   }
 }
 
-async function createExclusiveLockDir(lockPath: string): Promise<string> {
+async function createExclusiveLockDir(
+  lockPath: string,
+  onAfterCanonicalMkdirBeforeToken?: () => void | Promise<void>
+): Promise<string> {
   await mkdir(lockPath, { mode: 0o700 });
+  await onAfterCanonicalMkdirBeforeToken?.();
   return initializeOwnedLockDir(lockPath);
 }
 
@@ -138,11 +157,13 @@ async function initializeOwnedLockDir(lockPath: string): Promise<string> {
  */
 async function releaseOwnedLockDir(
   lockPath: string,
-  ownedNonce: string
+  ownedNonce: string,
+  onAfterReleaseTokensUnlinkedBeforeRmdir?: () => void | Promise<void>
 ): Promise<void> {
   const claimedPath = `${lockPath}.release.${randomUUID()}`;
   try {
     await rename(lockPath, claimedPath);
+    await onAfterReleaseTokensUnlinkedBeforeRmdir?.();
   } catch (error: unknown) {
     if (hasErrorCode(error, 'ENOENT')) return;
     throw error;
@@ -202,7 +223,10 @@ async function replaceStaleMarkerLock(
   lockPath: string,
   staleLockMs: number,
   onBeforeStaleUnlink?: (captured: MarkerLockIdentity) => void | Promise<void>,
-  onBeforeStaleClaim?: (captured: MarkerLockIdentity) => void | Promise<void>
+  onBeforeStaleClaim?: (captured: MarkerLockIdentity) => void | Promise<void>,
+  onAfterExpiredTokensClassified?: () => void | Promise<void>,
+  onAfterExpiredTokensUnlinkedBeforeRmdir?: () => void | Promise<void>,
+  onAfterCanonicalMkdirBeforeToken?: () => void | Promise<void>
 ): Promise<string | false> {
   let first: MarkerLockIdentity;
   try {
@@ -230,6 +254,7 @@ async function replaceStaleMarkerLock(
   if (Date.now() - second.mtimeMs <= staleLockMs) {
     return false;
   }
+  await onAfterExpiredTokensClassified?.();
   if (onBeforeStaleClaim) {
     await onBeforeStaleClaim(second);
   }
@@ -240,9 +265,11 @@ async function replaceStaleMarkerLock(
     // no-excuse-ok: catch — another reclaimer won the atomic rename
     return false;
   }
+  await onAfterExpiredTokensUnlinkedBeforeRmdir?.();
 
   try {
     await mkdir(lockPath, { mode: 0o700 });
+    await onAfterCanonicalMkdirBeforeToken?.();
   } catch {
     // no-excuse-ok: catch — fail closed if a creator occupied the rename gap
     return false;

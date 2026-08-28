@@ -866,54 +866,69 @@ async function writeRawTranscriptSessionMarker(
   } satisfies RawTranscriptSessionMarker);
 }
 
+export interface RawTranscriptSessionLockHooks {
+  /** Test-schedule hooks for observing lock interleavings. */
+  readonly onAfterReleaseTokensUnlinkedBeforeRmdir?: () => void | Promise<void>;
+  readonly onAfterExpiredTokensClassified?: () => void | Promise<void>;
+  readonly onAfterExpiredTokensUnlinkedBeforeRmdir?: () => void | Promise<void>;
+  readonly onAfterCanonicalMkdirBeforeToken?: () => void | Promise<void>;
+}
+
 async function mutateRawTranscriptSessionMarker(
   markerPath: string,
   sessionId: string,
   mainPathDigest: string,
-  checkpoint: RawTranscriptSessionCheckpoint
+  checkpoint: RawTranscriptSessionCheckpoint,
+  hooks?: RawTranscriptSessionLockHooks
 ): Promise<void> {
-  await withRawTranscriptSessionMarkerLock(markerPath, async () => {
-    const existingMarker = await readRawTranscriptSessionMarker(
-      markerPath,
-      sessionId,
-      mainPathDigest
-    );
-    const nextMarkers = rawTranscriptSessionCheckpointToMarkers(checkpoint);
-    const currentRevision = existingMarker?.revision ?? 0;
-    if (checkpoint.baseRevision !== currentRevision) {
-      throw new StaleCheckpointConflict({
-        expectedRevision: checkpoint.baseRevision,
-        actualRevision: currentRevision,
-      });
-    }
-    validateRawTranscriptCheckpointProgression(existingMarker, nextMarkers);
+  await withRawTranscriptSessionMarkerLock(
+    markerPath,
+    async () => {
+      const existingMarker = await readRawTranscriptSessionMarker(
+        markerPath,
+        sessionId,
+        mainPathDigest
+      );
+      const nextMarkers = rawTranscriptSessionCheckpointToMarkers(checkpoint);
+      const currentRevision = existingMarker?.revision ?? 0;
+      if (checkpoint.baseRevision !== currentRevision) {
+        throw new StaleCheckpointConflict({
+          expectedRevision: checkpoint.baseRevision,
+          actualRevision: currentRevision,
+        });
+      }
+      validateRawTranscriptCheckpointProgression(existingMarker, nextMarkers);
 
-    await writeRawTranscriptSessionMarker(
-      markerPath,
-      sessionId,
-      mainPathDigest,
-      currentRevision + 1,
-      nextMarkers
-    );
-  });
+      await writeRawTranscriptSessionMarker(
+        markerPath,
+        sessionId,
+        mainPathDigest,
+        currentRevision + 1,
+        nextMarkers
+      );
+    },
+    hooks
+  );
 }
 
 async function withRawTranscriptSessionMarkerLock<T>(
   markerPath: string,
-  action: () => Promise<T>
+  action: () => Promise<T>,
+  hooks?: RawTranscriptSessionLockHooks
 ): Promise<T> {
   const lockPath = `${markerPath}.lock`;
   await mkdir(dirname(markerPath), { recursive: true, mode: 0o700 });
-  const owner = await acquireRawTranscriptSessionMarkerLock(lockPath);
+  const owner = await acquireRawTranscriptSessionMarkerLock(lockPath, hooks);
   try {
     return await action();
   } finally {
-    await releaseRawTranscriptSessionMarkerLock(lockPath, owner);
+    await releaseRawTranscriptSessionMarkerLock(lockPath, owner, hooks);
   }
 }
 
 async function acquireRawTranscriptSessionMarkerLock(
-  lockPath: string
+  lockPath: string,
+  hooks?: RawTranscriptSessionLockHooks
 ): Promise<RawTranscriptSessionLockOwner> {
   const startedAt = Date.now();
   const owner: RawTranscriptSessionLockOwner = {
@@ -925,6 +940,7 @@ async function acquireRawTranscriptSessionMarkerLock(
   while (true) {
     try {
       await mkdir(lockPath, { mode: 0o700 });
+      await hooks?.onAfterCanonicalMkdirBeforeToken?.();
       try {
         await writeFile(
           join(lockPath, SESSION_MARKER_LOCK_OWNER_FILE),
@@ -940,7 +956,7 @@ async function acquireRawTranscriptSessionMarkerLock(
       if (!hasErrorCode(error, 'EEXIST')) throw error;
     }
 
-    await recoverStaleRawTranscriptSessionMarkerLock(lockPath);
+    await recoverStaleRawTranscriptSessionMarkerLock(lockPath, hooks);
     if (Date.now() - startedAt >= SESSION_MARKER_LOCK_ACQUIRE_TIMEOUT_MS) {
       throw new Error(`Timed out acquiring session marker lock '${lockPath}'`);
     }
@@ -949,7 +965,8 @@ async function acquireRawTranscriptSessionMarkerLock(
 }
 
 async function recoverStaleRawTranscriptSessionMarkerLock(
-  lockPath: string
+  lockPath: string,
+  hooks?: RawTranscriptSessionLockHooks
 ): Promise<void> {
   const owner = await readRawTranscriptSessionLockOwner(lockPath);
   let stale = false;
@@ -974,6 +991,7 @@ async function recoverStaleRawTranscriptSessionMarkerLock(
     }
   }
   if (!stale) return;
+  await hooks?.onAfterExpiredTokensClassified?.();
 
   const observedToken = owner?.token;
   const currentOwner = await readRawTranscriptSessionLockOwner(lockPath);
@@ -989,15 +1007,18 @@ async function recoverStaleRawTranscriptSessionMarkerLock(
     if (hasErrorCode(error, 'ENOENT') || hasErrorCode(error, 'EEXIST')) return;
     throw error;
   }
+  await hooks?.onAfterExpiredTokensUnlinkedBeforeRmdir?.();
 }
 
 async function releaseRawTranscriptSessionMarkerLock(
   lockPath: string,
-  owner: RawTranscriptSessionLockOwner
+  owner: RawTranscriptSessionLockOwner,
+  hooks?: RawTranscriptSessionLockHooks
 ): Promise<void> {
   const currentOwner = await readRawTranscriptSessionLockOwner(lockPath);
   if (currentOwner?.token !== owner.token) return;
   await rm(lockPath, { recursive: true, force: true });
+  await hooks?.onAfterReleaseTokensUnlinkedBeforeRmdir?.();
 }
 
 async function readRawTranscriptSessionLockOwner(
