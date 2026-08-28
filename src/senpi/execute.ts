@@ -724,7 +724,11 @@ function defaultRunCommand(
  * NOT change the exit code.
  *
  * Never reads CLAUDE_* env vars, never imports grok/claude modules, never
- * touches hook trust state.
+ * consults hook trust state. `defaultRunCommand` spawns with `shell: true`
+ * and the inherited process environment. Unsafe unless the caller has already
+ * gated the handler through `isSenpiCommandHookTrusted` /
+ * `readSenpiHookTrustState` (`src/senpi/trust.ts`) or the consent-gated
+ * `writeSenpiHookTrustEntry` (`src/senpi/trust-writer.ts`).
  *
  * @param handler - Event plus command config of the handler to run; on
  * win32 the injected-or-default platform selects `commandWindows` when

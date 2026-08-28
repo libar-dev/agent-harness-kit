@@ -141,6 +141,18 @@ Output-parse diagnostics (`invalid_root`, `unsupported_field`, ...) are logged a
 
 `executeSenpiHook(handler, options?)` runs one command hook end to end: `readSenpiStdinJson(options?)` collects stdin (30-second cap, bounded byte read) and validates through `validateSenpiHookInput`, the platform-selected command runs (`commandWindows` on win32 when set), the vendored output-parser rules judge the result, and `outputSenpiJson` writes the typed output. Injectable seams cover stdin/stdout/stderr/exit/platform/`runCommand` for tests.
 
+`defaultRunCommand` (the default `runCommand` seam) spawns that command with `shell: true` and the inherited process environment. This module never consults hook trust state. `executeSenpiHook` is unsafe unless the caller already gated the handler.
+
+Consumers that handle untrusted settings must gate handlers through `isSenpiCommandHookTrusted` / `readSenpiHookTrustState` (`src/senpi/trust.ts`) before execution. Grants go through the consent-gated writer `writeSenpiHookTrustEntry` (`src/senpi/trust-writer.ts`). See [Trust gate](#trust-gate).
+
+```ts
+const loaded = readSenpiHookTrustState(statePath);
+if (!loaded.ok || !isSenpiCommandHookTrusted(handler, loaded.state)) {
+  throw new Error("hook is not trusted");
+}
+await executeSenpiHook({ event: handler.event, config: handler.config });
+```
+
 The senpi path never reads `CLAUDE_*` configuration, never imports grok or Claude modules, and never touches hook trust state.
 
 ## Settings validation
@@ -242,6 +254,8 @@ Observe-only registration helpers never write trust and never enable gates:
 | `RUN_HOOK_WRAPPER_SH`                   | POSIX wrapper string for Claude endpoint-discovery consumers    |
 
 The Senpi standalone forwarder POSTs a valid envelope to `SENPI_HOOK_FORWARD_URL` and always exits 0 with empty stdout. It never emits a gate decision. Shipping the asset is not an install. Cockpit must not install this forwarder or define a Senpi Stop policy.
+
+By default the URL must be `http` or `https` with host `127.0.0.1`, `localhost`, or `::1`. Set `SENPI_HOOK_FORWARD_ALLOW_REMOTE=1` to allow a remote host; any other value (including `true`) keeps the loopback default. Other schemes are rejected. Redirects are never followed. Stdin is capped at 1 MiB; that cap is the scale envelope for this path — oversized input is truncated rather than buffered without bound.
 
 ## Session layout and processing APIs
 
