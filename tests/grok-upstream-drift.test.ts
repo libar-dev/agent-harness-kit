@@ -1,151 +1,243 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { GrokHookEventName } from '../src/grok/types.js';
-import { grokEventSchema } from '../src/grok/processing/events.js';
+import {
+  grokHookInputSchema,
+  grokStopBackgroundTaskSchema,
+  grokStopFailureKindSchema,
+  grokStopSessionCronSchema,
+  grokSubagentStopInputSchema,
+} from '../src/grok/validation.js';
+import {
+  parseEnumValues,
+  toSnakeCase,
+  type FieldDescriptor,
+} from './grok-rust-parse-utils.js';
+import {
+  collectReferencedEnumNames,
+  parseNestedDtoDescriptors,
+} from './grok-rust-graph-utils.js';
+import { assertAliasReuse } from './grok-rust-alias-utils.js';
+import {
+  assertEnumParity,
+  assertHookParity,
+  assertNestedDtoRegistryParity,
+  type Branch,
+  type ObjectBranch,
+} from './grok-rust-parity-utils.js';
+import {
+  parseCanonicalAliases,
+  parseHookEvents,
+  payloadDescriptorsByWireEvent,
+} from './grok-rust-wire-utils.js';
 
-type RustHookEvent = {
-  variant: string;
-  wireName: string;
-};
+const SKIP = new Set([
+  'hookEventName',
+  'sessionId',
+  'cwd',
+  'workspaceRoot',
+  'timestamp',
+  'transcriptPath',
+  'clientIdentifier',
+  'promptId',
+  'permissionMode',
+]);
+const ENV = {
+  sessionId: 's',
+  cwd: '/c',
+  workspaceRoot: '/w',
+  timestamp: 't',
+} as const;
 
-function toSnakeCase(value: string): string {
-  return value
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .replace(/([A-Z])([A-Z][a-z])/g, '$1_$2')
-    .toLowerCase();
+async function upstream(rel: string): Promise<string> {
+  return readFile(path.join(process.cwd(), rel), 'utf8');
 }
 
-function parseHookEvents(source: string): RustHookEvent[] {
-  const renameAllMatch = source.match(
-    /#\[serde\(rename_all\s*=\s*"([^"]+)"\)\]\s*pub enum HookEventName/
+function branches(): Map<string, Branch> {
+  return new Map(
+    grokHookInputSchema.options.map(o => [o.shape.hookEventName.value, o])
   );
-  if (renameAllMatch?.[1] !== 'snake_case') {
-    throw new Error('HookEventName must use serde snake_case serialization');
-  }
-
-  const tableMatch = source.match(/\nhook_events!\s*\{([\s\S]*?)\n\}/);
-  if (tableMatch?.[1] === undefined) {
-    throw new Error('Could not find the hook_events! table');
-  }
-
-  const events: RustHookEvent[] = [];
-  const rowPattern =
-    /((?:\s*#\[[^\]]+\]\s*)*)([A-Z][A-Za-z0-9]*)\s*\{([\s\S]*?)\n\s*\},/g;
-  for (const match of tableMatch[1].matchAll(rowPattern)) {
-    const attributes = match[1] ?? '';
-    const variant = match[2];
-    if (variant === undefined) {
-      throw new Error('Malformed hook_events! variant');
-    }
-
-    const explicitRename = attributes.match(
-      /#\[serde\(rename\s*=\s*"([^"]+)"\)\]/
-    )?.[1];
-    events.push({
-      variant,
-      wireName: explicitRename ?? toSnakeCase(variant),
-    });
-  }
-
-  if (events.length === 0) {
-    throw new Error('The hook_events! table contained no variants');
-  }
-  return events;
 }
 
-function eventEnumBody(source: string): string {
-  const marker = 'pub enum Event {';
-  const start = source.indexOf(marker);
-  if (start < 0) throw new Error('Event enum not found');
-
-  const bodyStart = start + marker.length;
-  let depth = 1;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    const character = source[index];
-    if (character === '{') depth += 1;
-    if (character === '}') depth -= 1;
-    if (depth === 0) return source.slice(bodyStart, index);
-  }
-  throw new Error('Event enum closing brace not found');
+function dtoRegistry(): Map<string, ObjectBranch> {
+  return new Map<string, ObjectBranch>([
+    ['StopBackgroundTask', grokStopBackgroundTaskSchema],
+    ['StopSessionCron', grokStopSessionCronSchema],
+  ]);
 }
 
-function parseEventTags(source: string): Set<string> {
-  const tags = new Set<string>();
-  const body = eventEnumBody(source);
-  let depth = 0;
-  let explicitRename: string | undefined;
+function productionEnumValues(name: string): readonly string[] {
+  if (name === 'BackgroundTaskType') {
+    return grokStopBackgroundTaskSchema.shape.type.options;
+  }
+  if (name === 'StopFailureKind') return grokStopFailureKindSchema.options;
+  if (name === 'SubagentStopPhase') {
+    return grokSubagentStopInputSchema.shape.phase.options;
+  }
+  throw new Error(`No production enum mapping for ${name}`);
+}
 
-  for (const line of body.split('\n')) {
-    const trimmed = line.trim();
-    if (depth === 0) {
-      const rename = trimmed.match(/^#\[serde\(rename = "([^"]+)"\)\]$/);
-      if (rename?.[1] !== undefined) explicitRename = rename[1];
+function firstAlias(source: string): {
+  aliasWire: string;
+  targetWire: string;
+  fields: FieldDescriptor[];
+} {
+  const aliases = parseCanonicalAliases(source);
+  const entry = [...aliases.entries()][0];
+  if (entry === undefined) throw new Error('no alias');
+  const [alias, target] = entry;
+  const targetWire = toSnakeCase(target);
+  const fields = payloadDescriptorsByWireEvent(source).get(targetWire);
+  if (fields === undefined) throw new Error('alias target payload missing');
+  return { aliasWire: toSnakeCase(alias), targetWire, fields };
+}
 
-      const variant = trimmed.match(/^([A-Z][A-Za-z0-9_]*)(?:\s*\{|,)$/);
-      if (variant?.[1] !== undefined) {
-        tags.add(explicitRename ?? toSnakeCase(variant[1]));
-        explicitRename = undefined;
+function overlayField(
+  base: Branch,
+  wire: string,
+  fieldSchema: z.ZodType
+): Branch {
+  return {
+    shape: { ...base.shape, [wire]: fieldSchema },
+    safeParse(value: unknown) {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return base.safeParse(value);
       }
-    }
-    depth += [...line].filter(character => character === '{').length;
-    depth -= [...line].filter(character => character === '}').length;
-  }
-  return tags;
-}
-
-function schemaTags(): Set<string> {
-  return new Set(
-    grokEventSchema.options.map(option => option.shape.type.value)
-  );
-}
-
-function assertTagParity(source: string): void {
-  expect([...schemaTags()].sort()).toEqual([...parseEventTags(source)].sort());
-}
-
-async function readSessionEventsSource(): Promise<string> {
-  return readFile(
-    path.join(process.cwd(), 'docs/upstream/grok/session-events-types.rs'),
-    'utf8'
-  );
+      const rec: Record<string, unknown> = { ...value };
+      if (!Object.hasOwn(rec, wire)) {
+        if (!fieldSchema.safeParse(undefined).success) {
+          return { success: false };
+        }
+        return base.safeParse(value);
+      }
+      if (!fieldSchema.safeParse(rec[wire]).success) {
+        return { success: false };
+      }
+      return base.safeParse({ ...rec, [wire]: 0 });
+    },
+  };
 }
 
 describe('Grok hook upstream drift', () => {
-  it('matches every serde wire event from the vendored hook_events! table', async () => {
-    const source = await readFile(
-      path.join(process.cwd(), 'docs/upstream/grok/event.rs'),
-      'utf8'
+  it('matches serde wire events from hook_events!', async () => {
+    const events = parseHookEvents(
+      await upstream('docs/upstream/grok/event.rs')
     );
-    const rustEvents = parseHookEvents(source);
-    const rustWireNames = rustEvents.map(event => event.wireName);
+    expect(events.map(e => e.wireName)).toEqual([...GrokHookEventName]);
+  });
 
-    expect(rustEvents.map(event => event.variant)).toHaveLength(
-      GrokHookEventName.length
+  it('pins canonical alias payload reuse from registries', async () => {
+    const source = await upstream('docs/upstream/grok/event.rs');
+    expect(() => assertAliasReuse(source, branches(), ENV)).not.toThrow();
+  });
+
+  it('fails when alias schema reuse drifts by keys', async () => {
+    const source = await upstream('docs/upstream/grok/event.rs');
+    const { aliasWire } = firstAlias(source);
+    const map = branches();
+    map.set(
+      aliasWire,
+      z.looseObject({
+        sessionId: z.string(),
+        cwd: z.string(),
+        workspaceRoot: z.string(),
+        timestamp: z.string(),
+        hookEventName: z.literal(aliasWire),
+        unrelatedOnly: z.string(),
+      })
     );
-    expect(rustWireNames).toEqual([...GrokHookEventName]);
-    expect(new Set(rustWireNames)).toEqual(new Set(GrokHookEventName));
-  });
-});
-
-describe('Grok event schema upstream drift', () => {
-  it('matches every vendored Event variant in both directions', async () => {
-    const source = await readSessionEventsSource();
-    assertTagParity(source);
+    expect(() => assertAliasReuse(source, map, ENV)).toThrow(
+      /schema identity\/reuse mismatch|payload key set mismatch/
+    );
   });
 
-  it('detects a renamed variant in a mutated upstream source', async () => {
-    const source = await readSessionEventsSource();
-    const mutated = source.replace('    FirstToken,', '    FirstTokenRenamed,');
-    expect(mutated).not.toBe(source);
-    expect(() => assertTagParity(mutated)).toThrow();
+  it('fails when alias schema enum field drifts to boolean', async () => {
+    const source = await upstream('docs/upstream/grok/event.rs');
+    const { aliasWire, fields } = firstAlias(source);
+    const enumField = fields.find(f => f.type.kind === 'enum');
+    if (enumField === undefined) throw new Error('alias payload has no enum');
+    const map = branches();
+    const current = map.get(aliasWire);
+    if (current === undefined) throw new Error('alias schema missing');
+    map.set(aliasWire, overlayField(current, enumField.wire, z.boolean()));
+    expect(() => assertAliasReuse(source, map, ENV)).toThrow(
+      /schema identity\/reuse mismatch/
+    );
   });
 
-  it('honors explicit serde variant renames', async () => {
-    const source = await readSessionEventsSource();
-    expect(parseEventTags(source)).toContain('mcp_oauth_discovery_timeout');
-    expect(parseEventTags(source)).not.toContain(
-      'mcp_o_auth_discovery_timeout'
+  it('matches HookPayload descriptors via Zod parse behavior', async () => {
+    assertHookParity(
+      await upstream('docs/upstream/grok/event.rs'),
+      branches(),
+      ENV,
+      SKIP
+    );
+  });
+
+  it('matches nested DTO descriptors both ways via Zod', async () => {
+    const source = await upstream('docs/upstream/grok/event.rs');
+    assertNestedDtoRegistryParity(source, dtoRegistry());
+    expect(parseNestedDtoDescriptors(source).size).toBeGreaterThan(0);
+  });
+
+  it('matches referenced enums bidirectionally', async () => {
+    const source = await upstream('docs/upstream/grok/event.rs');
+    const names = collectReferencedEnumNames(source);
+    expect(names).toContain('BackgroundTaskType');
+    for (const name of names) {
+      const rust = parseEnumValues(source, name);
+      const zod = productionEnumValues(name);
+      assertEnumParity(name, rust, zod);
+      assertEnumParity(`${name}-reverse`, zod, rust);
+    }
+  });
+
+  it('fails when unsigned schema drops int() (fraction accepted)', async () => {
+    const source = await upstream('docs/upstream/grok/event.rs');
+    const byWire = payloadDescriptorsByWireEvent(source);
+    let event: string | undefined;
+    let field: FieldDescriptor | undefined;
+    for (const [wire, fields] of byWire) {
+      const u = fields.find(f => f.type.kind === 'unsigned_integer');
+      if (u !== undefined) {
+        event = wire;
+        field = u;
+        break;
+      }
+    }
+    if (event === undefined || field === undefined) {
+      throw new Error('no unsigned_integer field in payloads');
+    }
+    const map = branches();
+    const current = map.get(event);
+    if (current === undefined) throw new Error('schema missing');
+    const drifted = field.optional
+      ? z.number().nonnegative().optional()
+      : z.number().nonnegative();
+    map.set(event, overlayField(current, field.wire, drifted));
+    expect(() => assertHookParity(source, map, ENV, SKIP)).toThrow(
+      /integer accepts fraction/
+    );
+  });
+
+  it('fails when schema source is z.boolean', async () => {
+    const source = await upstream('docs/upstream/grok/event.rs');
+    const fake = z.looseObject({
+      sessionId: z.string(),
+      cwd: z.string(),
+      workspaceRoot: z.string(),
+      timestamp: z.string(),
+      hookEventName: z.literal('session_start'),
+      source: z.boolean(),
+      modelId: z.string().optional(),
+      agentType: z.string().optional(),
+    });
+    const map = branches();
+    map.set('session_start', fake);
+    expect(() => assertHookParity(source, map, ENV, SKIP)).toThrow(
+      /session_start/
     );
   });
 });
