@@ -136,7 +136,11 @@ function selfSignalShellCommand(
   stdoutPayload: string
 ): string {
   const script = `process.stdout.write(${JSON.stringify(stdoutPayload)}); process.kill(process.pid, ${JSON.stringify(signal)});`;
-  return `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
+  // `exec` makes the shell replace itself with the child, so the observed
+  // close is signal death everywhere. Without it, shells that fork the child
+  // and wait (dash on some Linux images) report a normal exit with 128+signal
+  // instead, which is not the property under test.
+  return `exec ${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
 }
 
 /**
