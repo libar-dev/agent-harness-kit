@@ -34,12 +34,13 @@ import {
   writeFile,
   mkdir,
   rename,
-  rm,
   unlink,
 } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, delimiter, dirname, join, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+
+import { z } from 'zod';
 
 import { buildToolNameMap } from './denoiser.js';
 import { decomposeHistoryLine } from './block-decomposition.js';
@@ -51,6 +52,14 @@ import {
 } from '../validation/validators.js';
 import type { RawTranscriptPayloadMetadataSchema } from '../validation/schemas.js';
 import { isRecord } from '../utils/index.js';
+import {
+  LeaseLockBusyError,
+  leaseTokenSchema,
+  withLeaseLock,
+  type ExpiredLeaseToken,
+  type LeaseLockOptions,
+  type LeaseTokenContext,
+} from '../internal/lease-lock.js';
 import type {
   RawHistoryLine,
   RawTranscriptRecord,
@@ -329,19 +338,10 @@ interface RawTranscriptSessionSourceMarker extends TailMarker {
   readonly generation: number;
 }
 
-interface RawTranscriptSessionLockOwner {
-  readonly token: string;
-  readonly pid: number;
-  readonly createdAt: number;
-}
-
-const SESSION_MARKER_LOCK_OWNER_FILE = 'owner.json';
 const SESSION_MARKER_LOCK_ACQUIRE_TIMEOUT_MS = 5000;
 const SESSION_MARKER_LOCK_STALE_MS = 30_000;
 const SESSION_MARKER_LOCK_RETRY_MS = 25;
 const SESSION_MARKER_LOCK_CLOCK_SKEW_MS = 60_000;
-const RANDOM_UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const tailFileCache = new Map<string, TailFileCache>();
 
@@ -874,6 +874,14 @@ export interface RawTranscriptSessionLockHooks {
   readonly onAfterCanonicalMkdirBeforeToken?: () => void | Promise<void>;
 }
 
+export interface RawTranscriptSessionLockOptions extends RawTranscriptSessionLockHooks {
+  readonly now?: () => number;
+  readonly acquireTimeoutMs?: number;
+  readonly retryMs?: number;
+  readonly pid?: number;
+  readonly isProcessAlive?: (pid: number) => boolean;
+}
+
 async function mutateRawTranscriptSessionMarker(
   markerPath: string,
   sessionId: string,
@@ -911,151 +919,106 @@ async function mutateRawTranscriptSessionMarker(
   );
 }
 
-async function withRawTranscriptSessionMarkerLock<T>(
+export async function withRawTranscriptSessionMarkerLock<T>(
   markerPath: string,
   action: () => Promise<T>,
-  hooks?: RawTranscriptSessionLockHooks
+  options: RawTranscriptSessionLockOptions = {}
 ): Promise<T> {
   const lockPath = `${markerPath}.lock`;
   await mkdir(dirname(markerPath), { recursive: true, mode: 0o700 });
-  const owner = await acquireRawTranscriptSessionMarkerLock(lockPath, hooks);
-  try {
-    return await action();
-  } finally {
-    await releaseRawTranscriptSessionMarkerLock(lockPath, owner, hooks);
-  }
-}
-
-async function acquireRawTranscriptSessionMarkerLock(
-  lockPath: string,
-  hooks?: RawTranscriptSessionLockHooks
-): Promise<RawTranscriptSessionLockOwner> {
+  const now = options.now ?? Date.now;
+  const probeAlive = options.isProcessAlive ?? isProcessAlive;
+  const acquireTimeoutMs =
+    options.acquireTimeoutMs ?? SESSION_MARKER_LOCK_ACQUIRE_TIMEOUT_MS;
+  const retryMs = options.retryMs ?? SESSION_MARKER_LOCK_RETRY_MS;
   const startedAt = Date.now();
-  const owner: RawTranscriptSessionLockOwner = {
-    token: randomUUID(),
-    pid: process.pid,
-    createdAt: startedAt,
+  const leaseOptions: LeaseLockOptions = {
+    staleMs: SESSION_MARKER_LOCK_STALE_MS,
+    now,
+    tokenFields: (context: LeaseTokenContext) => ({ createdAt: context.now }),
+    tokenSchema: rawTranscriptSessionLockTokenSchema(now),
+    canReclaimExpiredToken: (captured: ExpiredLeaseToken) =>
+      canReclaimRawTranscriptExpiredToken(captured, now, probeAlive),
+    ...(options.pid !== undefined ? { pid: options.pid } : {}),
+    ...(options.onAfterCanonicalMkdirBeforeToken !== undefined
+      ? {
+          onAfterCanonicalMkdirBeforeToken:
+            options.onAfterCanonicalMkdirBeforeToken,
+        }
+      : {}),
+    ...(options.onAfterExpiredTokensClassified !== undefined
+      ? {
+          onAfterExpiredTokensClassified:
+            options.onAfterExpiredTokensClassified,
+        }
+      : {}),
+    ...(options.onAfterExpiredTokensUnlinkedBeforeRmdir !== undefined
+      ? {
+          onAfterExpiredTokensUnlinkedBeforeRmdir:
+            options.onAfterExpiredTokensUnlinkedBeforeRmdir,
+        }
+      : {}),
+    ...(options.onAfterReleaseTokensUnlinkedBeforeRmdir !== undefined
+      ? {
+          onAfterReleaseTokensUnlinkedBeforeRmdir:
+            options.onAfterReleaseTokensUnlinkedBeforeRmdir,
+        }
+      : {}),
   };
 
   while (true) {
     try {
-      await mkdir(lockPath, { mode: 0o700 });
-      await hooks?.onAfterCanonicalMkdirBeforeToken?.();
-      try {
-        await writeFile(
-          join(lockPath, SESSION_MARKER_LOCK_OWNER_FILE),
-          JSON.stringify(owner),
-          { flag: 'wx', mode: 0o600 }
+      return await withLeaseLock(lockPath, async () => action(), leaseOptions);
+    } catch (error) {
+      if (!(error instanceof LeaseLockBusyError)) throw error;
+      if (Date.now() - startedAt >= acquireTimeoutMs) {
+        throw new Error(
+          `Timed out acquiring session marker lock '${lockPath}'`
         );
-      } catch (error) {
-        await rm(lockPath, { recursive: true, force: true });
-        throw error;
       }
-      return owner;
-    } catch (error) {
-      if (!hasErrorCode(error, 'EEXIST')) throw error;
+      await delay(retryMs);
     }
-
-    await recoverStaleRawTranscriptSessionMarkerLock(lockPath, hooks);
-    if (Date.now() - startedAt >= SESSION_MARKER_LOCK_ACQUIRE_TIMEOUT_MS) {
-      throw new Error(`Timed out acquiring session marker lock '${lockPath}'`);
-    }
-    await delay(SESSION_MARKER_LOCK_RETRY_MS);
   }
 }
 
-async function recoverStaleRawTranscriptSessionMarkerLock(
-  lockPath: string,
-  hooks?: RawTranscriptSessionLockHooks
-): Promise<void> {
-  const owner = await readRawTranscriptSessionLockOwner(lockPath);
-  let stale = false;
-  let staleIdentityDigest: string;
-  if (owner !== null) {
-    stale =
-      Date.now() - owner.createdAt >= SESSION_MARKER_LOCK_STALE_MS &&
-      !isProcessAlive(owner.pid);
-    staleIdentityDigest = createStaleLockIdentityDigest(`owner:${owner.token}`);
-  } else {
-    try {
-      const lockStat = await stat(lockPath);
-      stale = Date.now() - lockStat.mtimeMs >= SESSION_MARKER_LOCK_STALE_MS;
-      staleIdentityDigest = createStaleLockIdentityDigest(
-        `stat:${String(lockStat.dev)}:${String(lockStat.ino)}:${String(
-          Math.floor(lockStat.mtimeMs)
-        )}`
-      );
-    } catch (error) {
-      if (hasErrorCode(error, 'ENOENT')) return;
-      throw error;
-    }
-  }
-  if (!stale) return;
-  await hooks?.onAfterExpiredTokensClassified?.();
-
-  const observedToken = owner?.token;
-  const currentOwner = await readRawTranscriptSessionLockOwner(lockPath);
-  if (observedToken !== undefined && currentOwner?.token !== observedToken) {
-    return;
-  }
-  if (currentOwner !== null && isProcessAlive(currentOwner.pid)) return;
-
-  const quarantinePath = `${lockPath}.stale.${staleIdentityDigest}`;
-  try {
-    await rename(lockPath, quarantinePath);
-  } catch (error) {
-    if (hasErrorCode(error, 'ENOENT') || hasErrorCode(error, 'EEXIST')) return;
-    throw error;
-  }
-  await hooks?.onAfterExpiredTokensUnlinkedBeforeRmdir?.();
+function rawTranscriptSessionLockTokenSchema(now: () => number) {
+  return leaseTokenSchema
+    .extend({
+      createdAt: z
+        .number()
+        .refine(
+          value => isValidRawTranscriptLockCreatedAt(value, now()),
+          'createdAt failed raw-transcript clock-skew validation'
+        ),
+    })
+    .strict();
 }
 
-async function releaseRawTranscriptSessionMarkerLock(
-  lockPath: string,
-  owner: RawTranscriptSessionLockOwner,
-  hooks?: RawTranscriptSessionLockHooks
-): Promise<void> {
-  const currentOwner = await readRawTranscriptSessionLockOwner(lockPath);
-  if (currentOwner?.token !== owner.token) return;
-  await rm(lockPath, { recursive: true, force: true });
-  await hooks?.onAfterReleaseTokensUnlinkedBeforeRmdir?.();
-}
-
-async function readRawTranscriptSessionLockOwner(
-  lockPath: string
-): Promise<RawTranscriptSessionLockOwner | null> {
-  try {
-    const raw = await readFile(
-      join(lockPath, SESSION_MARKER_LOCK_OWNER_FILE),
-      'utf8'
-    );
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      !isRecord(parsed) ||
-      typeof parsed['token'] !== 'string' ||
-      !RANDOM_UUID_PATTERN.test(parsed['token']) ||
-      typeof parsed['pid'] !== 'number' ||
-      !Number.isSafeInteger(parsed['pid']) ||
-      parsed['pid'] <= 0 ||
-      typeof parsed['createdAt'] !== 'number' ||
-      !Number.isSafeInteger(parsed['createdAt']) ||
-      parsed['createdAt'] <= 0 ||
-      parsed['createdAt'] > Date.now() + SESSION_MARKER_LOCK_CLOCK_SKEW_MS
-    ) {
-      return null;
-    }
-    return {
-      token: parsed['token'],
-      pid: parsed['pid'],
-      createdAt: parsed['createdAt'],
-    };
-  } catch {
-    return null;
+function canReclaimRawTranscriptExpiredToken(
+  captured: ExpiredLeaseToken,
+  now: () => number,
+  probeAlive: (pid: number) => boolean
+): boolean {
+  const { token } = captured;
+  if (!('pid' in token)) return false;
+  if (
+    'createdAt' in token &&
+    !isValidRawTranscriptLockCreatedAt(token.createdAt, now())
+  ) {
+    return false;
   }
+  return !probeAlive(token.pid);
 }
 
-function createStaleLockIdentityDigest(identity: string): string {
-  return createHash('sha256').update(identity).digest('hex');
+function isValidRawTranscriptLockCreatedAt(
+  createdAt: number,
+  now: number
+): boolean {
+  return (
+    Number.isSafeInteger(createdAt) &&
+    createdAt > 0 &&
+    createdAt <= now + SESSION_MARKER_LOCK_CLOCK_SKEW_MS
+  );
 }
 
 function isProcessAlive(pid: number): boolean {
