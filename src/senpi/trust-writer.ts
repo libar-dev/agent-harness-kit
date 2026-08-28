@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   chmodSync,
   closeSync,
@@ -529,28 +529,36 @@ function atomicWriteState(path: string, contents: string): void {
  *
  * Lock protocol (internal replication of vendored trust-storage.js lock
  * semantics WITHOUT proper-lockfile): exclusive creation of
- * `<statePath>.lock` via O_EXCL; on contention, retry up to
- * {@link LOCK_MAX_ATTEMPTS} times spaced {@link LOCK_RETRY_DELAY_MS} apart;
- * a lock file whose mtime is older than {@link LOCK_STALE_MS} is treated as
- * orphaned and removed before retrying. The critical section `fn` is fully
- * synchronous so it cannot interleave with another writer in-process.
+ * `<statePath>.lock` via O_EXCL with a fresh ownership token written into
+ * the lock file; on contention, retry up to {@link LOCK_MAX_ATTEMPTS} times
+ * spaced {@link LOCK_RETRY_DELAY_MS} apart; a lock file whose mtime is older
+ * than {@link LOCK_STALE_MS} is treated as orphaned and removed before
+ * retrying. The critical section `fn` is fully synchronous so it cannot
+ * interleave with another writer in-process. Release removes the lock file
+ * only when its token still matches ours: a stale lease can be reclaimed by
+ * another owner while our critical section runs, and deleting the
+ * replacement's lock would admit a third writer and lose updates.
+ *
+ * Module-level export for intra-package reuse and lock-contract tests; the
+ * senpi barrel decides the public API surface.
  *
  * @param statePath - Target hooks-state.json path to lock around.
  * @param fn - Synchronous critical section.
  * @returns Whatever `fn` returns.
  */
-async function withStateLock<T>(
+export async function withStateLock<T>(
   statePath: string,
   fn: () => T,
   clock: SenpiTrustWriterClock
 ): Promise<T> {
   mkdirSync(dirname(statePath), { recursive: true });
   const lockPath = `${statePath}.lock`;
+  let ownedToken: string | undefined;
   let acquired = false;
   let lastContention = false;
   for (let attempt = 1; attempt <= LOCK_MAX_ATTEMPTS; attempt++) {
     try {
-      acquireLock(lockPath);
+      ownedToken = acquireLock(lockPath);
       acquired = true;
       break;
     } catch (error: unknown) {
@@ -579,13 +587,35 @@ async function withStateLock<T>(
     );
   }
   try {
-    return fn();
+    return await fn();
   } finally {
-    rmSync(lockPath, { force: true });
+    if (ownedToken !== undefined) releaseStateLock(lockPath, ownedToken);
   }
 }
 
-function acquireLock(lockPath: string): void {
+/**
+ * Remove a trust-state lock file this owner acquired, leaving it untouched
+ * when the lock no longer belongs to us. A stale lease can be reclaimed by
+ * another owner while our critical section still runs; deleting the
+ * replacement's lock would admit a third writer and lose trust-state
+ * updates. The token is freshly generated at acquire time, so any
+ * replacement lock carries a different one; unparseable or missing content
+ * fails safe by leaving the lock for the next staleness pass.
+ */
+function releaseStateLock(lockPath: string, ownedToken: string): void {
+  let raw: string;
+  try {
+    raw = readFileSync(lockPath, 'utf-8');
+  } catch (error: unknown) {
+    if (isErrnoException(error) && error.code === 'ENOENT') return;
+    throw error;
+  }
+  const parsed: unknown = JSON.parse(raw);
+  if (!isRecord(parsed) || parsed['token'] !== ownedToken) return;
+  rmSync(lockPath, { force: true });
+}
+
+function acquireLock(lockPath: string): string {
   let fd: number;
   try {
     fd = openSync(lockPath, 'wx', 0o600);
@@ -595,11 +625,13 @@ function acquireLock(lockPath: string): void {
     }
     throw error;
   }
+  const token = randomUUID();
   try {
-    writeSync(fd, `${process.pid}\n`);
+    writeSync(fd, `${JSON.stringify({ token, pid: process.pid })}\n`);
   } finally {
     closeSync(fd);
   }
+  return token;
 }
 
 function isStaleLock(lockPath: string, now: () => number): boolean {

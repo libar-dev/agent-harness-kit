@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -26,6 +27,7 @@ import {
   SenpiTrustLockError,
   SenpiTrustStateMalformedError,
   writeSenpiHookTrustEntry,
+  withStateLock,
   type SenpiTrustWriterClock,
   type WriteSenpiHookTrustEntryOptions,
 } from '../src/senpi/trust-writer.js';
@@ -274,6 +276,33 @@ describe('senpi trust writer - locking', () => {
     expect(existsSync(lockPath)).toBe(true); // foreign lock never deleted
     expect(snapshot(statePath)).toEqual(before);
     expect(SenpiTrustLockError.name).toBe('SenpiTrustLockError');
+  });
+
+  it('release does not delete a lock reclaimed by another owner', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const statePath = globalStatePath(home);
+    const replacementToken = randomUUID();
+
+    // Owner A holds the trust lock; while its critical section runs it goes
+    // stale and owner B reclaims. A's release must leave B's lock intact:
+    // deleting it would admit a third writer and lose trust-state updates.
+    await withStateLock(
+      statePath,
+      () => {
+        writeFileSync(
+          `${statePath}.lock`,
+          `${JSON.stringify({ token: replacementToken, pid: 424242 })}\n`,
+          'utf-8',
+        );
+        return 'held';
+      },
+      instantClock(),
+    );
+
+    expect(readFileSync(`${statePath}.lock`, 'utf-8')).toContain(
+      replacementToken,
+    );
   });
 
   it('removes a stale orphaned lock older than the staleness window', async () => {
