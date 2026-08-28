@@ -140,6 +140,34 @@ function globalStatePath(agentHome: string): string {
   return join(agentHome, SENPI_HOOKS_STATE_FILENAME);
 }
 
+function plantTokenDir(
+  lockPath: string,
+  stale: boolean
+): { ownerId: string; leaseId: string; tokenName: string; tokenPath: string } {
+  mkdirSync(lockPath, { recursive: true });
+  const ownerId = randomUUID();
+  const leaseId = randomUUID();
+  const tokenName = `owner.${ownerId}.${leaseId}`;
+  const tokenPath = join(lockPath, tokenName);
+  writeFileSync(
+    tokenPath,
+    JSON.stringify({ version: 2, ownerId, leaseId, pid: 1 })
+  );
+  if (stale) {
+    utimesSync(tokenPath, new Date(0), new Date(0));
+    utimesSync(lockPath, new Date(0), new Date(0));
+  }
+  return { ownerId, leaseId, tokenName, tokenPath };
+}
+
+function plantStaleTokenDir(lockPath: string) {
+  return plantTokenDir(lockPath, true);
+}
+
+function plantLiveTokenDir(lockPath: string) {
+  return plantTokenDir(lockPath, false);
+}
+
 interface StatSnapshot {
   readonly mtimeMs: number;
   readonly ino: number;
@@ -283,78 +311,136 @@ describe('senpi trust writer - locking', () => {
     const home = tempDir();
     mkdirSync(home, { recursive: true });
     const statePath = globalStatePath(home);
-    const replacementToken = randomUUID();
+    const lockPath = `${statePath}.lock`;
 
     // Owner A holds the trust lock; while its critical section runs it goes
     // stale and owner B reclaims. A's release must leave B's lock intact:
     // deleting it would admit a third writer and lose trust-state updates.
-    await withStateLock(
+    let finishA!: () => void;
+    const holdA = new Promise<void>(resolve => {
+      finishA = resolve;
+    });
+    let sawA!: () => void;
+    const aEntered = new Promise<void>(resolve => {
+      sawA = resolve;
+    });
+    let finishB!: () => void;
+    const holdB = new Promise<void>(resolve => {
+      finishB = resolve;
+    });
+    let sawB!: () => void;
+    const bEntered = new Promise<void>(resolve => {
+      sawB = resolve;
+    });
+
+    const ownerA = withStateLock(
       statePath,
-      () => {
-        writeFileSync(
-          `${statePath}.lock`,
-          `${JSON.stringify({ token: replacementToken, pid: 424242 })}\n`,
-          'utf-8'
-        );
-        return 'held';
+      async () => {
+        sawA();
+        await holdA;
       },
       instantClock()
     );
-
-    expect(readFileSync(`${statePath}.lock`, 'utf-8')).toContain(
-      replacementToken
+    await aEntered;
+    const ownerB = withStateLock(
+      statePath,
+      async () => {
+        sawB();
+        await holdB;
+      },
+      instantClock(() => Date.now() + 20_000)
     );
+    await bEntered;
+    expect(statSync(lockPath).isDirectory()).toBe(true);
+    const ownerBTokens = readdirSync(lockPath).sort();
+    expect(ownerBTokens.length).toBeGreaterThan(0);
+    expect(ownerBTokens.every(name => name.startsWith('owner.'))).toBe(true);
+
+    finishA();
+    await ownerA;
+    expect(statSync(lockPath).isDirectory()).toBe(true);
+    expect(readdirSync(lockPath).sort()).toEqual(ownerBTokens);
+    finishB();
+    await ownerB;
   });
 
   it('release leaves a malformed-content lock in place without throwing', async () => {
     const home = tempDir();
     mkdirSync(home, { recursive: true });
     const statePath = globalStatePath(home);
+    const lockPath = `${statePath}.lock`;
 
-    // Owner A stale mid-critical-section; a non-JSON writer replaced the
-    // lock file. Release must fail safe: no throw from the unparseable
-    // content, and the foreign lock is left untouched.
+    // Owner A holds a directory lock; a non-JSON writer plants foreign
+    // material inside it. Release must fail safe: no throw from the
+    // unparseable content, and the foreign lock material is left untouched.
     await withStateLock(
       statePath,
       () => {
-        writeFileSync(`${statePath}.lock`, 'not-json{\n', 'utf-8');
+        writeFileSync(join(lockPath, 'owner.json'), 'not-json{\n', 'utf-8');
         return 'held';
       },
       instantClock()
     );
 
-    expect(readFileSync(`${statePath}.lock`, 'utf-8')).toBe('not-json{\n');
+    expect(statSync(lockPath).isDirectory()).toBe(true);
+    expect(readFileSync(join(lockPath, 'owner.json'), 'utf-8')).toBe(
+      'not-json{\n'
+    );
   });
 
-  it('claims and removes a stale lock, leaving no reclaim leftovers', () => {
+  it('claims and removes a stale lock, leaving no reclaim leftovers', async () => {
     const home = tempDir();
     mkdirSync(home, { recursive: true });
     const statePath = globalStatePath(home);
     const lockPath = `${statePath}.lock`;
+
     writeFileSync(lockPath, '1\n', 'utf-8');
     utimesSync(lockPath, new Date(0), new Date(0));
-
-    expect(removeStaleStateLock(lockPath, instantClock(() => 10_001).now)).toBe(
-      true
-    );
+    expect(
+      await removeStaleStateLock(lockPath, instantClock(() => 10_001).now)
+    ).toBe(true);
     expect(existsSync(lockPath)).toBe(false);
     expect(readdirSync(home)).toEqual([]);
+
+    const planted = plantStaleTokenDir(lockPath);
+    expect(
+      await removeStaleStateLock(lockPath, instantClock(() => 10_001).now)
+    ).toBe(true);
+    expect(existsSync(lockPath)).toBe(false);
+    expect(existsSync(planted.tokenPath)).toBe(false);
+    expect(readdirSync(home)).toEqual([]);
+    expect(readdirSync(home).some(name => name.includes('.reclaim.'))).toBe(
+      false
+    );
+    expect(readdirSync(home).some(name => name.includes('.release.'))).toBe(
+      false
+    );
   });
 
-  it('restores a fresh lock that replaced a stale one before the claim', () => {
+  it('restores a fresh lock that replaced a stale one before the claim', async () => {
     const home = tempDir();
     mkdirSync(home, { recursive: true });
     const statePath = globalStatePath(home);
     const lockPath = `${statePath}.lock`;
-    // Fresh mtime (created just now); the injected now() is in the past so
-    // the claimed file re-check cannot call it stale.
+    // Fresh FILE-shaped legacy lock; injected now() is in the past so the
+    // live owner cannot be treated as stale.
     writeFileSync(lockPath, '{"token":"owner-b"}\n', 'utf-8');
 
-    expect(removeStaleStateLock(lockPath, instantClock(() => 0).now)).toBe(
-      false
-    );
+    expect(
+      await removeStaleStateLock(lockPath, instantClock(() => 0).now)
+    ).toBe(false);
     expect(existsSync(lockPath)).toBe(true);
+    expect(statSync(lockPath).isFile()).toBe(true);
     expect(readFileSync(lockPath, 'utf-8')).toContain('owner-b');
+
+    rmSync(lockPath, { force: true });
+    const live = plantLiveTokenDir(lockPath);
+    expect(
+      await removeStaleStateLock(lockPath, instantClock(() => 0).now)
+    ).toBe(false);
+    expect(statSync(lockPath).isDirectory()).toBe(true);
+    expect(readdirSync(lockPath)).toEqual([live.tokenName]);
+    expect(readFileSync(live.tokenPath, 'utf-8')).toContain(live.ownerId);
   });
 
   it('removes a stale orphaned lock older than the staleness window', async () => {

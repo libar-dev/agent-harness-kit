@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
   closeSync,
@@ -9,11 +9,15 @@ import {
   readFileSync,
   renameSync,
   rmSync,
-  statSync,
   writeSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import {
+  acquireLeaseLockSync,
+  LeaseLockBusyError,
+  type SyncLease,
+} from '../internal/lease-lock.js';
 import {
   SENPI_HOOK_TRUST_STATE_VERSION,
   SENPI_HOOKS_STATE_FILENAME,
@@ -104,9 +108,6 @@ const DEFAULT_TRUST_WRITER_CLOCK: SenpiTrustWriterClock = {
   now: () => Date.now(),
   sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
 };
-
-/** Internal sentinel: lock file exists (contention), retry later. */
-class LockContentionError extends Error {}
 
 /**
  * Options for {@link writeSenpiHookTrustEntry}.
@@ -207,10 +208,10 @@ export type WrittenSenpiHookTrustEntry = SenpiHookTrustEntry & {
  * - Validates `consent === true` and a non-blank `reason` BEFORE any
  *   filesystem access; violations throw {@link SenpiTrustConsentError} with
  *   zero filesystem effect (no directory creation, no lock, no write).
- * - Locks the target state file INTERNALLY via O_EXCL lock-file creation
- *   with bounded retry ({@link SenpiTrustLockError} on exhaustion) and
- *   stale-lock removal (locks older than 10 s are treated as orphaned).
- *   No external locking dependency is used.
+ * - Locks the target state file INTERNALLY via a token-lease directory at
+ *   `<statePath>.lock` with bounded retry ({@link SenpiTrustLockError} on
+ *   exhaustion) and age-based stale-lock reclamation (locks older than 10 s
+ *   are treated as orphaned). No external locking dependency is used.
  * - Read-modify-write under the lock: parses the existing document
  *   fail-closed (malformed state aborts with
  *   {@link SenpiTrustStateMalformedError}, writing nothing), then adds or
@@ -258,9 +259,11 @@ export async function writeSenpiHookTrustEntry(
 
   return withStateLock(
     statePath,
-    () => {
+    async lease => {
+      await lease.renew();
       const { root, hooks } = readRawStateForUpdate(statePath);
       hooks[id] = entry;
+      await lease.renew();
       atomicWriteState(statePath, serializeState(root, hooks));
       return { path: statePath, id, entry };
     },
@@ -326,7 +329,8 @@ export async function removeSenpiHookTrustEntry(
 
   return withStateLock(
     statePath,
-    () => {
+    async lease => {
+      await lease.renew();
       if (!existsSync(statePath)) {
         return { path: statePath, id, removed: false };
       }
@@ -341,6 +345,7 @@ export async function removeSenpiHookTrustEntry(
         rmSync(statePath, { force: true });
         return { path: statePath, id, removed: existed };
       }
+      await lease.renew();
       atomicWriteState(statePath, serializeState(root, hooks));
       return { path: statePath, id, removed: existed };
     },
@@ -533,48 +538,46 @@ function atomicWriteState(path: string, contents: string): void {
 }
 
 /**
- * Acquire the internal lock, run `fn`, and always release.
+ * Acquire the internal token-lease lock, run `fn`, and always release.
  *
- * Lock protocol (internal replication of vendored trust-storage.js lock
- * semantics WITHOUT proper-lockfile): exclusive creation of
- * `<statePath>.lock` via O_EXCL with a fresh ownership token written into
- * the lock file; on contention, retry up to {@link LOCK_MAX_ATTEMPTS} times
- * spaced {@link LOCK_RETRY_DELAY_MS} apart; a lock file whose mtime is older
- * than {@link LOCK_STALE_MS} is treated as orphaned and removed before
- * retrying. The critical section `fn` is fully synchronous so it cannot
- * interleave with another writer in-process. Release removes the lock file
- * only when its token still matches ours: a stale lease can be reclaimed by
- * another owner while our critical section runs, and deleting the
- * replacement's lock would admit a third writer and lose updates.
+ * Lock protocol: exclusive creation of the canonical lock DIRECTORY
+ * `<statePath>.lock` holding immutable `owner.<ownerId>.<leaseId>` tokens.
+ * On contention, retry up to {@link LOCK_MAX_ATTEMPTS} times spaced
+ * {@link LOCK_RETRY_DELAY_MS} apart. A lock whose token (or legacy FILE
+ * shape) is older than {@link LOCK_STALE_MS} is treated as orphaned and
+ * reclaimed by the sync lease core. Zero-arg callbacks remain compatible;
+ * `fn` may receive the sync lease handle. Release unlinks only this
+ * owner's tokens and never renames the canonical path.
  *
  * Module-level export for intra-package reuse and lock-contract tests; the
  * senpi barrel decides the public API surface.
  *
  * @param statePath - Target hooks-state.json path to lock around.
- * @param fn - Synchronous critical section.
+ * @param fn - Critical section; may be zero-arg or receive the lease.
+ * @param clock - Injected now/sleep seam for retry and staleness.
+ * @param hooks - Optional test-schedule hooks mapped onto the lease core.
  * @returns Whatever `fn` returns.
  */
 export async function withStateLock<T>(
   statePath: string,
-  fn: () => T,
+  fn: (lease: SyncLease) => T | Promise<T>,
   clock: SenpiTrustWriterClock,
   hooks?: SenpiTrustLockHooks
 ): Promise<T> {
   mkdirSync(dirname(statePath), { recursive: true });
   const lockPath = `${statePath}.lock`;
-  let ownedToken: string | undefined;
-  let acquired = false;
+  const options = {
+    staleMs: LOCK_STALE_MS,
+    now: clock.now,
+    ...hooks,
+  };
   let lastContention = false;
   for (let attempt = 1; attempt <= LOCK_MAX_ATTEMPTS; attempt++) {
+    let lease: SyncLease;
     try {
-      ownedToken = await acquireLock(
-        lockPath,
-        hooks?.onAfterCanonicalMkdirBeforeToken
-      );
-      acquired = true;
-      break;
+      lease = await acquireLeaseLockSync(lockPath, options);
     } catch (error: unknown) {
-      if (!(error instanceof LockContentionError)) {
+      if (!(error instanceof LeaseLockBusyError)) {
         throw new SenpiTrustLockError(
           `Failed to acquire hook state lock at ${lockPath}: ${errorMessage(error)}`
         );
@@ -583,202 +586,55 @@ export async function withStateLock<T>(
       if (attempt === LOCK_MAX_ATTEMPTS) {
         break;
       }
-      if (!isStaleLock(lockPath, clock.now)) {
-        await clock.sleep(LOCK_RETRY_DELAY_MS);
-        continue;
-      }
-      // Orphaned lock: claim it atomically, re-verify staleness on the
-      // private claim, and only then remove. A fresh lock that replaced the
-      // stale one between the staleness check and the claim is restored and
-      // acquisition retried instead of deleted.
-      if (await removeStaleStateLockWithHooks(lockPath, clock.now, hooks)) {
-        continue;
-      }
       await clock.sleep(LOCK_RETRY_DELAY_MS);
+      continue;
+    }
+    try {
+      return await fn(lease);
+    } finally {
+      await lease.release();
     }
   }
-  if (!acquired) {
-    throw new SenpiTrustLockError(
-      lastContention
-        ? `Timed out acquiring hook state lock at ${lockPath} after ${LOCK_MAX_ATTEMPTS} attempts`
-        : `Failed to acquire hook state lock at ${lockPath}`
-    );
-  }
-  try {
-    return await fn();
-  } finally {
-    if (ownedToken !== undefined) {
-      await releaseStateLock(
-        lockPath,
-        ownedToken,
-        hooks?.onAfterReleaseTokensUnlinkedBeforeRmdir
-      );
-    }
-  }
+  throw new SenpiTrustLockError(
+    lastContention
+      ? `Timed out acquiring hook state lock at ${lockPath} after ${LOCK_MAX_ATTEMPTS} attempts`
+      : `Failed to acquire hook state lock at ${lockPath}`
+  );
 }
 
 /**
- * Remove a trust-state lock file this owner acquired, leaving it untouched
- * when the lock no longer belongs to us. A stale lease can be reclaimed by
- * another owner while our critical section still runs; deleting the
- * replacement's lock would admit a third writer and lose trust-state
- * updates. The token is freshly generated at acquire time, so any
- * replacement lock carries a different one.
+ * Reclaim a stale trust-state lock at `lockPath` via the sync lease core.
  *
- * Check and removal race unless the lock is claimed atomically first: the
- * file is renamed to a private uuid path, verified there, and only then
- * removed. On a token mismatch (or unparseable content) the claimed file is
- * restored to the lock path; if that restore is blocked the claimed file is
- * deleted — it is no longer at the lock path, so it cannot be the lock any
- * acquirer would see, and keeping it would leak a path nothing reclaims.
+ * Captures a stale FILE-shaped legacy lock and a stale token directory.
+ * Live owners are never disturbed. Returns true when a stale lock was
+ * reclaimed (canonical path gone afterwards); false when the path is
+ * missing or a live owner still holds it. Never creates `.release.*` or
+ * `.reclaim.*` siblings.
+ *
+ * @param lockPath - Canonical `<statePath>.lock` path.
+ * @param now - Clock used for the age-based stale gate.
+ * @returns Whether a stale lock was reclaimed.
  */
-async function releaseStateLock(
-  lockPath: string,
-  ownedToken: string,
-  onAfterReleaseTokensUnlinkedBeforeRmdir?: () => void | Promise<void>
-): Promise<void> {
-  const claimedPath = `${lockPath}.release.${randomUUID()}`;
-  try {
-    renameSync(lockPath, claimedPath);
-  } catch (error: unknown) {
-    if (isErrnoException(error) && error.code === 'ENOENT') return;
-    throw error;
-  }
-  await onAfterReleaseTokensUnlinkedBeforeRmdir?.();
-  if (claimedTokenIs(claimedPath, ownedToken)) {
-    rmSync(claimedPath, { force: true });
-    return;
-  }
-  restoreClaimedStateLock(claimedPath, lockPath);
-}
-
-/**
- * Atomically claim a stale trust-state lock and remove it. Returns true when
- * a stale lock was claimed and removed; false when the path vanished or the
- * claimed file is no longer stale (a fresh lock replaced it between the
- * caller's staleness check and the claim — it is restored and acquisition
- * retried rather than deleted).
- */
-async function removeStaleStateLockWithHooks(
-  lockPath: string,
-  now: () => number,
-  hooks?: SenpiTrustLockHooks
-): Promise<boolean> {
-  const claimedPath = `${lockPath}.reclaim.${randomUUID()}`;
-  try {
-    renameSync(lockPath, claimedPath);
-  } catch {
-    return false;
-  }
-  await hooks?.onAfterExpiredTokensUnlinkedBeforeRmdir?.();
-  try {
-    if (now() - statSync(claimedPath).mtimeMs > LOCK_STALE_MS) {
-      await hooks?.onAfterExpiredTokensClassified?.();
-      rmSync(claimedPath, { force: true });
-      return true;
-    }
-    restoreClaimedStateLock(claimedPath, lockPath);
-    return false;
-  } catch (error: unknown) {
-    restoreClaimedStateLock(claimedPath, lockPath);
-    if (isErrnoException(error) && error.code === 'ENOENT') return false;
-    throw error;
-  }
-}
-
-export function removeStaleStateLock(
+export async function removeStaleStateLock(
   lockPath: string,
   now: () => number
-): boolean {
-  const claimedPath = `${lockPath}.reclaim.${randomUUID()}`;
-  try {
-    renameSync(lockPath, claimedPath);
-  } catch {
-    // Lock vanished between the staleness check and the claim; nothing to
-    // remove. Caller retries acquisition.
+): Promise<boolean> {
+  if (!existsSync(lockPath)) {
     return false;
   }
   try {
-    if (now() - statSync(claimedPath).mtimeMs > LOCK_STALE_MS) {
-      rmSync(claimedPath, { force: true });
-      return true;
-    }
-    restoreClaimedStateLock(claimedPath, lockPath);
-    return false;
+    const lease = await acquireLeaseLockSync(lockPath, {
+      staleMs: LOCK_STALE_MS,
+      now,
+    });
+    await lease.release();
+    return true;
   } catch (error: unknown) {
-    restoreClaimedStateLock(claimedPath, lockPath);
-    if (isErrnoException(error) && error.code === 'ENOENT') return false;
-    throw error;
-  }
-}
-
-function claimedTokenIs(claimedPath: string, ownedToken: string): boolean {
-  let raw: string;
-  try {
-    raw = readFileSync(claimedPath, 'utf-8');
-  } catch {
-    // Claimed but unreadable: not verifiably ours.
-    return false;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    // Unparseable lock content belongs to an owner we cannot identify.
-    return false;
-  }
-  return isRecord(parsed) && parsed['token'] === ownedToken;
-}
-
-function restoreClaimedStateLock(claimedPath: string, lockPath: string): void {
-  try {
-    renameSync(claimedPath, lockPath);
-  } catch {
-    // Lock path occupied mid-restore: the claimed copy is no longer at the
-    // lock path, so it cannot be the lock any acquirer sees; delete it to
-    // avoid leaking a path nothing reclaims.
-    rmSync(claimedPath, { force: true });
-  }
-}
-
-async function acquireLock(
-  lockPath: string,
-  onAfterCanonicalMkdirBeforeToken?: () => void | Promise<void>
-): Promise<string> {
-  let fd: number;
-  try {
-    fd = openSync(lockPath, 'wx', 0o600);
-  } catch (error: unknown) {
-    if (isErrnoException(error) && error.code === 'EEXIST') {
-      throw new LockContentionError(`lock exists: ${lockPath}`);
+    if (error instanceof LeaseLockBusyError) {
+      return false;
     }
     throw error;
   }
-  let token: string;
-  try {
-    await onAfterCanonicalMkdirBeforeToken?.();
-    token = randomUUID();
-    writeSync(fd, `${JSON.stringify({ token, pid: process.pid })}\n`);
-  } finally {
-    closeSync(fd);
-  }
-  return token;
-}
-
-function isStaleLock(lockPath: string, now: () => number): boolean {
-  try {
-    return now() - statSync(lockPath).mtimeMs > LOCK_STALE_MS;
-  } catch {
-    // Lock vanished between attempts - treat as free.
-    return false;
-  }
-}
-
-function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
-  return (
-    error instanceof Error &&
-    typeof (error as NodeJS.ErrnoException).code === 'string'
-  );
 }
 
 function errorMessage(error: unknown): string {
