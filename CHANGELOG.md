@@ -11,6 +11,45 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ## [Unreleased]
 
+### Changed
+
+- Relocated the shared JSONL cursor, incremental resume, watch scheduler,
+  discovery primitives, and bounded-line reader into unbarreled
+  `src/internal/`. Type-only `JsonlCursor` re-exports from the Grok and
+  Senpi processing barrels keep the public surface unchanged.
+
+### Fixed
+
+- Bound stdin to 1 MiB in Senpi execute, Grok execute, both hook
+  forwarders, and Claude `readStdin`.
+- Bound shared JSONL cursor scans to 32 MiB and 10_000 lines per pass.
+  Senpi and Grok tail results expose additive `scanStatus` (`complete` or
+  `limited`) when a pass stops early.
+- Senpi tail reports `reset: false` on a first-ever scan, treats movement
+  as cursor and projection position change, and skips complete blank lines
+  so a trailing blank is not `terminalMalformed`.
+- Senpi automatic checkpoint writes return additive `checkpointStatus`
+  (`committed`, `unchanged`, `manual`, `failed`, or `deferred`) instead of
+  throwing on write failure.
+- Senpi watch quiesces on position stability. Reset, mtime, size beyond
+  the cursor, and filesystem noise no longer count as movement or re-arm
+  the quiet window.
+- Grok watch wakes on null-filename `fs.watch` events and supports an
+  optional `pollMs` backstop.
+- Bound Grok discovery reads of `summary.json` (64 KiB) and `.cwd` (4 KiB).
+  Oversized files take the existing invalid or diagnostic path.
+- Senpi listing never yields or parses an unterminated final line. The
+  newline commits the entry on the next listing pass.
+- `listAllSenpiSessions` skips root-level `*-artifacts/` directories,
+  matching the nested-directory filter.
+
+### Security
+
+- Senpi hook forwarder accepts only loopback `http`/`https` URLs
+  (`127.0.0.1`, `localhost`, `::1`) unless
+  `SENPI_HOOK_FORWARD_ALLOW_REMOTE=1` is set. Redirects are refused and
+  stdin is capped at 1 MiB.
+
 ## [0.3.0] - 2026-08-23
 
 First public contract freeze. This release documents the Claude, Grok, and
