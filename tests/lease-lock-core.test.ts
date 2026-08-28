@@ -25,6 +25,14 @@ const forcedDirectoryIdentity = vi.hoisted(() => ({
   ino: 0,
 }));
 
+// Deterministic fs-injection seam: runs after the real atomic claim rename and
+// before lease-lock can open/reclassify the uniquely named claimed object.
+const legacyClaimRace = vi.hoisted(() => ({
+  afterRename: undefined as
+    | ((from: string, to: string) => void | Promise<void>)
+    | undefined,
+}));
+
 vi.mock('node:fs/promises', async importOriginal => {
   const actual = await importOriginal<typeof fsPromises>();
   return {
@@ -38,6 +46,10 @@ vi.mock('node:fs/promises', async importOriginal => {
         });
       }
       return stats;
+    },
+    rename: async (from: PathLike, to: PathLike): Promise<void> => {
+      await actual.rename(from, to);
+      await legacyClaimRace.afterRename?.(String(from), String(to));
     },
   };
 });
@@ -75,21 +87,6 @@ function options(overrides: Partial<LeaseLockOptions> = {}): LeaseLockOptions {
 async function makeStale(path: string): Promise<void> {
   const past = new Date(Date.now() - staleMs - 5_000);
   await utimes(path, past, past);
-}
-
-async function overwritePreservingFileIdentity(
-  path: string,
-  contents: string
-): Promise<void> {
-  const before = await stat(path);
-  await writeFile(path, contents, { mode: 0o600 });
-  await utimes(path, before.atime, before.mtime);
-  const after = await stat(path);
-  expect({ dev: after.dev, ino: after.ino, mtimeMs: after.mtimeMs }).toEqual({
-    dev: before.dev,
-    ino: before.ino,
-    mtimeMs: before.mtimeMs,
-  });
 }
 
 function tokenPath(
@@ -141,6 +138,7 @@ function deferred(): {
 
 afterEach(async () => {
   forcedDirectoryIdentity.path = undefined;
+  legacyClaimRace.afterRename = undefined;
   await Promise.all(
     roots.splice(0).map(root => rm(root, { recursive: true, force: true }))
   );
@@ -261,6 +259,7 @@ describe('lease-lock core', () => {
         },
         onAfterExpiredTokensUnlinkedBeforeRmdir: async () => {
           await expectMissing(legacyPath);
+          expect(await readdir(lockPath)).toEqual([]);
           expect((await stat(lockPath)).isDirectory()).toBe(true);
           order.push('legacy-unlinked');
         },
@@ -278,7 +277,7 @@ describe('lease-lock core', () => {
     await lease.release();
   });
 
-  it('aborts stale owner.json capture when bytes change with identical stat identity', async () => {
+  it('restores a fresh owner.json replacement grabbed by the atomic claim', async () => {
     const { lockPath } = await fixture('legacy-token-replaced');
     await mkdir(lockPath, { mode: 0o700 });
     const legacyPath = join(lockPath, 'owner.json');
@@ -300,7 +299,8 @@ describe('lease-lock core', () => {
       })
     );
     await classified.promise;
-    await overwritePreservingFileIdentity(legacyPath, freshContents);
+    await rm(legacyPath);
+    await writeFile(legacyPath, freshContents, { mode: 0o600 });
     resume.resolve();
 
     await expect(acquiring).rejects.toBeInstanceOf(LeaseLockBusyError);
@@ -309,7 +309,7 @@ describe('lease-lock core', () => {
   });
 
   it('captures a stale legacy non-directory lock without recursive removal', async () => {
-    const { lockPath } = await fixture('legacy-file');
+    const { root, lockPath } = await fixture('legacy-file');
     await writeFile(lockPath, 'legacy trust token\n', { mode: 0o600 });
     await makeStale(lockPath);
     const order: string[] = [];
@@ -322,6 +322,7 @@ describe('lease-lock core', () => {
         },
         onAfterExpiredTokensUnlinkedBeforeRmdir: async () => {
           await expectMissing(lockPath);
+          expect(await readdir(root)).toEqual([]);
           order.push('legacy-unlinked');
         },
         onAfterCanonicalMkdirBeforeToken: () => {
@@ -338,8 +339,8 @@ describe('lease-lock core', () => {
     await lease.release();
   });
 
-  it('aborts stale legacy-file capture when bytes change with identical stat identity', async () => {
-    const { lockPath } = await fixture('legacy-file-replaced');
+  it('restores a fresh legacy-file replacement grabbed by the atomic claim', async () => {
+    const { root, lockPath } = await fixture('legacy-file-replaced');
     await writeFile(lockPath, 'stale trust token\n', { mode: 0o600 });
     await makeStale(lockPath);
     const classified = deferred();
@@ -356,12 +357,48 @@ describe('lease-lock core', () => {
       })
     );
     await classified.promise;
-    await overwritePreservingFileIdentity(lockPath, freshContents);
+    await rm(lockPath);
+    await writeFile(lockPath, freshContents, { mode: 0o600 });
     resume.resolve();
 
     await expect(acquiring).rejects.toBeInstanceOf(LeaseLockBusyError);
     expect(await readFile(lockPath, 'utf8')).toBe(freshContents);
-    expect((await stat(lockPath)).isFile()).toBe(true);
+    expect(await readdir(root)).toEqual(['resource.lock']);
+  });
+
+  it('fences a fresh claimed legacy file when another owner occupies its path', async () => {
+    const { root, lockPath } = await fixture('legacy-file-fenced');
+    await writeFile(lockPath, 'stale trust token\n', { mode: 0o600 });
+    await makeStale(lockPath);
+    const classified = deferred();
+    const resume = deferred();
+    const displacedContents = 'fresh displaced owner\n';
+    const pathOwnerContents = 'fresh path owner\n';
+    let claimPath = '';
+
+    legacyClaimRace.afterRename = async (from, to) => {
+      if (from !== lockPath) return;
+      claimPath = to;
+      await writeFile(lockPath, pathOwnerContents, { mode: 0o600 });
+    };
+    const acquiring = acquireLeaseLock(
+      lockPath,
+      options({
+        onAfterExpiredTokensClassified: async () => {
+          classified.resolve();
+          await resume.promise;
+        },
+      })
+    );
+    await classified.promise;
+    await rm(lockPath);
+    await writeFile(lockPath, displacedContents, { mode: 0o600 });
+    resume.resolve();
+
+    await expect(acquiring).rejects.toBeInstanceOf(LeaseLockBusyError);
+    expect(await readFile(lockPath, 'utf8')).toBe(pathOwnerContents);
+    await expectMissing(claimPath);
+    expect(await readdir(root)).toEqual(['resource.lock']);
   });
 
   it.each([

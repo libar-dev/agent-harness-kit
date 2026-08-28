@@ -4,21 +4,25 @@ import {
   closeSync,
   fstatSync,
   fsyncSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmdirSync,
   statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import {
+  link,
   lstat,
   mkdir,
   open,
   readdir,
+  rename,
   rmdir,
   stat,
   unlink,
@@ -90,7 +94,7 @@ type CapturedFile = {
 };
 type ExpiredFile = {
   readonly path: string;
-  readonly legacyCapture?: CapturedFile;
+  readonly isLegacy: boolean;
 };
 
 interface FileOps {
@@ -100,6 +104,8 @@ interface FileOps {
   readdir(path: string): Promise<readonly Entry[]>;
   readAndStat(path: string): Promise<CapturedFile>;
   writeToken(path: string, contents: string): Promise<Stats>;
+  rename(from: string, to: string): Promise<void>;
+  link(existingPath: string, newPath: string): Promise<void>;
   unlink(path: string): Promise<void>;
   rmdir(path: string): Promise<void>;
 }
@@ -139,6 +145,8 @@ const asyncOps: FileOps = {
       await handle.close().catch(() => undefined);
     }
   },
+  rename,
+  link,
   unlink,
   rmdir,
 };
@@ -188,6 +196,9 @@ const syncOps: FileOps = {
         }
       }
     }),
+  rename: (from, to) => resolved(() => renameSync(from, to)),
+  link: (existingPath, newPath) =>
+    resolved(() => linkSync(existingPath, newPath)),
   unlink: path => resolved(() => unlinkSync(path)),
   rmdir: path => resolved(() => rmdirSync(path)),
 };
@@ -198,10 +209,14 @@ const syncOps: FileOps = {
  * Creates the canonical lock directory if absent, then publishes an
  * `owner.<ownerId>.<leaseId>` token. On `EEXIST`, entries are classified
  * and only captured mtime-expired tokens are unlinked before a
- * non-recursive `rmdir`. Fixed-name legacy objects are re-verified by
- * dev, inode, mtime, and raw bytes immediately before unlink. Expiry is
- * `now - token.mtimeMs > staleMs`.
- * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ * non-recursive `rmdir`. Fixed-name legacy objects are atomically renamed
+ * to unique claim paths, then reclassified from the claimed object itself.
+ * A fresh claim is restored with no-replace `link`, or fenced if another
+ * owner has occupied the canonical name; an unclaimed pathname is never
+ * unlinked. Expiry is `now - token.mtimeMs > staleMs`.
+ * The canonical lock directory is never renamed or recursively removed;
+ * a displaced fresh legacy owner may lose its lease fail-safe, but can
+ * never overlap ownership with the reclaimer.
  *
  * @param lockPath - Canonical lock directory path.
  * @param options - Stale age, clock, owner identity, token schema, and
@@ -225,7 +240,9 @@ export function acquireLeaseLock(
  * filesystem calls. Schedule hooks may still be async, so the function
  * returns a Promise.
  *
- * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ * The canonical lock directory is never renamed or recursively removed;
+ * fixed-name legacy occupants use the claim-reclassify-restore-or-fence
+ * protocol described by {@link acquireLeaseLock}.
  *
  * @param lockPath - Canonical lock directory path.
  * @param options - Stale age, clock, owner identity, token schema, and
@@ -247,7 +264,10 @@ export function acquireLeaseLockSync(
  * Acquire a lease, run `action`, and release in `finally`.
  *
  * Call `lease.renew()` or `lease.assertHeld()` at commit points; there is
- * no heartbeat. The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ * no heartbeat. The canonical lock directory is never renamed or recursively
+ * removed; fixed-name legacy occupants use the
+ * claim-reclassify-restore-or-fence protocol described by
+ * {@link acquireLeaseLock}.
  *
  * @param lockPath - Canonical lock directory path.
  * @param action - Critical section. Receives the {@link Lease}.
@@ -277,7 +297,9 @@ export async function withLeaseLock<T>(
 /**
  * Same as {@link withLeaseLock}, using {@link acquireLeaseLockSync}.
  *
- * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ * The canonical lock directory is never renamed or recursively removed;
+ * fixed-name legacy occupants use the claim-reclassify-restore-or-fence
+ * protocol described by {@link acquireLeaseLock}.
  *
  * @param lockPath - Canonical lock directory path.
  * @param action - Critical section. Receives the {@link SyncLease}.
@@ -502,16 +524,11 @@ async function reclaim(
       return false;
     }
     await options.onAfterExpiredTokensClassified?.();
-    if (!(await capturedFileStillMatches(lockPath, captured, ops))) {
-      return false;
+    const claim = await claimLegacyFile(lockPath, now, options, ops);
+    if (claim === 'retained') return false;
+    if (claim === 'removed') {
+      await options.onAfterExpiredTokensUnlinkedBeforeRmdir?.();
     }
-    try {
-      await ops.unlink(lockPath);
-    } catch (error: unknown) {
-      if (hasCode(error, 'ENOENT')) return true;
-      throw error;
-    }
-    await options.onAfterExpiredTokensUnlinkedBeforeRmdir?.();
     return true;
   }
 
@@ -562,10 +579,7 @@ async function reclaim(
           token: capturedToken,
         })))
     ) {
-      expired.push({
-        path: capturedPath,
-        ...(isLegacy ? { legacyCapture: captured } : {}),
-      });
+      expired.push({ path: capturedPath, isLegacy });
     } else {
       hasLive = true;
     }
@@ -587,20 +601,25 @@ async function reclaim(
     }
     if (now - current.mtimeMs <= options.staleMs) return false;
   }
+  // Claim fixed-name legacy entries before touching unique v2 tokens. If a
+  // replacement is fresh, restoring or fencing it aborts this reclaim pass
+  // without deleting any other classified object.
   for (const captured of expired) {
-    if (
-      captured.legacyCapture !== undefined &&
-      !(await capturedFileStillMatches(
-        captured.path,
-        captured.legacyCapture,
-        ops
-      ))
-    ) {
-      return false;
-    }
-    await unlinkIfPresent(captured.path, ops);
+    if (!captured.isLegacy) continue;
+    const claim = await claimLegacyOwner(
+      captured.path,
+      now,
+      options.staleMs,
+      ops
+    );
+    if (claim === 'retained') return false;
   }
-  await options.onAfterExpiredTokensUnlinkedBeforeRmdir?.();
+  for (const captured of expired) {
+    if (!captured.isLegacy) await unlinkIfPresent(captured.path, ops);
+  }
+  if (expired.length > 0) {
+    await options.onAfterExpiredTokensUnlinkedBeforeRmdir?.();
+  }
   if (hasLive) return false;
   return safeRmdir(lockPath, ops);
 }
@@ -734,22 +753,68 @@ function validateOptions(options: LeaseLockOptions): void {
   }
 }
 
-async function capturedFileStillMatches(
-  path: string,
-  captured: CapturedFile,
+type LegacyClaimResult = 'gone' | 'removed' | 'retained';
+
+async function claimLegacyFile(
+  originalPath: string,
+  now: number,
+  options: LeaseLockOptions,
   ops: FileOps
-): Promise<boolean> {
+): Promise<LegacyClaimResult> {
+  return claimAndReclassify(originalPath, ops, async claimed =>
+    Boolean(
+      claimed.stats.isFile && now - claimed.stats.mtimeMs > options.staleMs
+    )
+  );
+}
+
+async function claimLegacyOwner(
+  originalPath: string,
+  now: number,
+  staleMs: number,
+  ops: FileOps
+): Promise<LegacyClaimResult> {
+  return claimAndReclassify(originalPath, ops, async claimed => {
+    if (!claimed.stats.isFile) return false;
+    const parsed = legacyTokenSchema.safeParse(parseJson(claimed.raw));
+    return parsed.success && now - claimed.stats.mtimeMs > staleMs;
+  });
+}
+
+// Atomic rename removes the selected pathname before inspection, so later
+// unlink can only affect the unique claim. A non-stale replacement is restored
+// without replacement via link+unlink. EEXIST means a new owner already holds
+// the canonical name: deleting the claim fences the displaced legacy owner.
+// Its subsequent lease checks fail safe; the reclaimer never acquires in this
+// pass, so displacement cannot produce double ownership.
+async function claimAndReclassify(
+  originalPath: string,
+  ops: FileOps,
+  isStale: (claimed: CapturedFile) => Promise<boolean>
+): Promise<LegacyClaimResult> {
+  const claimPath = `${originalPath}.claim.${randomUUID()}`;
   try {
-    const current = await ops.readAndStat(path);
-    return (
-      current.stats.dev === captured.stats.dev &&
-      current.stats.ino === captured.stats.ino &&
-      current.stats.mtimeMs === captured.stats.mtimeMs &&
-      current.raw.equals(captured.raw)
-    );
-  } catch {
-    return false;
+    await ops.rename(originalPath, claimPath);
+  } catch (error: unknown) {
+    if (hasCode(error, 'ENOENT')) return 'gone';
+    throw error;
   }
+
+  const claimed = await ops.readAndStat(claimPath);
+  if (await isStale(claimed)) {
+    await ops.unlink(claimPath);
+    return 'removed';
+  }
+
+  try {
+    await ops.link(claimPath, originalPath);
+  } catch (error: unknown) {
+    if (!hasCode(error, 'EEXIST')) throw error;
+    await ops.unlink(claimPath);
+    return 'retained';
+  }
+  await ops.unlink(claimPath);
+  return 'retained';
 }
 
 function parseJson(raw: Buffer): unknown {
