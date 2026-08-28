@@ -83,6 +83,20 @@ const LOCK_RETRY_DELAY_MS = 20;
  */
 const LOCK_STALE_MS = 10_000;
 
+/**
+ * Injectable time seam for lock retry/staleness. Production uses wall clock;
+ * tests inject a deterministic clock so lock-budget assertions never sleep.
+ */
+export interface SenpiTrustWriterClock {
+  readonly now: () => number;
+  readonly sleep: (ms: number) => Promise<void>;
+}
+
+const DEFAULT_TRUST_WRITER_CLOCK: SenpiTrustWriterClock = {
+  now: () => Date.now(),
+  sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
+};
+
 /** Internal sentinel: lock file exists (contention), retry later. */
 class LockContentionError extends Error {}
 
@@ -106,6 +120,8 @@ class LockContentionError extends Error {}
  * @property platform - Optional injected platform for hash/preview parity;
  * defaults to `process.platform`.
  * @property enabled - Enabled flag recorded on the entry; defaults `true`.
+ * @property clock - Optional injectable lock clock (`now` + `sleep`) for
+ * deterministic tests; defaults to wall clock.
  */
 export interface WriteSenpiHookTrustEntryOptions {
   readonly consent: true;
@@ -116,6 +132,7 @@ export interface WriteSenpiHookTrustEntryOptions {
   readonly cwd: string;
   readonly platform?: SenpiHookTrustOptions['platform'];
   readonly enabled?: boolean;
+  readonly clock?: SenpiTrustWriterClock;
 }
 
 /**
@@ -142,6 +159,7 @@ export interface WriteSenpiHookTrustEntryResult {
  * @property scope - Storage scope selecting the state file.
  * @property agentHome - Agent home directory (used for `global` scope).
  * @property cwd - Project working directory (used for `project` scope).
+ * @property clock - Optional injectable lock clock for deterministic tests.
  */
 export interface RemoveSenpiHookTrustEntryOptions {
   readonly consent: true;
@@ -150,6 +168,7 @@ export interface RemoveSenpiHookTrustEntryOptions {
   readonly scope: SenpiHookTrustStorageScope;
   readonly agentHome: string;
   readonly cwd: string;
+  readonly clock?: SenpiTrustWriterClock;
 }
 
 /** Result of a consented trust-entry removal. */
@@ -229,12 +248,16 @@ export async function writeSenpiHookTrustEntry(
       : { matcher: opts.handler.matcher }),
   };
 
-  return withStateLock(statePath, () => {
-    const { root, hooks } = readRawStateForUpdate(statePath);
-    hooks[id] = entry;
-    atomicWriteState(statePath, serializeState(root, hooks));
-    return { path: statePath, id, entry };
-  });
+  return withStateLock(
+    statePath,
+    () => {
+      const { root, hooks } = readRawStateForUpdate(statePath);
+      hooks[id] = entry;
+      atomicWriteState(statePath, serializeState(root, hooks));
+      return { path: statePath, id, entry };
+    },
+    opts.clock ?? DEFAULT_TRUST_WRITER_CLOCK
+  );
 }
 
 /**
@@ -293,24 +316,28 @@ export async function removeSenpiHookTrustEntry(
     return { path: statePath, id, removed: false };
   }
 
-  return withStateLock(statePath, () => {
-    if (!existsSync(statePath)) {
-      return { path: statePath, id, removed: false };
-    }
-    const { root, hooks } = readRawStateForUpdate(statePath);
-    const existed = Object.prototype.hasOwnProperty.call(hooks, id);
-    delete hooks[id];
-    const leftoverIds = Object.keys(hooks);
-    const leftoverRootKeys = Object.keys(root).filter(
-      key => key !== 'version' && key !== 'hooks'
-    );
-    if (leftoverIds.length === 0 && leftoverRootKeys.length === 0) {
-      rmSync(statePath, { force: true });
+  return withStateLock(
+    statePath,
+    () => {
+      if (!existsSync(statePath)) {
+        return { path: statePath, id, removed: false };
+      }
+      const { root, hooks } = readRawStateForUpdate(statePath);
+      const existed = Object.prototype.hasOwnProperty.call(hooks, id);
+      delete hooks[id];
+      const leftoverIds = Object.keys(hooks);
+      const leftoverRootKeys = Object.keys(root).filter(
+        key => key !== 'version' && key !== 'hooks'
+      );
+      if (leftoverIds.length === 0 && leftoverRootKeys.length === 0) {
+        rmSync(statePath, { force: true });
+        return { path: statePath, id, removed: existed };
+      }
+      atomicWriteState(statePath, serializeState(root, hooks));
       return { path: statePath, id, removed: existed };
-    }
-    atomicWriteState(statePath, serializeState(root, hooks));
-    return { path: statePath, id, removed: existed };
-  });
+    },
+    opts.clock ?? DEFAULT_TRUST_WRITER_CLOCK
+  );
 }
 
 /**
@@ -512,7 +539,11 @@ function atomicWriteState(path: string, contents: string): void {
  * @param fn - Synchronous critical section.
  * @returns Whatever `fn` returns.
  */
-async function withStateLock<T>(statePath: string, fn: () => T): Promise<T> {
+async function withStateLock<T>(
+  statePath: string,
+  fn: () => T,
+  clock: SenpiTrustWriterClock
+): Promise<T> {
   mkdirSync(dirname(statePath), { recursive: true });
   const lockPath = `${statePath}.lock`;
   let acquired = false;
@@ -532,8 +563,8 @@ async function withStateLock<T>(statePath: string, fn: () => T): Promise<T> {
       if (attempt === LOCK_MAX_ATTEMPTS) {
         break;
       }
-      if (!isStaleLock(lockPath)) {
-        await sleep(LOCK_RETRY_DELAY_MS);
+      if (!isStaleLock(lockPath, clock.now)) {
+        await clock.sleep(LOCK_RETRY_DELAY_MS);
         continue;
       }
       // Orphaned lock: remove and retry immediately.
@@ -571,17 +602,13 @@ function acquireLock(lockPath: string): void {
   }
 }
 
-function isStaleLock(lockPath: string): boolean {
+function isStaleLock(lockPath: string, now: () => number): boolean {
   try {
-    return Date.now() - statSync(lockPath).mtimeMs > LOCK_STALE_MS;
+    return now() - statSync(lockPath).mtimeMs > LOCK_STALE_MS;
   } catch {
     // Lock vanished between attempts - treat as free.
     return false;
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {

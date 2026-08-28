@@ -754,6 +754,13 @@ export function createTempTestFile(content: string = 'test content'): {
   return { filePath, cleanup };
 }
 
+/**
+ * Wall-clock sleep helper retained for fixture setup only.
+ * Consumers must not use this in timing-sensitive assertions - inject a
+ * clock or subscribe to the exact event instead. Audit (todo 4): no test
+ * file currently imports `sleep`; keep it for rare fixture delays that do
+ * not assert elapsed time.
+ */
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }

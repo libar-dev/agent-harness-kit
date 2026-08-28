@@ -26,8 +26,55 @@ import {
   SenpiTrustLockError,
   SenpiTrustStateMalformedError,
   writeSenpiHookTrustEntry,
+  type SenpiTrustWriterClock,
   type WriteSenpiHookTrustEntryOptions,
 } from '../src/senpi/trust-writer.js';
+
+/** Instant no-op sleep; used when the lock path does not need gated release. */
+function instantClock(now = (): number => 0): SenpiTrustWriterClock {
+  return {
+    now,
+    sleep: async () => undefined,
+  };
+}
+
+/**
+ * Clock whose first sleep parks until `release()`; later sleeps resolve
+ * immediately. Lets tests drop an external lock between retry attempts
+ * without wall-clock delays.
+ */
+function gatedReleaseClock(): {
+  readonly clock: SenpiTrustWriterClock;
+  readonly waitForFirstSleep: () => Promise<void>;
+  readonly release: () => void;
+} {
+  let firstSleepResolve: (() => void) | undefined;
+  let firstSleepSeen!: () => void;
+  const firstSleepSeenPromise = new Promise<void>(resolve => {
+    firstSleepSeen = resolve;
+  });
+  let firstSleepDone = false;
+  return {
+    clock: {
+      now: () => 0,
+      sleep: () =>
+        new Promise<void>(resolve => {
+          if (!firstSleepDone) {
+            firstSleepDone = true;
+            firstSleepResolve = resolve;
+            firstSleepSeen();
+            return;
+          }
+          resolve();
+        }),
+    },
+    waitForFirstSleep: () => firstSleepSeenPromise,
+    release: () => {
+      firstSleepResolve?.();
+      firstSleepResolve = undefined;
+    },
+  };
+}
 
 const FIXED_PLATFORM = 'linux' as const;
 
@@ -189,14 +236,16 @@ describe('senpi trust writer - locking', () => {
     const statePath = globalStatePath(home);
     const lockPath = `${statePath}.lock`;
     writeFileSync(lockPath, '999999\n', 'utf-8');
-    // Simulated other-process writer releases shortly; the writer's bounded
-    // retry window (~200 ms) comfortably covers this release.
-    setTimeout(() => {
-      rmSync(lockPath, { force: true });
-    }, 60);
-    const result = await writeSenpiHookTrustEntry(
-      baseOpts(home, makeHandler())
-    );
+    const { clock, waitForFirstSleep, release } = gatedReleaseClock();
+    const writePromise = writeSenpiHookTrustEntry({
+      ...baseOpts(home, makeHandler()),
+      clock,
+    });
+    // Drop the foreign lock exactly between retry attempts (no wall sleep).
+    await waitForFirstSleep();
+    rmSync(lockPath, { force: true });
+    release();
+    const result = await writePromise;
     expect(result.path).toBe(statePath);
     expect(existsSync(lockPath)).toBe(false);
   });
@@ -209,13 +258,19 @@ describe('senpi trust writer - locking', () => {
     const lockPath = `${statePath}.lock`;
     writeFileSync(lockPath, '123456\n', 'utf-8');
     const before = snapshot(statePath);
-    const startedAt = Date.now();
+    let sleepCount = 0;
+    // now() stays below lock mtime so the foreign lock is never treated stale.
+    const clock: SenpiTrustWriterClock = {
+      now: () => 0,
+      sleep: async () => {
+        sleepCount += 1;
+      },
+    };
     await expect(
-      writeSenpiHookTrustEntry(baseOpts(home, makeHandler()))
+      writeSenpiHookTrustEntry({ ...baseOpts(home, makeHandler()), clock })
     ).rejects.toMatchObject({ name: 'SenpiTrustLockError' });
-    const elapsed = Date.now() - startedAt;
-    // Bounded: 10 attempts x ~20ms must finish well under any hang budget.
-    expect(elapsed).toBeLessThan(5000);
+    // Bounded budget: 10 attempts, sleep between the first 9 contentions.
+    expect(sleepCount).toBe(9);
     expect(existsSync(lockPath)).toBe(true); // foreign lock never deleted
     expect(snapshot(statePath)).toEqual(before);
     expect(SenpiTrustLockError.name).toBe('SenpiTrustLockError');
@@ -227,11 +282,12 @@ describe('senpi trust writer - locking', () => {
     const statePath = globalStatePath(home);
     const lockPath = `${statePath}.lock`;
     writeFileSync(lockPath, '1\n', 'utf-8');
-    const old = new Date(Date.now() - 60_000);
-    utimesSync(lockPath, old, old);
-    const result = await writeSenpiHookTrustEntry(
-      baseOpts(home, makeHandler())
-    );
+    // Fixture mtime at epoch; injected now() is past the 10s staleness window.
+    utimesSync(lockPath, new Date(0), new Date(0));
+    const result = await writeSenpiHookTrustEntry({
+      ...baseOpts(home, makeHandler()),
+      clock: instantClock(() => 10_001),
+    });
     expect(result.id).toMatch(/^hk_/);
     expect(existsSync(lockPath)).toBe(false);
   });

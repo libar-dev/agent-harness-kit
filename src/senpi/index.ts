@@ -120,6 +120,7 @@ export {
 export type {
   RemoveSenpiHookTrustEntryOptions,
   RemoveSenpiHookTrustEntryResult,
+  SenpiTrustWriterClock,
   WriteSenpiHookTrustEntryOptions,
   WriteSenpiHookTrustEntryResult,
   WrittenSenpiHookTrustEntry,
