@@ -32,6 +32,9 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ### Fixed
 
+- Clean-consumer pack parsing survives npm < 11 running the `prepare` script during `npm pack` despite `--ignore-scripts` (npm/cli#3080): the JSON report is extracted from stdout instead of parsed from byte zero. Same fix in the packed package contract test.
+- Senpi execute real-signal cases spawn the self-killing child through `exec` so the observed close is signal death on shells that fork and wait (dash).
+- Marker-lock replacement case no longer asserts an inode number difference; ext4/overlayfs reuse inodes after rm+mkdir, and the nonce mismatch is the property under test.
 - Compatibility probe tolerates missing git metadata in codeload/tarball installs: `candidateSha` falls back to `unknown` when `git rev-parse HEAD` fails, so `prepack` no longer fails on archive pins.
 - Bound stdin to 1 MiB in Senpi execute, Grok execute, both hook
   forwarders, and Claude `readStdin`.
