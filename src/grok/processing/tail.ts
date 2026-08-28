@@ -18,6 +18,7 @@ export {
   type GrokSessionTailOptions,
   type GrokSessionTailResult,
   type GrokSessionWatchOptions,
+  type GrokWatchClock,
   type GrokSourceReset,
   type GrokSourceTailResult,
   type GrokTailDiagnostic,

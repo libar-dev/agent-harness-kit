@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import {
   readJsonlDelta,
   type JsonlCursor,
+  type JsonlScanStatus,
 } from '../../internal/jsonl-cursor.js';
 import { reduceGrokRecords } from './blocks.js';
 import {
@@ -50,10 +51,7 @@ export async function tailGrokSession(
   const sessionPathDigest = createGrokSessionPathDigest(resolvedSessionDir);
   const markerPath = getGrokSessionMarkerPath(resolvedSessionDir, options);
   const marker = await readGrokSessionMarker(markerPath, sessionPathDigest);
-  const cursorOptions =
-    options.maxLineBytes === undefined
-      ? undefined
-      : { maxLineBytes: options.maxLineBytes };
+  const cursorOptions = grokCursorOptions(options);
   const supplied = options.checkpoint;
   if (
     supplied !== undefined &&
@@ -196,6 +194,46 @@ export async function tailGrokSession(
     resets,
     checkpoint,
     checkpointStatus,
+    scanStatus: combineGrokScanStatus(
+      deltas.updates.scanStatus,
+      deltas.events.scanStatus
+    ),
+  };
+}
+
+function combineGrokScanStatus(
+  updates: JsonlScanStatus,
+  events: JsonlScanStatus
+): JsonlScanStatus {
+  if (updates.status === 'limited') return updates;
+  if (events.status === 'limited') return events;
+  return { status: 'complete' };
+}
+
+function grokCursorOptions(options: GrokSessionTailOptions):
+  | {
+      readonly maxLineBytes?: number;
+      readonly maxScanBytes?: number;
+      readonly maxScanLines?: number;
+    }
+  | undefined {
+  if (
+    options.maxLineBytes === undefined &&
+    options.maxScanBytes === undefined &&
+    options.maxScanLines === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    ...(options.maxLineBytes === undefined
+      ? {}
+      : { maxLineBytes: options.maxLineBytes }),
+    ...(options.maxScanBytes === undefined
+      ? {}
+      : { maxScanBytes: options.maxScanBytes }),
+    ...(options.maxScanLines === undefined
+      ? {}
+      : { maxScanLines: options.maxScanLines }),
   };
 }
 

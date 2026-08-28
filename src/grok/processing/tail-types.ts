@@ -1,4 +1,7 @@
-import type { JsonlCursor } from '../../internal/jsonl-cursor.js';
+import type {
+  JsonlCursor,
+  JsonlScanStatus,
+} from '../../internal/jsonl-cursor.js';
 import type {
   GrokActivity,
   GrokBlockChange,
@@ -21,13 +24,42 @@ export interface GrokSessionTailOptions {
   readonly fromStart?: boolean;
   readonly checkpointMode?: 'automatic' | 'manual';
   readonly maxLineBytes?: number;
+  readonly maxScanBytes?: number;
+  readonly maxScanLines?: number;
   readonly includeActivities?: boolean;
   readonly checkpoint?: GrokSessionCheckpoint;
+}
+
+/**
+ * Injectable time source driving the optional poll backstop.
+ *
+ * Production callers omit this and receive real timers. Tests inject a clock
+ * so poll delays never appear as real sleeps.
+ */
+export interface GrokWatchClock {
+  /** Current time in milliseconds. */
+  readonly now: () => number;
+  /** Schedule `handler` after `delayMs`; returns a cancellable timer handle. */
+  readonly setTimeout: (
+    handler: () => void,
+    delayMs: number
+  ) => NodeJS.Timeout | number;
+  /** Cancel a handle previously returned by `setTimeout`. */
+  readonly clearTimeout: (handle: NodeJS.Timeout | number) => void;
 }
 
 /** Options for watching a Grok session directory. */
 export interface GrokSessionWatchOptions extends GrokSessionTailOptions {
   readonly signal?: AbortSignal;
+  /**
+   * Optional wake-up backstop interval in milliseconds on the injected clock.
+   * When set, a repeating timer periodically triggers a reconcile so progress
+   * never depends on filesystem event delivery latency or loss. Omitted or
+   * zero disables polling.
+   */
+  readonly pollMs?: number;
+  /** Clock for the poll backstop; defaults to real timers. */
+  readonly clock?: GrokWatchClock;
 }
 
 /** Marker controls accepted by manual checkpoint commits. */
@@ -118,4 +150,5 @@ export interface GrokSessionTailResult {
   readonly resets: readonly GrokSourceReset[];
   readonly checkpoint: GrokSessionCheckpoint;
   readonly checkpointStatus: GrokCheckpointStatus;
+  readonly scanStatus: JsonlScanStatus;
 }

@@ -40,6 +40,7 @@ export type {
   GrokSessionTailOptions,
   GrokSessionTailResult,
   GrokSessionWatchOptions,
+  GrokWatchClock,
   GrokSourceReset,
   GrokSourceTailResult,
   GrokTailDiagnostic,
@@ -68,4 +69,7 @@ export type {
   GrokUserTextBlock,
 } from './blocks.js';
 
-export type { JsonlCursor } from '../../internal/jsonl-cursor.js';
+export type {
+  JsonlCursor,
+  JsonlScanStatus,
+} from '../../internal/jsonl-cursor.js';

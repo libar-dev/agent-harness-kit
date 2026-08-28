@@ -111,6 +111,6 @@ describe('todo 5 export documentation', () => {
       }
     }
     expect(missing).toEqual([]);
-    expect(covered).toBe(247);
+    expect(covered).toBe(248);
   });
 });

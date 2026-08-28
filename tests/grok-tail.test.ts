@@ -515,4 +515,30 @@ describe('Grok session tail', () => {
     controller.abort();
     await iterator.return?.();
   });
+
+  it('surfaces scanStatus limited when a capped source stops at the line budget', async () => {
+    const session = await createSession('scan-status-limited');
+    await writeFile(
+      join(session, 'updates.jsonl'),
+      updateLine(1_000, 'first', 'first') +
+        updateLine(2_000, 'second', 'second') +
+        updateLine(3_000, 'third', 'third')
+    );
+    await writeFile(join(session, 'events.jsonl'), '');
+
+    const result = await tailGrokSession(session, {
+      fromStart: true,
+      checkpointMode: 'manual',
+      maxScanLines: 1,
+    });
+
+    expect(result.scanStatus).toEqual({ status: 'limited', reason: 'lines' });
+    expect(result.records).toHaveLength(1);
+    expect(
+      result.sources.find(source => source.sourceKind === 'updates')
+    ).toMatchObject({ recordCount: 1 });
+    expect(
+      result.sources.find(source => source.sourceKind === 'events')
+    ).toMatchObject({ status: 'read', recordCount: 0 });
+  });
 });
