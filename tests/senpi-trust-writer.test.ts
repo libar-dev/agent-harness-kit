@@ -183,6 +183,17 @@ function snapshot(path: string): StatSnapshot {
   };
 }
 
+function tokenDirectorySnapshot(lockPath: string): Record<string, string> {
+  const names = readdirSync(lockPath).sort();
+  expect(names).toHaveLength(1);
+  expect(names[0]).toMatch(/^owner\.[0-9a-f-]{36}\.[0-9a-f-]{36}$/i);
+  const result: Record<string, string> = {};
+  for (const name of names) {
+    result[name] = readFileSync(join(lockPath, name), 'utf-8');
+  }
+  return result;
+}
+
 describe('senpi trust writer - preservation', () => {
   it('preserves unrelated entries and unknown top-level keys byte-for-byte', async () => {
     const home = tempDir();
@@ -516,19 +527,19 @@ describe('senpi trust writer - locking', () => {
       instantClock(() => Date.now() + 20_000)
     );
     await bEntered;
-    const ownerBBeforeRelease = readFileSync(lockPath, 'utf-8');
+    const ownerBBeforeRelease = tokenDirectorySnapshot(lockPath);
 
     finishA();
     await aReleasePaused;
     const canonicalDuringRelease = existsSync(lockPath);
     const ownerDuringRelease = canonicalDuringRelease
-      ? readFileSync(lockPath, 'utf-8')
+      ? tokenDirectorySnapshot(lockPath)
       : null;
 
     resumeARelease();
     await ownerA;
     const ownerAfterARelease = existsSync(lockPath)
-      ? readFileSync(lockPath, 'utf-8')
+      ? tokenDirectorySnapshot(lockPath)
       : null;
     finishB();
     await ownerB;
@@ -540,11 +551,11 @@ describe('senpi trust writer - locking', () => {
     expect(
       ownerDuringRelease,
       'fresh owner B ownership vanished during displaced owner A release'
-    ).toBe(ownerBBeforeRelease);
+    ).toEqual(ownerBBeforeRelease);
     expect(
       ownerAfterARelease,
       'displaced owner A disturbed fresh owner B ownership'
-    ).toBe(ownerBBeforeRelease);
+    ).toEqual(ownerBBeforeRelease);
   });
 
   // RED (three-party schedule): fails until the token-lease protocol lands
@@ -653,7 +664,7 @@ describe('senpi trust writer - locking', () => {
       () => 'reclaimed',
       instantClock(() => 10_001),
       {
-        onAfterExpiredTokensUnlinkedBeforeRmdir: async () => {
+        onAfterExpiredTokensClassified: async () => {
           sawReclaimGap();
           await reclaimBarrier;
         },

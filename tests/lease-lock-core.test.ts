@@ -22,8 +22,15 @@ import {
   acquireLeaseLock,
   acquireLeaseLockSync,
   leaseTokenSchema,
+  type Lease,
+  type LeaseLockHooks,
   type LeaseLockOptions,
 } from '../src/internal/lease-lock.js';
+import { withMarkerLock } from '../src/internal/marker-lock.js';
+import {
+  withStateLock,
+  type SenpiTrustWriterClock,
+} from '../src/senpi/trust-writer.js';
 
 const roots: string[] = [];
 const staleMs = 1_000;
@@ -346,6 +353,144 @@ describe('lease-lock core', () => {
     await expectMissing(lockPath);
   });
 
+  it('a delayed stale reclaimer cannot unlink a freshly renewed token', async () => {
+    const { lockPath } = await fixture('renew-reclaim-race');
+    const owner = await acquireLeaseLock(lockPath, options({ now: () => 0 }));
+    const expiredPath = owner.tokenPath;
+    await makeStale(expiredPath);
+    const classified = deferred();
+    const resumeReclaimer = deferred();
+
+    const reclaimer = acquireLeaseLock(
+      lockPath,
+      options({
+        onAfterExpiredTokensClassified: async () => {
+          classified.resolve();
+          await resumeReclaimer.promise;
+        },
+      })
+    );
+    await classified.promise;
+
+    await owner.renew();
+    const renewedPath = owner.tokenPath;
+    const renewedContents = await readFile(renewedPath, 'utf8');
+    resumeReclaimer.resolve();
+
+    await expect(reclaimer).rejects.toBeInstanceOf(LeaseLockBusyError);
+    await expectMissing(expiredPath);
+    expect(await readFile(renewedPath, 'utf8')).toBe(renewedContents);
+    expect(await readdir(lockPath)).toEqual([
+      renewedPath.slice(lockPath.length + 1),
+    ]);
+    await owner.release();
+  });
+
+  it('admits exactly one of two concurrent stale reclaimers', async () => {
+    const { lockPath } = await fixture('concurrent-reclaimers');
+    await plantToken(lockPath, { stale: true });
+    const bothClassified = deferred();
+    const resumeFirst = deferred();
+    const resumeSecond = deferred();
+    let classifiedCount = 0;
+    const run = (resume: Promise<void>): Promise<Lease> =>
+      acquireLeaseLock(
+        lockPath,
+        options({
+          onAfterExpiredTokensClassified: async () => {
+            classifiedCount += 1;
+            if (classifiedCount === 2) bothClassified.resolve();
+            await resume;
+          },
+        })
+      );
+
+    const first = run(resumeFirst.promise);
+    const second = run(resumeSecond.promise);
+    await bothClassified.promise;
+    resumeFirst.resolve();
+    const winner = await first;
+    const winnerContents = await readFile(winner.tokenPath, 'utf8');
+    resumeSecond.resolve();
+
+    await expect(second).rejects.toBeInstanceOf(LeaseLockBusyError);
+    expect(await readFile(winner.tokenPath, 'utf8')).toBe(winnerContents);
+    expect(await readdir(lockPath)).toEqual([
+      winner.tokenPath.slice(lockPath.length + 1),
+    ]);
+    await winner.release();
+  });
+
+  it('release rmdir preserves a replacement owner after its token initializes', async () => {
+    const { root, lockPath } = await fixture('release-initializing');
+    const releasePaused = deferred();
+    const resumeRelease = deferred();
+    let listingAtRelease: string[] = [];
+    const displaced = await acquireLeaseLock(
+      lockPath,
+      options({
+        onAfterReleaseTokensUnlinkedBeforeRmdir: async () => {
+          listingAtRelease = await readdir(root);
+          releasePaused.resolve();
+          await resumeRelease.promise;
+        },
+      })
+    );
+
+    const releasing = displaced.release();
+    await releasePaused.promise;
+    if (listingAtRelease.join('\0') !== 'resource.lock') {
+      resumeRelease.resolve();
+      await releasing;
+      expect(listingAtRelease).toEqual(['resource.lock']);
+    }
+    const replacement = await acquireLeaseLock(
+      lockPath,
+      options({ now: () => Date.now() + staleMs + 5_000 })
+    );
+    const replacementContents = await readFile(replacement.tokenPath, 'utf8');
+    resumeRelease.resolve();
+    await releasing;
+
+    expect(await readFile(replacement.tokenPath, 'utf8')).toBe(
+      replacementContents
+    );
+    expect(await readdir(root)).toEqual(['resource.lock']);
+    await replacement.release();
+  });
+
+  it('reclaims an expired empty directory left by a mkdir-time crash', async () => {
+    const { lockPath } = await fixture('empty-crash');
+    await mkdir(lockPath, { mode: 0o700 });
+    await makeStale(lockPath);
+
+    const lease = await acquireLeaseLock(lockPath, options());
+    expect(await readdir(lockPath)).toEqual([
+      lease.tokenPath.slice(lockPath.length + 1),
+    ]);
+    await lease.release();
+  });
+
+  it('creates no sibling artifacts at stale-reclaim hook points', async () => {
+    const { root, lockPath } = await fixture('no-artifacts');
+    await plantToken(lockPath, { stale: true });
+
+    const lease = await acquireLeaseLock(
+      lockPath,
+      options({
+        onAfterExpiredTokensClassified: async () => {
+          expect(await readdir(root)).toEqual(['resource.lock']);
+        },
+        onAfterExpiredTokensUnlinkedBeforeRmdir: async () => {
+          expect(await readdir(root)).toEqual(['resource.lock']);
+        },
+      })
+    );
+    expect(await readdir(root)).toEqual(['resource.lock']);
+    await lease.release();
+    expect(await readdir(root)).toEqual([]);
+  });
+
   it('validates adapter token fields with the configured schema', async () => {
     const { lockPath } = await fixture('extras');
     const schema = leaseTokenSchema
@@ -364,5 +509,67 @@ describe('lease-lock core', () => {
       createdAt: 123_456,
     });
     await lease.release();
+  });
+});
+
+const trustClock: SenpiTrustWriterClock = {
+  now: Date.now,
+  sleep: async () => undefined,
+};
+
+const adapterCases: readonly {
+  name: string;
+  run: (
+    resourcePath: string,
+    action: () => Promise<void>,
+    hooks?: LeaseLockHooks
+  ) => Promise<void>;
+}[] = [
+  {
+    name: 'marker (async)',
+    run: (resourcePath, action, hooks = {}) =>
+      withMarkerLock(resourcePath, action, {
+        lockedLabel: 'Conformance marker',
+        staleLockMs: staleMs,
+        ...hooks,
+      }),
+  },
+  {
+    name: 'trust (sync)',
+    run: (resourcePath, action, hooks) =>
+      withStateLock(resourcePath, action, trustClock, hooks),
+  },
+];
+
+describe.each(adapterCases)('$name adapter lease conformance', adapter => {
+  it('fails closed on live contention without changing ownership data', async () => {
+    const { root } = await fixture(`adapter-${adapter.name.split(' ')[0]}`);
+    const resourcePath = join(root, 'adapter-resource');
+    const lockPath = `${resourcePath}.lock`;
+    const entered = deferred();
+    const release = deferred();
+    const owner = adapter.run(resourcePath, async () => {
+      entered.resolve();
+      await release.promise;
+    });
+    await entered.promise;
+    const before = await readdir(lockPath);
+    expect(before).toHaveLength(1);
+    const tokenPath = join(lockPath, before[0] ?? 'missing');
+    const contents = await readFile(tokenPath, 'utf8');
+
+    let interloperEntered = false;
+    await expect(
+      adapter.run(resourcePath, async () => {
+        interloperEntered = true;
+      })
+    ).rejects.toThrow();
+    expect(interloperEntered).toBe(false);
+    expect(await readdir(lockPath)).toEqual(before);
+    expect(await readFile(tokenPath, 'utf8')).toBe(contents);
+
+    release.resolve();
+    await owner;
+    await expectMissing(lockPath);
   });
 });

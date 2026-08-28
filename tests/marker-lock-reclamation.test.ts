@@ -3,6 +3,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   stat,
   utimes,
@@ -68,6 +69,19 @@ function parseOwnerDocument(raw: string): { nonce: string } {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function tokenDirectorySnapshot(
+  lockPath: string
+): Promise<Record<string, string>> {
+  const names = (await readdir(lockPath)).sort();
+  expect(names).toHaveLength(1);
+  expect(names[0]).toMatch(/^owner\.[0-9a-f-]{36}\.[0-9a-f-]{36}$/i);
+  const snapshot: Record<string, string> = {};
+  for (const name of names) {
+    snapshot[name] = await readFile(join(lockPath, name), 'utf8');
+  }
+  return snapshot;
 }
 
 describe('internal marker-lock identity reclamation', () => {
@@ -379,9 +393,7 @@ describe('internal marker-lock identity reclamation', () => {
       { lockedLabel: 'Senpi session marker' }
     );
     await bEntered;
-    const ownerBBeforeRelease = parseOwnerDocument(
-      await readFile(join(lockPath, 'owner.json'), 'utf8')
-    );
+    const ownerBBeforeRelease = await tokenDirectorySnapshot(lockPath);
 
     finishA();
     await aReleasePaused;
@@ -389,17 +401,11 @@ describe('internal marker-lock identity reclamation', () => {
       () => true,
       () => false
     );
-    const ownerDuringRelease = await readFile(
-      join(lockPath, 'owner.json'),
-      'utf8'
-    ).then(parseOwnerDocument, () => null);
+    const ownerDuringRelease = await tokenDirectorySnapshot(lockPath);
 
     resumeARelease();
     await ownerA;
-    const ownerAfterARelease = await readFile(
-      join(lockPath, 'owner.json'),
-      'utf8'
-    ).then(parseOwnerDocument, () => null);
+    const ownerAfterARelease = await tokenDirectorySnapshot(lockPath);
     finishB();
     await ownerB;
 
