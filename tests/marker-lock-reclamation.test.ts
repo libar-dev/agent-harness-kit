@@ -134,8 +134,11 @@ describe('internal marker-lock identity reclamation', () => {
     ).toEqual({
       nonce: replacementNonce,
     });
-    const surviving = await stat(lockPath);
-    expect(surviving.ino).not.toBe(original.ino);
+    // No assertion that surviving.ino differs from original.ino: ext4 and
+    // overlayfs reuse inode numbers after rm+mkdir of the same path, so
+    // identity equality is environment-dependent. The protected property is
+    // already asserted above — the replacement sentinel and its distinct
+    // nonce survived because reclamation refused on the nonce mismatch.
   });
 
   it('rejects a fresh competing lock with the adapter label', async () => {
