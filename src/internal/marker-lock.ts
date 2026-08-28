@@ -77,44 +77,71 @@ export async function withMarkerLock<T>(
   const lockedMessage = `${options.lockedLabel} is locked: '${markerPath}'`;
 
   await mkdir(dirname(markerPath), { recursive: true, mode: 0o700 });
+  let ownedNonce: string;
   try {
-    await createExclusiveLockDir(lockPath);
+    ownedNonce = await createExclusiveLockDir(lockPath);
   } catch (error: unknown) {
     if (!hasErrorCode(error, 'EEXIST')) throw error;
-    if (
-      !(await replaceStaleMarkerLock(
-        lockPath,
-        staleLockMs,
-        options.onBeforeStaleUnlink,
-        options.onBeforeStaleClaim
-      ))
-    ) {
+    const reclaimedNonce = await replaceStaleMarkerLock(
+      lockPath,
+      staleLockMs,
+      options.onBeforeStaleUnlink,
+      options.onBeforeStaleClaim
+    );
+    if (reclaimedNonce === false) {
       throw new Error(lockedMessage);
     }
+    ownedNonce = reclaimedNonce;
   }
   try {
     return await action();
   } finally {
-    await rm(lockPath, { recursive: true, force: true });
+    await releaseOwnedLockDir(lockPath, ownedNonce);
   }
 }
 
-async function createExclusiveLockDir(lockPath: string): Promise<void> {
+async function createExclusiveLockDir(lockPath: string): Promise<string> {
   await mkdir(lockPath, { mode: 0o700 });
-  await initializeOwnedLockDir(lockPath);
+  return initializeOwnedLockDir(lockPath);
 }
 
-async function initializeOwnedLockDir(lockPath: string): Promise<void> {
+async function initializeOwnedLockDir(lockPath: string): Promise<string> {
+  const nonce = randomUUID();
   try {
     await writeFile(
       join(lockPath, MARKER_LOCK_OWNER_FILENAME),
-      JSON.stringify({ nonce: randomUUID() }),
+      JSON.stringify({ nonce }),
       { encoding: 'utf8', mode: 0o600 }
     );
   } catch (error: unknown) {
     await rm(lockPath, { recursive: true, force: true });
     throw error;
   }
+  return nonce;
+}
+
+/**
+ * Remove a lock directory this owner acquired, leaving it untouched when the
+ * lock no longer belongs to us. A stale lease can be reclaimed by another
+ * owner while our critical section still runs; deleting the replacement's
+ * lock would admit a third owner and break mutual exclusion. The nonce is
+ * the ownership token: it is freshly generated at acquire time, so any
+ * replacement lock carries a different one.
+ */
+async function releaseOwnedLockDir(
+  lockPath: string,
+  ownedNonce: string
+): Promise<void> {
+  try {
+    await stat(lockPath);
+  } catch (error: unknown) {
+    if (hasErrorCode(error, 'ENOENT')) return;
+    throw error;
+  }
+  if ((await readLockNonce(lockPath)) !== ownedNonce) {
+    return;
+  }
+  await rm(lockPath, { recursive: true, force: true });
 }
 
 async function captureLockIdentity(
@@ -161,7 +188,7 @@ async function replaceStaleMarkerLock(
   staleLockMs: number,
   onBeforeStaleUnlink?: (captured: MarkerLockIdentity) => void | Promise<void>,
   onBeforeStaleClaim?: (captured: MarkerLockIdentity) => void | Promise<void>
-): Promise<boolean> {
+): Promise<string | false> {
   let first: MarkerLockIdentity;
   try {
     first = await captureLockIdentity(lockPath);
@@ -227,6 +254,5 @@ async function replaceStaleMarkerLock(
   }
 
   await rm(claimedPath, { recursive: true, force: true });
-  await initializeOwnedLockDir(lockPath);
-  return true;
+  return initializeOwnedLockDir(lockPath);
 }

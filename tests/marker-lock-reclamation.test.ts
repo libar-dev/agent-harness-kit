@@ -141,6 +141,41 @@ describe('internal marker-lock identity reclamation', () => {
     // nonce survived because reclamation refused on the nonce mismatch.
   });
 
+  it('release does not delete a lock dir reclaimed by another owner', async () => {
+    const root = await makeTempRoot('marker-lock-release-owner-');
+    const markerPath = join(root, 'session.marker.json');
+    const lockPath = `${markerPath}.lock`;
+    const replacementNonce = randomUUID();
+
+    // Owner A holds the lock; while its critical section runs it goes stale
+    // and owner B reclaims. When A releases, its cleanup must leave B's lock
+    // intact instead of deleting it and letting a third owner in.
+    await withMarkerLock(
+      markerPath,
+      async () => {
+        await rm(lockPath, { recursive: true, force: true });
+        await mkdir(lockPath, { mode: 0o700 });
+        await writeFile(
+          join(lockPath, 'owner.json'),
+          JSON.stringify({ nonce: replacementNonce }),
+          { encoding: 'utf8', mode: 0o600 }
+        );
+        await writeFile(join(lockPath, 'sentinel'), 'owner-b\n', {
+          mode: 0o600,
+        });
+        return 'stale-holder-done';
+      },
+      { lockedLabel: 'Senpi session marker' }
+    );
+
+    expect(await readFile(join(lockPath, 'sentinel'), 'utf8')).toBe(
+      'owner-b\n'
+    );
+    expect(
+      parseOwnerDocument(await readFile(join(lockPath, 'owner.json'), 'utf8'))
+    ).toEqual({ nonce: replacementNonce });
+  });
+
   it('rejects a fresh competing lock with the adapter label', async () => {
     const root = await makeTempRoot('marker-lock-fresh-nonce-');
     const markerPath = join(root, 'session.marker.json');
