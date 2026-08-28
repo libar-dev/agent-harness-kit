@@ -346,7 +346,11 @@ export async function removeSenpiHookTrustEntry(
         key => key !== 'version' && key !== 'hooks'
       );
       if (leftoverIds.length === 0 && leftoverRootKeys.length === 0) {
-        await lease.assertHeld();
+        // Fresh-token renewal before rmSync, matching the atomicWriteState
+        // branch. The residual window (descheduling longer than staleMs
+        // between renew and rmSync) is the same accepted-by-design window as
+        // the write branch; full fencing is out of protocol scope.
+        await lease.renew();
         rmSync(statePath, { force: true });
         return { path: statePath, id, removed: existed };
       }

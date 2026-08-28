@@ -300,6 +300,64 @@ describe('senpi trust writer - removal locking', () => {
     expect(nowCalls).toBe(4);
     expect(readFileSync(statePath, 'utf-8')).toBe(replacementText);
   });
+
+  it('commit-point renew fails after lease loss and does not delete replacement state', async () => {
+    // Pins "commit point renews; a lost lease cannot delete".
+    // now() mapping: acquire publish (1), read-renewal check+publish (2-3),
+    // commit-point hold check (4), commit-point fresh-token publish (5).
+    // Between read-renewal and commit-renewal publication: plant replacement
+    // state, jump past staleMs, and simulate a reclaimer. assertHeld() would
+    // return after (4) and rmSync the replacement; renew() continues to (5)
+    // and must throw LeaseLockLostError without deleting.
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const handler = makeHandler();
+    const granted = await writeSenpiHookTrustEntry(baseOpts(home, handler));
+    const statePath = globalStatePath(home);
+    const lockPath = `${statePath}.lock`;
+    const replacementText = `${JSON.stringify(
+      {
+        version: 1,
+        hooks: {
+          hk_interloper_0_0: {
+            ...granted.entry,
+            grantReason: 'concurrent owner replacement',
+          },
+        },
+      },
+      null,
+      2
+    )}\n`;
+    let nowCalls = 0;
+    const clock = instantClock(() => {
+      nowCalls += 1;
+      if (nowCalls === 4) {
+        writeFileSync(statePath, replacementText, 'utf-8');
+        return Date.now();
+      }
+      if (nowCalls === 5) {
+        rmSync(lockPath, { recursive: true, force: true });
+        plantLiveTokenDir(lockPath);
+        return Date.now() + 20_000;
+      }
+      return Date.now();
+    });
+
+    await expect(
+      removeSenpiHookTrustEntry({
+        consent: true,
+        reason: 'explicit user revoke',
+        handler,
+        scope: 'global',
+        agentHome: home,
+        cwd: join(home, 'unused-project'),
+        clock,
+      })
+    ).rejects.toMatchObject({ name: 'LeaseLockLostError' });
+
+    expect(nowCalls).toBe(5);
+    expect(readFileSync(statePath, 'utf-8')).toBe(replacementText);
+  });
 });
 
 describe('senpi trust writer - locking', () => {
