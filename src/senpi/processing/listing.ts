@@ -115,7 +115,7 @@ export async function listAllSenpiSessions(
   }
 
   const dirs = rootEntries
-    .filter(entry => entry.isDirectory())
+    .filter(entry => entry.isDirectory() && !entry.name.endsWith('-artifacts'))
     .map(entry => join(getSenpiSessionsRoot(options?.agentHome), entry.name));
   return listFromDirs(dirs.sort((a, b) => a.localeCompare(b)));
 }

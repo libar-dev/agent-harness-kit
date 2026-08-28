@@ -329,6 +329,32 @@ describe('senpi discovery', () => {
     }
   });
 
+  it('excludes root-level *-artifacts directories while retaining legitimate sessions', async () => {
+    const agentHome = await makeStore();
+    const artifactDir = join(
+      sessionsDir(agentHome),
+      '2026-08-20T10-00-00-000Z_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa-artifacts'
+    );
+    await writeRawFile(
+      join(artifactDir, 'stray.jsonl'),
+      `${JSON.stringify(headerLine({ cwd: '/work/artifacts', id: 's-artifact' }))}\n`
+    );
+
+    const legitimateDir = join(sessionsDir(agentHome), 'legitimate-session');
+    const legitimatePath = join(legitimateDir, 'session.jsonl');
+    await writeRawFile(
+      legitimatePath,
+      `${JSON.stringify(headerLine({ cwd: '/work/legitimate', id: 's-legitimate' }))}\n`
+    );
+
+    const all = await listAllSenpiSessions({ agentHome });
+
+    expect(all.map(entry => entry.kind)).toEqual(['valid']);
+    if (all[0]?.kind === 'valid') {
+      expect(all[0].info.id).toBe('s-legitimate');
+    }
+  });
+
   it('surfaces corrupt JSONL as an invalid entry without failing siblings', async () => {
     const agentHome = await makeStore();
     await writeSession(agentHome, {
