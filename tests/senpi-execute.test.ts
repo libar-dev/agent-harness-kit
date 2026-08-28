@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -125,6 +126,42 @@ function createHarness(result: SenpiCommandRunResult) {
   return { exits, stdout, stderr, runCommands, run };
 }
 
+/**
+ * Shell command string for a node child that writes `stdoutPayload` then
+ * suicides via `process.kill(process.pid, signal)`. Used as the hook
+ * `command` so production `defaultRunCommand` (shell:true) spawns it.
+ */
+function selfSignalShellCommand(
+  signal: NodeJS.Signals,
+  stdoutPayload: string
+): string {
+  const script = `process.stdout.write(${JSON.stringify(stdoutPayload)}); process.kill(process.pid, ${JSON.stringify(signal)});`;
+  return `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
+}
+
+/**
+ * Observe the close event of the same shell:true spawn shape defaultRunCommand
+ * uses. Asserts signal death only — does NOT compute or return exitCode
+ * (production mapping at execute.ts:701 must stay exclusive to defaultRunCommand).
+ */
+function observeShellSignalClose(
+  command: string
+): Promise<{ rawCode: number | null; rawSignal: NodeJS.Signals | null }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, {
+      shell: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    // Drain pipes so the child cannot block on a full stdout buffer.
+    child.stdout?.resume();
+    child.stderr?.resume();
+    child.on('error', reject);
+    child.on('close', (code, rawSignal) => {
+      resolve({ rawCode: code, rawSignal });
+    });
+  });
+}
+
 describe('readSenpiStdinJson', () => {
   it('returns the validated pre-tool-use fixture envelope with aliases normalized', async () => {
     const input = await readSenpiStdinJson({
@@ -250,6 +287,142 @@ describe('executeSenpiHook', () => {
     expect(JSON.parse(harness.stdout.text)).toEqual({ decision: 'block' });
     expect(harness.exits).toEqual([0]);
   });
+
+  // Only exitCode === 2 short-circuits; every other child outcome (exit 1,
+  // exit 3+, and the numeric value defaultRunCommand maps signal exits to)
+  // falls through to the stdout JSON parse path. Runner exit stays 0 either
+  // way. Real signal-delivery coverage lives in the dedicated cases below —
+  // these table rows are canned exit codes only.
+  const nonExit2ChildOutcomes = [
+    { label: 'exit code 1', exitCode: 1 },
+    { label: 'exit code 3', exitCode: 3 },
+    {
+      label: 'exit code 1 (defaultRunCommand maps signal exits to 1)',
+      exitCode: 1,
+    },
+  ] as const;
+
+  it.each(nonExit2ChildOutcomes)(
+    'parses valid JSON stdout when child ends with $label and runner exits 0',
+    async ({ exitCode }) => {
+      const harness = createHarness(
+        cannedRun({
+          stdout: JSON.stringify({
+            continue: true,
+            stopReason: 'non-exit-2-path',
+          }),
+          stderr: 'child noise ignored on parse path',
+          exitCode,
+        })
+      );
+
+      await harness.run(
+        createTarget('PreToolUse'),
+        fixtureEnvelope('pre-tool-use')
+      );
+
+      expect(JSON.parse(harness.stdout.text)).toEqual({
+        continue: true,
+        stopReason: 'non-exit-2-path',
+      });
+      expect(harness.exits).toEqual([0]);
+      expect(harness.stderr.text).toBe('');
+    }
+  );
+
+  it.each(nonExit2ChildOutcomes)(
+    'treats unparseable stdout as invalid_root no-op when child ends with $label and runner exits 0',
+    async ({ exitCode }) => {
+      const harness = createHarness(
+        cannedRun({
+          stdout: 'not json{',
+          stderr: 'child stderr after non-2 exit',
+          exitCode,
+        })
+      );
+
+      await harness.run(
+        createTarget('PreToolUse'),
+        fixtureEnvelope('pre-tool-use')
+      );
+
+      expect(JSON.parse(harness.stdout.text)).toEqual({});
+      expect(harness.exits).toEqual([0]);
+      expect(harness.stderr.text).toContain('invalid_root');
+    }
+  );
+
+  // Real signal delivery through PRODUCTION defaultRunCommand (no runCommand
+  // injection, no test-side exitCode remapping). The self-killing node child
+  // is the hook `command`; defaultRunCommand spawns it with shell:true,
+  // observes close code null + signal, and applies `code ?? 1` at
+  // execute.ts:701. Only exit 2 is special-cased, so mapped-1 falls through
+  // to the stdout JSON parse path; runner process exit stays 0.
+  const realSignalCases = [
+    {
+      signal: 'SIGTERM' as const,
+      stdoutMode: 'valid' as const,
+      stdoutPayload: JSON.stringify({
+        continue: true,
+        stopReason: 'real-signal-path',
+      }),
+    },
+    {
+      signal: 'SIGTERM' as const,
+      stdoutMode: 'unparseable' as const,
+      stdoutPayload: 'not json{',
+    },
+    {
+      signal: 'SIGKILL' as const,
+      stdoutMode: 'valid' as const,
+      stdoutPayload: JSON.stringify({
+        continue: true,
+        stopReason: 'real-sigkill-path',
+      }),
+    },
+    {
+      signal: 'SIGKILL' as const,
+      stdoutMode: 'unparseable' as const,
+      stdoutPayload: 'not json{',
+    },
+  ];
+
+  it.each(realSignalCases)(
+    'real $signal child ($stdoutMode stdout): dies by signal, fall-through parse, runner exits 0',
+    async ({ signal, stdoutMode, stdoutPayload }) => {
+      const command = selfSignalShellCommand(signal, stdoutPayload);
+
+      // Same shell:true spawn shape as defaultRunCommand — assert signal death
+      // on the close event without computing exitCode in test code.
+      const close = await observeShellSignalClose(command);
+      expect(close.rawCode).toBeNull();
+      expect(close.rawSignal).toBe(signal);
+
+      const exits: number[] = [];
+      const stdout = createSinkRecorder();
+      const stderr = createSinkRecorder();
+
+      // No runCommand seam: production defaultRunCommand must apply code ?? 1.
+      await executeSenpiHook(createTarget('PreToolUse', { command }), {
+        stdin: stringStdin(fixtureEnvelope('pre-tool-use')),
+        stdout,
+        stderr,
+        exit: code => exits.push(code),
+      });
+
+      // Mapping is asserted only via observable runner behavior: if
+      // execute.ts:701 mapped to 2 instead of 1, exit-2 block dispatch would
+      // replace these fall-through outcomes.
+      if (stdoutMode === 'valid') {
+        expect(JSON.parse(stdout.text)).toEqual(JSON.parse(stdoutPayload));
+        expect(stderr.text).toBe('');
+      } else {
+        expect(JSON.parse(stdout.text)).toEqual({});
+        expect(stderr.text).toContain('invalid_root');
+      }
+      expect(exits).toEqual([0]);
+    }
+  );
 
   it('treats malformed child stdout as a diagnostic no-op exiting 0', async () => {
     const harness = createHarness(cannedRun({ stdout: 'not json{' }));
