@@ -335,11 +335,24 @@ async function createLease(
   const created = new Set<string>();
   let leaseId = randomUUID();
   let tokenPath = tokenName(lockPath, ownerId, leaseId);
-  await publishToken(tokenPath, ownerId, leaseId, options, ops);
+  try {
+    await publishToken(tokenPath, ownerId, leaseId, options, ops);
+  } catch (error: unknown) {
+    if (hasCode(error, 'ENOENT')) throw new LeaseLockBusyError(lockPath);
+    throw error;
+  }
   created.add(tokenPath);
 
-  if (!(await sameDirectory(lockPath, directory, ops))) {
-    await unlinkIfPresent(tokenPath, ops);
+  if (
+    !(await ownsPublishedDirectory(
+      lockPath,
+      directory,
+      created,
+      tokenPath,
+      ops
+    ))
+  ) {
+    await discardPublishedToken(tokenPath, ops);
     throw new LeaseLockBusyError(lockPath);
   }
 
@@ -376,8 +389,16 @@ async function createLease(
       const nextPath = tokenName(lockPath, ownerId, nextLeaseId);
       await publishToken(nextPath, ownerId, nextLeaseId, options, ops);
       created.add(nextPath);
-      if (!(await sameDirectory(lockPath, directory, ops))) {
-        await unlinkIfPresent(nextPath, ops);
+      if (
+        !(await ownsPublishedDirectory(
+          lockPath,
+          directory,
+          created,
+          nextPath,
+          ops
+        ))
+      ) {
+        await discardPublishedToken(nextPath, ops);
         throw new LeaseLockLostError(lockPath);
       }
       leaseId = nextLeaseId;
@@ -538,6 +559,10 @@ async function reclaim(
   }
 
   await options.onAfterExpiredTokensClassified?.();
+  // dev+ino may be reused after replacement, but reclaim remains fail-closed:
+  // non-recursive rmdir cannot remove a replacement containing a fresh token.
+  // Removing a replacement that is still tokenless only interrupts a stalled
+  // publisher, whose subsequent ENOENT write is treated as contention.
   if (!(await sameDirectory(lockPath, initial, ops))) return false;
   if (entries.length === 0) {
     let current: Stats;
@@ -588,6 +613,35 @@ function tokenName(lockPath: string, ownerId: string, leaseId: string): string {
   return join(lockPath, `owner.${ownerId}.${leaseId}`);
 }
 
+// If two stalled publishers reach one recreated directory, each sees the
+// other's token and fails, or the first verified publisher wins and the later
+// one fails. Cleanup may leave an orphan token, which is safer than admitting
+// two owners and remains reclaimable by the normal stale-token path.
+async function ownsPublishedDirectory(
+  path: string,
+  expected: Stats,
+  createdTokenPaths: ReadonlySet<string>,
+  requiredTokenPath: string,
+  ops: FileOps
+): Promise<boolean> {
+  if (!(await sameDirectory(path, expected, ops))) return false;
+  try {
+    const entries = await ops.readdir(path);
+    const createdNames = new Set(
+      [...createdTokenPaths].map(createdPath =>
+        createdPath.slice(path.length + 1)
+      )
+    );
+    const entryNames = entries.map(entry => entry.name);
+    return (
+      entryNames.includes(requiredTokenPath.slice(path.length + 1)) &&
+      entryNames.every(name => createdNames.has(name))
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function sameDirectory(
   path: string,
   expected: Stats,
@@ -611,6 +665,18 @@ async function removeEmptyOwnedDirectory(
   ops: FileOps
 ): Promise<void> {
   if (await sameDirectory(path, expected, ops)) await safeRmdir(path, ops);
+}
+
+async function discardPublishedToken(
+  path: string,
+  ops: FileOps
+): Promise<void> {
+  try {
+    await unlinkIfPresent(path, ops);
+  } catch {
+    // Ownership is already disproven, so the contention/lost result must win.
+    // An unremovable orphan fails closed and ages into normal stale reclaim.
+  }
 }
 
 async function unlinkIfPresent(path: string, ops: FileOps): Promise<void> {

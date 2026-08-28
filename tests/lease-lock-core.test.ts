@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, unlinkSync } from 'node:fs';
+import { mkdirSync, unlinkSync, type PathLike, type Stats } from 'node:fs';
+import type * as fsPromises from 'node:fs/promises';
 import {
   lstat,
   mkdir,
@@ -7,6 +8,7 @@ import {
   readFile,
   readdir,
   rm,
+  rmdir,
   stat,
   utimes,
   writeFile,
@@ -14,8 +16,31 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+
+const forcedDirectoryIdentity = vi.hoisted(() => ({
+  path: undefined as string | undefined,
+  dev: 0,
+  ino: 0,
+}));
+
+vi.mock('node:fs/promises', async importOriginal => {
+  const actual = await importOriginal<typeof fsPromises>();
+  return {
+    ...actual,
+    stat: async (path: PathLike): Promise<Stats> => {
+      const stats = await actual.stat(path);
+      if (String(path) === forcedDirectoryIdentity.path) {
+        Object.defineProperties(stats, {
+          dev: { value: forcedDirectoryIdentity.dev },
+          ino: { value: forcedDirectoryIdentity.ino },
+        });
+      }
+      return stats;
+    },
+  };
+});
 
 import {
   LeaseLockBusyError,
@@ -100,6 +125,7 @@ function deferred(): {
 }
 
 afterEach(async () => {
+  forcedDirectoryIdentity.path = undefined;
   await Promise.all(
     roots.splice(0).map(root => rm(root, { recursive: true, force: true }))
   );
@@ -314,6 +340,46 @@ describe('lease-lock core', () => {
       second.tokenPath.slice(lockPath.length + 1),
     ]);
     await second.release();
+  });
+
+  it('reports contention when its directory disappears before token publication', async () => {
+    const { lockPath } = await fixture('missing-before-token');
+
+    await expect(
+      acquireLeaseLock(
+        lockPath,
+        options({
+          onAfterCanonicalMkdirBeforeToken: () => rmdir(lockPath),
+        })
+      )
+    ).rejects.toBeInstanceOf(LeaseLockBusyError);
+    await expectMissing(lockPath);
+  });
+
+  it('rejects a recreated directory even when stat reports the captured identity', async () => {
+    const { lockPath } = await fixture('reused-identity');
+    let replacementToken = '';
+
+    const acquiring = acquireLeaseLock(
+      lockPath,
+      options({
+        onAfterCanonicalMkdirBeforeToken: async () => {
+          const captured = await lstat(lockPath);
+          await rmdir(lockPath);
+          await mkdir(lockPath, { mode: 0o700 });
+          replacementToken = await plantToken(lockPath, { stale: false });
+          forcedDirectoryIdentity.path = lockPath;
+          forcedDirectoryIdentity.dev = captured.dev;
+          forcedDirectoryIdentity.ino = captured.ino;
+        },
+      })
+    );
+
+    await expect(acquiring).rejects.toBeInstanceOf(LeaseLockBusyError);
+    expect(await readdir(lockPath)).toEqual([
+      replacementToken.slice(lockPath.length + 1),
+    ]);
+    expect((await stat(replacementToken)).isFile()).toBe(true);
   });
 
   it('rechecks empty-directory identity after classification before removal', async () => {
