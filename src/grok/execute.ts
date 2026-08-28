@@ -7,11 +7,13 @@
  */
 
 import { stdin, stdout, stderr, env, exit } from 'node:process';
+import { readBoundedTimedStdin } from '../internal/stdin.js';
 import { logError, toError } from '../utils/index.js';
 import { validateGrokHookInput } from './validation.js';
 import type { GrokHookEventName, GrokHookInput } from './types.js';
 
 const DEFAULT_STDIN_TIMEOUT_MS = 30000;
+const DEFAULT_MAX_STDIN_BYTES = 1024 * 1024;
 
 const GROK_STOP_GATE_EVENTS: ReadonlySet<GrokHookEventName> = new Set([
   'stop',
@@ -72,6 +74,8 @@ export interface GrokHookRunnerOptions {
    * Defaults to 30 seconds.
    */
   readonly stdinTimeoutMs?: number;
+  /** Maximum number of stdin bytes retained before parsing. Defaults to 1 MiB. */
+  readonly maxStdinBytes?: number;
   /** Exit hook invoked with the process exit code. Defaults to process.exit. */
   readonly exit?: (code: number) => void;
 }
@@ -100,31 +104,27 @@ async function readGrokStdinText(
 ): Promise<string> {
   const source = options.stdin ?? (stdin as AsyncIterable<Buffer>);
   const exitFn = options.exit ?? exit;
-  const chunks: Buffer[] = [];
+  const maxBytes = options.maxStdinBytes ?? DEFAULT_MAX_STDIN_BYTES;
+  const boundedSource = (async function* (): AsyncGenerator<Buffer> {
+    let remaining = maxBytes;
+    for await (const chunk of source) {
+      if (remaining <= 0) {
+        break;
+      }
+      yield chunk.subarray(0, remaining);
+      remaining -= chunk.byteLength;
+    }
+  })();
 
-  let rejectOnTimeout: ((error: Error) => void) | undefined;
-  const timeout = setTimeout(() => {
-    logError('Timeout waiting for Grok hook stdin input');
-    exitFn(1);
-    rejectOnTimeout?.(new GrokStdinTimeoutError());
-  }, options.stdinTimeoutMs ?? DEFAULT_STDIN_TIMEOUT_MS);
-
-  try {
-    await Promise.race([
-      (async () => {
-        for await (const chunk of source) {
-          chunks.push(chunk);
-        }
-      })(),
-      new Promise<never>((_resolve, reject) => {
-        rejectOnTimeout = reject;
-      }),
-    ]);
-
-    return Buffer.concat(chunks).toString('utf-8');
-  } finally {
-    clearTimeout(timeout);
-  }
+  return readBoundedTimedStdin({
+    stdin: boundedSource,
+    maxBytes,
+    timeoutMs: options.stdinTimeoutMs ?? DEFAULT_STDIN_TIMEOUT_MS,
+    stderr,
+    exit: exitFn,
+    timeoutMessage: 'Timeout waiting for Grok hook stdin input',
+    createTimeoutError: () => new GrokStdinTimeoutError(),
+  });
 }
 
 /**

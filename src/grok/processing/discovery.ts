@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
+import { open, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
@@ -12,6 +12,8 @@ import {
 
 const MAX_DIRNAME_BYTES = 255;
 const LONG_CWD_SLUG_LENGTH = 40;
+const MAX_CWD_METADATA_BYTES = 4 * 1024;
+const MAX_SUMMARY_BYTES = 64 * 1024;
 
 /** Grok's persisted session summary fields used during discovery. */
 export const grokSummarySchema = z.looseObject({
@@ -188,7 +190,10 @@ async function cwdMetadataMatches(
   cwd: string
 ): Promise<boolean> {
   try {
-    const storedCwd = await readFile(join(cwdDirectory, '.cwd'), 'utf8');
+    const storedCwd = await readBoundedText(
+      join(cwdDirectory, '.cwd'),
+      MAX_CWD_METADATA_BYTES
+    );
     return storedCwd.trim() === cwd;
   } catch {
     return false;
@@ -203,12 +208,26 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
+async function readBoundedText(
+  path: string,
+  maxBytes: number
+): Promise<string> {
+  const handle = await open(path, 'r');
+  try {
+    const buffer = Buffer.alloc(maxBytes);
+    const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0);
+    return buffer.subarray(0, bytesRead).toString('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
 async function readGrokSession(sessionDir: string): Promise<GrokSession> {
   const sessionId = basename(sessionDir);
   try {
-    const summaryJson = await readFile(
+    const summaryJson = await readBoundedText(
       join(sessionDir, 'summary.json'),
-      'utf8'
+      MAX_SUMMARY_BYTES
     );
     const summary = grokSummaryJsonSchema.parse(summaryJson);
     return { kind: 'valid', sessionId, sessionDir, summary };

@@ -290,6 +290,22 @@ describe('executeGrokHook', () => {
     expect(exitRecorder.calls).toEqual([0]);
   });
 
+  it('rejects stdin exceeding the 1 MiB default cap', async () => {
+    const oversizedCommand = 'x'.repeat(2 * 1024 * 1024);
+    const handler = vi.fn();
+
+    await executeGrokHook(handler, {
+      stdin: createGrokStdinMock(createPreToolUseEnvelope(oversizedCommand)),
+      exit: exitRecorder.exit,
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(exitRecorder.calls).toEqual([1]);
+    expect(stderrMock.getOutput()).toContain(
+      'Failed to parse Grok hook input JSON'
+    );
+  });
+
   it('accepts a toolInput string larger than the upstream 128 KiB truncation cap', async () => {
     const oversizedCommand = 'x'.repeat(129 * 1024);
     let received: GrokPreToolUseInput | undefined;
