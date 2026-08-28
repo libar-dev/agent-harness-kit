@@ -62,6 +62,9 @@ export async function finishRebuild(
       cursor: { ...outcome.cursor, generation },
       fileSize: outcome.fileSize,
       reset: reset || outcome.reset,
+      scanStatus: outcome.scanStatus,
+      scannedBytes: outcome.scannedBytes,
+      scannedLines: outcome.scannedLines,
     },
     parsed: outcome.parsed,
     includeOffPath,
@@ -71,13 +74,12 @@ export async function finishRebuild(
       : invalidationMessage,
     priorCursor: start,
     graphSeeds: [],
-    previousKeys: reset
-      ? []
-      : (supplied?.state?.records.map(record => record.key) ??
-        marker?.projectedRecordKeys ??
-        supplied?.projectedRecordKeys ??
-        []),
-    previousCount: reset ? undefined : marker?.projectedRecordCount,
+    previousKeys:
+      supplied?.state?.records.map(record => record.key) ??
+      marker?.projectedRecordKeys ??
+      supplied?.projectedRecordKeys ??
+      [],
+    previousCount: marker?.projectedRecordCount,
     limits,
   });
 }

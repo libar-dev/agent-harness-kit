@@ -27,4 +27,5 @@ export {
   type SenpiTailDiagnostic,
   type SenpiTailDiagnosticCode,
   type SenpiTailLeaf,
+  type SenpiTailPosition,
 } from './tail-types.js';

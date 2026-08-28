@@ -9,7 +9,7 @@ import type {
 } from './checkpoint-internal-types.js';
 import type { SenpiSessionCheckpointCommitOptions } from './checkpoint-types.js';
 import type { ParsedLines } from './tail-parse.js';
-import type { SenpiProjectRequest } from './tail-project.js';
+import type { SenpiProjectRequest } from './tail-project-request.js';
 import { finishRebuild, type SenpiRebuildPrior } from './tail-rebuild.js';
 import type { SenpiScanLimits } from './tail-resume.js';
 import type {
@@ -22,8 +22,6 @@ const DEFAULT_MAX_SCAN_LINES = 10_000;
 
 /** Private scan/rebuild overrides for unbarreled integration tests. */
 export interface SenpiInternalSessionTailOptions extends SenpiSessionTailOptions {
-  readonly maxScanBytes?: number;
-  readonly maxScanLines?: number;
   readonly maxRebuildBytes?: number;
   readonly maxRebuildLines?: number;
   readonly checkpoint?: InternalSenpiSessionCheckpoint;
@@ -36,14 +34,11 @@ export function initialTailBaseline(
   marker: InternalSenpiSessionMarker | null,
   markerError: string | null
 ): { readonly message: string | null; readonly reset: boolean } {
-  const message = markerError ?? (fromStart ? 'fromStart requested' : null);
-  return {
-    message,
-    reset:
-      fromStart ||
-      (supplied === undefined && marker === null) ||
-      message !== null,
-  };
+  const hasBaseline =
+    supplied !== undefined || marker !== null || markerError !== null;
+  const message =
+    markerError ?? (fromStart && hasBaseline ? 'fromStart requested' : null);
+  return { message, reset: message !== null };
 }
 
 /** Decide whether marker-only state rebuilds now or first reports invalidation. */

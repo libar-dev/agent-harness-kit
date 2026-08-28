@@ -20,15 +20,28 @@ describe('todo 5 public declaration surface', () => {
     expect(cursor).toContain('readonly maxScanLines?: number;');
   });
 
-  it('does not pre-land todo 6/7 fields in public Senpi declarations', async () => {
+  it('exposes approved todo 6 fields without pre-landing todo 7', async () => {
     const [tail, checkpoint, barrel] = await Promise.all([
       declaration('senpi/processing/tail-types.d.ts'),
       declaration('senpi/processing/checkpoint-types.d.ts'),
       declaration('senpi/processing/index.d.ts'),
     ]);
+    for (const required of [
+      'readonly maxScanBytes?: number;',
+      'readonly maxScanLines?: number;',
+      'readonly maxResultBytes?: number;',
+      'readonly maxResultRecords?: number;',
+      'export interface SenpiTailPosition',
+      'readonly scanStatus: JsonlScanStatus;',
+      'readonly scannedBytes: number;',
+      'readonly scannedLines: number;',
+      'readonly previousPosition: SenpiTailPosition;',
+      'readonly nextPosition: SenpiTailPosition;',
+      'readonly moved: boolean;',
+    ]) {
+      expect(tail).toContain(required);
+    }
     for (const forbidden of [
-      'maxScanBytes',
-      'maxScanLines',
       'maxRebuildBytes',
       'maxRebuildLines',
       'continuation_deferred',

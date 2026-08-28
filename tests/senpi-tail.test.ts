@@ -138,14 +138,21 @@ describe('tailSenpiSession integration', () => {
       baseRevision: 3,
       revision: 4,
       index: 0,
-      deleteCount: 0,
-      removedRecordKeys: [],
+      deleteCount: 1,
+      removedRecordKeys: ['a1000008'],
     });
     expect(keys(reset.mutations[0]?.records ?? [])).toEqual([
       'a1000001',
       'a1000002',
       'a1000003',
     ]);
+
+    const unchangedAfterReset = await tailSenpiSession(path, {
+      checkpointMode: 'manual',
+      checkpoint: reset.checkpoint,
+    });
+    expect(unchangedAfterReset.reset).toBe(false);
+    expect(unchangedAfterReset.moved).toBe(false);
   });
 
   it('defers a truncated final line and rereads it without data loss', async () => {
@@ -289,7 +296,7 @@ describe('tailSenpiSession integration', () => {
     expect(golden).toEqual([
       {
         revision: 1,
-        reset: true,
+        reset: false,
         offsets: [0, Buffer.byteLength(joined(lines.slice(0, 4)))],
         keys: ['a1000001', 'a1000002', 'a1000003'],
         splice: [
@@ -319,5 +326,145 @@ describe('tailSenpiSession integration', () => {
         ],
       },
     ]);
+  });
+
+  it('reports position movement only for cursor or projection advances', async () => {
+    const lines = await fixtureLines();
+    const path = await temporarySession(joined(lines.slice(0, 4)));
+
+    const first = await tailSenpiSession(path, { checkpointMode: 'manual' });
+    expect(first.reset).toBe(false);
+    expect(first.previousPosition).toEqual({
+      generation: 0,
+      offset: 0,
+      lineNumber: 1,
+      pendingKind: null,
+      projectionRevision: 0,
+    });
+    expect(first.nextPosition).toEqual({
+      generation: first.generation,
+      offset: first.nextByteOffset,
+      lineNumber: first.checkpoint.lineNumber,
+      pendingKind: null,
+      projectionRevision: first.revision,
+    });
+    expect(first.moved).toBe(true);
+
+    const unchanged = await tailSenpiSession(path, {
+      checkpointMode: 'manual',
+      checkpoint: first.checkpoint,
+    });
+    expect(unchanged.reset).toBe(false);
+    expect(unchanged.previousPosition).toEqual(first.nextPosition);
+    expect(unchanged.nextPosition).toEqual(first.nextPosition);
+    expect(unchanged.moved).toBe(false);
+  });
+
+  it('threads a checkpoint so append passes scan only their delta', async () => {
+    const lines = await fixtureLines();
+    const padded = (lines[1] ?? '').replace(
+      'root user turn',
+      'x'.repeat(32 * 1024)
+    );
+    const initial = joined([lines[0] ?? '', padded, lines[2] ?? '']);
+    const path = await temporarySession(initial);
+    const first = await tailSenpiSession(path, { checkpointMode: 'manual' });
+
+    await appendFile(path, `${lines[3] ?? ''}\n`);
+    const appended = await tailSenpiSession(path, {
+      checkpointMode: 'manual',
+      checkpoint: first.checkpoint,
+    });
+    expect(appended.scannedBytes).toBeGreaterThan(0);
+    expect(appended.scannedBytes).toBeLessThan(appended.fileSize);
+    expect(appended.previousPosition).toEqual(first.nextPosition);
+  });
+
+  it('rebuilds a marker-only call identically within the scan caps', async () => {
+    const lines = await fixtureLines();
+    const content = joined(lines.slice(0, 4));
+    const controlPath = await temporarySession(content);
+    const markerPath = await temporarySession(content);
+    const control = await tailSenpiSession(controlPath, {
+      checkpointMode: 'manual',
+      maxScanBytes: 17 * 1024 * 1024,
+      maxScanLines: 10,
+      maxResultBytes: 1024 * 1024,
+      maxResultRecords: 100,
+    });
+    await tailSenpiSession(markerPath, {
+      maxScanBytes: 17 * 1024 * 1024,
+      maxScanLines: 10,
+    });
+    const rebuilt = await tailSenpiSession(markerPath, {
+      checkpointMode: 'manual',
+      maxScanBytes: 17 * 1024 * 1024,
+      maxScanLines: 10,
+    });
+
+    expect(keys(rebuilt.records)).toEqual(keys(control.records));
+    expect(rebuilt.scanStatus).toEqual({ status: 'complete' });
+    expect(rebuilt.scannedBytes).toBe(Buffer.byteLength(content));
+  });
+
+  it('returns resumable limited results across successive capped calls', async () => {
+    const lines = await fixtureLines();
+    const path = await temporarySession(joined(lines));
+    const options = {
+      checkpointMode: 'manual' as const,
+      maxLineBytes: 1024,
+      maxScanBytes: 2048,
+      maxScanLines: 2,
+      maxResultBytes: 1024 * 1024,
+      maxResultRecords: 100,
+    };
+
+    const first = await tailSenpiSession(path, options);
+    const second = await tailSenpiSession(path, {
+      ...options,
+      checkpoint: first.checkpoint,
+    });
+    const third = await tailSenpiSession(path, {
+      ...options,
+      checkpoint: second.checkpoint,
+    });
+
+    expect(first.scanStatus).toEqual({ status: 'limited', reason: 'lines' });
+    expect(second.scanStatus).toEqual({ status: 'limited', reason: 'lines' });
+    expect(first.nextByteOffset).toBeLessThan(second.nextByteOffset);
+    expect(second.nextByteOffset).toBeLessThan(third.nextByteOffset);
+    expect(first.scannedLines).toBe(2);
+    expect(second.scannedLines).toBe(2);
+  });
+
+  it('accepts complete blank lines and defers unterminated malformed JSON', async () => {
+    const lines = await fixtureLines();
+    const blankPath = await temporarySession(
+      `${joined(lines.slice(0, 3))}  \t\n`
+    );
+    const blank = await tailSenpiSession(blankPath, {
+      checkpointMode: 'manual',
+    });
+    expect(blank.leaf.kind).toBe('resolved');
+    expect(blank.diagnostics).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'invalid_json' }),
+      ])
+    );
+    expect(blank.nextByteOffset).toBe(blank.fileSize);
+
+    const partialPath = await temporarySession(
+      `${joined(lines.slice(0, 3))}{not complete`
+    );
+    const partial = await tailSenpiSession(partialPath, {
+      checkpointMode: 'manual',
+    });
+    expect(partial.leaf.kind).toBe('resolved');
+    expect(partial.diagnostics).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'invalid_json' }),
+      ])
+    );
+    expect(partial.nextByteOffset).toBeLessThan(partial.fileSize);
   });
 });

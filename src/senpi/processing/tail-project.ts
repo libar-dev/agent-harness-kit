@@ -2,63 +2,31 @@ import {
   byteCursorChanged,
   checkpointRevision,
 } from '../../internal/incremental.js';
-import type { JsonlCursor } from '../../internal/jsonl-cursor.js';
 import { fitAutomaticExtras, graphFromIndex } from './accepted-graph.js';
 import {
   EMPTY_SENPI_BLOCK_REDUCTION_STATE,
   reduceSenpiProjection,
 } from './blocks.js';
-import type {
-  InternalSenpiSessionCheckpoint,
-  InternalSenpiSessionCheckpointState,
-  InternalSenpiSessionMarker,
-} from './checkpoint-internal-types.js';
-import type { SenpiSessionCheckpointCommitOptions } from './checkpoint-types.js';
+import type { InternalSenpiSessionCheckpointState } from './checkpoint-internal-types.js';
 import { commitSenpiSessionCheckpointInternal } from './checkpoint-write.js';
-import type { SenpiEntryParseResult } from './parse.js';
 import {
   projectSenpiBranch,
   resolveSenpiLeaf,
   type SenpiProjectionResult,
 } from './projection.js';
-import {
-  hasUnsafeProjectionFailure,
-  invalidProjection,
-  type ParsedLines,
-} from './tail-parse.js';
+import { hasUnsafeProjectionFailure, invalidProjection } from './tail-parse.js';
+import type { SenpiProjectRequest } from './tail-project-request.js';
 import { reductionFromRecords, tailLeaf } from './tail-projection-result.js';
-import { shrinkCheckpoint, spliceMutation } from './tail-result.js';
-import type { SenpiScanLimits } from './tail-resume.js';
-import type { SenpiInternalSessionTailOptions } from './tail-run-support.js';
+import {
+  shrinkCheckpoint,
+  spliceMutation,
+  tailPositionFields,
+} from './tail-result.js';
 import type {
   SenpiSessionSpliceMutation,
   SenpiSessionTailResult,
   SenpiTailDiagnostic,
 } from './tail-types.js';
-
-/** Complete inputs for projection and optional automatic marker commit. */
-export interface SenpiProjectRequest {
-  readonly sessionPath: string;
-  readonly options: SenpiInternalSessionTailOptions;
-  readonly markerOptions: SenpiSessionCheckpointCommitOptions;
-  readonly sessionPathDigest: string;
-  readonly marker: InternalSenpiSessionMarker | null;
-  readonly supplied: InternalSenpiSessionCheckpoint | undefined;
-  readonly delta: {
-    readonly cursor: JsonlCursor | null;
-    readonly fileSize: number | null;
-    readonly reset: boolean;
-  };
-  readonly parsed: ParsedLines;
-  readonly includeOffPath: boolean;
-  readonly reset: boolean;
-  readonly invalidationMessage: string | null;
-  readonly priorCursor: JsonlCursor | null;
-  readonly graphSeeds: readonly SenpiEntryParseResult[];
-  readonly previousKeys: readonly string[];
-  readonly previousCount: number | undefined;
-  readonly limits: SenpiScanLimits;
-}
 
 /** Project parsed entries, build one splice, and commit only safe state. */
 export async function projectAndCommit(
@@ -155,9 +123,7 @@ export async function projectAndCommit(
     );
   }
   const stateChanged =
-    reset ||
-    mutation !== null ||
-    byteCursorChanged(args.priorCursor, nextCursor);
+    mutation !== null || byteCursorChanged(args.priorCursor, nextCursor);
   const revision = checkpointRevision(baseRevision, stateChanged);
   const mutations: readonly SenpiSessionSpliceMutation[] =
     mutation === null ? [] : [{ ...mutation, baseRevision, revision }];
@@ -244,6 +210,10 @@ export async function projectAndCommit(
     generation: nextCursor.generation,
     revision,
     reset,
+    scanStatus: delta.scanStatus,
+    scannedBytes: delta.scannedBytes,
+    scannedLines: delta.scannedLines,
+    ...tailPositionFields(args.priorCursor, nextCursor, baseRevision, revision),
     checkpoint,
   };
 }

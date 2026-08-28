@@ -1,6 +1,7 @@
 import {
   readJsonlDelta,
   type JsonlCursor,
+  type JsonlScanStatus,
   type ReadJsonlDeltaOptions,
 } from '../../internal/jsonl-cursor.js';
 import {
@@ -36,6 +37,10 @@ export type SenpiRebuildOutcome =
       readonly cursor: JsonlCursor;
       readonly fileSize: number;
       readonly reset: boolean;
+      readonly previousCursor: JsonlCursor | null;
+      readonly scanStatus: JsonlScanStatus;
+      readonly scannedBytes: number;
+      readonly scannedLines: number;
     }
   | {
       readonly kind: 'deferred';
@@ -43,6 +48,10 @@ export type SenpiRebuildOutcome =
       readonly progress: SenpiRebuildProgress;
       readonly fileSize: number;
       readonly reset: boolean;
+      readonly previousCursor: JsonlCursor | null;
+      readonly scanStatus: JsonlScanStatus;
+      readonly scannedBytes: number;
+      readonly scannedLines: number;
     };
 
 /** Convert private Senpi limits to shared cursor options. */
@@ -99,6 +108,7 @@ export async function rebuildFromZero(
   let callLines = 0;
   let fileSize = 0;
   let reset = false;
+  let scanStatus: JsonlScanStatus = { status: 'complete' };
   let lastParsed: ParsedLines = {
     inputs: [],
     diagnostics: [],
@@ -122,6 +132,7 @@ export async function rebuildFromZero(
     }
     fileSize = delta.fileSize;
     reset = reset || delta.reset;
+    scanStatus = delta.scanStatus;
     cursor = delta.cursor;
     callBytes += delta.scannedBytes;
     callLines += delta.scannedLines;
@@ -142,6 +153,10 @@ export async function rebuildFromZero(
         cursor,
         fileSize,
         reset,
+        previousCursor: start,
+        scanStatus,
+        scannedBytes: callBytes,
+        scannedLines: callLines,
       };
     }
   }
@@ -165,5 +180,9 @@ export async function rebuildFromZero(
     },
     fileSize,
     reset,
+    previousCursor: start,
+    scanStatus,
+    scannedBytes: callBytes,
+    scannedLines: callLines,
   };
 }

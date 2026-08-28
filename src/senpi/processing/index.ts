@@ -84,6 +84,7 @@ export type {
   SenpiTailDiagnostic,
   SenpiTailDiagnosticCode,
   SenpiTailLeaf,
+  SenpiTailPosition,
 } from './tail.js';
 
 export { watchSenpiSession } from './watch.js';

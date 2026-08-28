@@ -9,6 +9,7 @@ import { readSenpiSessionMarkerInternal } from './checkpoint-read.js';
 import { checkpointCursor, parseLines } from './tail-parse.js';
 import { projectAndCommit } from './tail-project.js';
 import { unchangedResult } from './tail-result.js';
+import { mergeParsedDelta } from './tail-run-merge.js';
 import { canUseGraphAppend, cursorOptions } from './tail-resume.js';
 import {
   assertCheckpointPath,
@@ -50,7 +51,7 @@ export async function tailSenpiSessionInternal(
     options.checkpoint === undefined
       ? undefined
       : restoreInternalCheckpoint(options.checkpoint);
-  const supplied = options.fromStart === true ? undefined : provided;
+  const supplied = provided;
   const sessionPathDigest = createSenpiSessionPathDigest(sessionPath);
   assertCheckpointPath(supplied, sessionPathDigest);
   const limits = resolveLimits(options);
@@ -63,7 +64,7 @@ export async function tailSenpiSessionInternal(
         : checkpointCursor(supplied ?? marker);
   const baseline = initialTailBaseline(
     options.fromStart === true,
-    supplied,
+    provided,
     marker,
     markerRead.kind === 'invalid' && supplied === undefined
       ? markerRead.error
@@ -140,7 +141,10 @@ export async function tailSenpiSessionInternal(
       priorState,
       delta.cursor,
       delta.fileSize,
-      supplied.revision ?? marker?.revision ?? 0
+      supplied.revision ?? marker?.revision ?? 0,
+      delta.scanStatus,
+      delta.scannedBytes,
+      delta.scannedLines
     );
   }
 
@@ -161,7 +165,12 @@ export async function tailSenpiSessionInternal(
       fileSize: delta.fileSize,
       maxScanBytes: limits.maxScanBytes,
     });
-  if (!reset && priorState === undefined && !graphAppend) {
+  if (
+    !reset &&
+    priorCursor !== null &&
+    priorState === undefined &&
+    !graphAppend
+  ) {
     if (delta.fileSize <= limits.maxScanBytes) {
       const full = await readJsonlDelta(
         sessionPath,
@@ -225,20 +234,13 @@ export async function tailSenpiSessionInternal(
 
   const seeds =
     graphAppend && graph !== undefined ? seedAcceptedGraph(graph) : [];
-  const seedless = priorState === undefined && seeds.length === 0;
-  const parsed = {
-    ...parsedDelta,
-    inputs:
-      reset || seedless
-        ? parsedDelta.inputs
-        : [...(priorState?.inputs ?? seeds), ...parsedDelta.inputs],
-    diagnostics:
-      reset || seedless
-        ? [...parsedDelta.diagnostics]
-        : [...(priorState?.parseDiagnostics ?? []), ...parsedDelta.diagnostics],
-    sessionId:
-      parsedDelta.sessionId ?? supplied?.sessionId ?? marker?.sessionId ?? null,
-  };
+  const parsed = mergeParsedDelta(
+    parsedDelta,
+    reset,
+    priorState,
+    seeds,
+    supplied?.sessionId ?? marker?.sessionId ?? null
+  );
   return projectAndCommit(
     projectRequest(
       sessionPath,
@@ -254,13 +256,11 @@ export async function tailSenpiSessionInternal(
       invalidationMessage,
       priorCursor,
       seeds,
-      reset
-        ? []
-        : (priorState?.records.map(record => record.key) ??
-            marker?.projectedRecordKeys ??
-            supplied?.projectedRecordKeys ??
-            []),
-      reset ? undefined : marker?.projectedRecordCount,
+      priorState?.records.map(record => record.key) ??
+        marker?.projectedRecordKeys ??
+        supplied?.projectedRecordKeys ??
+        [],
+      marker?.projectedRecordCount,
       limits
     )
   );

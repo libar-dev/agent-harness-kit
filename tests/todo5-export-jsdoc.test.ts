@@ -29,11 +29,13 @@ const ownedSources = [
   'src/senpi/processing/checkpoint-write.ts',
   'src/senpi/processing/tail.ts',
   'src/senpi/processing/tail-parse.ts',
+  'src/senpi/processing/tail-project-request.ts',
   'src/senpi/processing/tail-project.ts',
   'src/senpi/processing/tail-projection-result.ts',
   'src/senpi/processing/tail-rebuild.ts',
   'src/senpi/processing/tail-result.ts',
   'src/senpi/processing/tail-resume.ts',
+  'src/senpi/processing/tail-run-merge.ts',
   'src/senpi/processing/tail-run.ts',
   'src/senpi/processing/tail-run-support.ts',
   'src/senpi/processing/tail-types.ts',
@@ -107,6 +109,6 @@ describe('todo 5 export documentation', () => {
       }
     }
     expect(missing).toEqual([]);
-    expect(covered).toBe(236);
+    expect(covered).toBe(239);
   });
 });

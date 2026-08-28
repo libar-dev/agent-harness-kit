@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 
+import type { SenpiTailPosition } from '../src/senpi/processing/index.js';
+
 const repoRoot = process.cwd();
 const execFileAsync = promisify(execFile);
 
@@ -59,6 +61,18 @@ function readBoolean(record: Record<string, unknown>, key: string): boolean {
 }
 
 describe('clean consumer matrix contract', () => {
+  it('type-exports the Senpi tail position from the public barrel', () => {
+    const position: SenpiTailPosition = {
+      generation: 1,
+      offset: 2,
+      lineNumber: 3,
+      pendingKind: null,
+      projectionRevision: 4,
+    };
+
+    expect(position.offset).toBeTypeOf('number');
+  });
+
   it('encodes Node 22 and 24 packed-consumer jobs in CI', async () => {
     const workflow = await readFile(
       join(repoRoot, '.github/workflows/test.yml'),

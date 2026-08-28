@@ -407,12 +407,7 @@
       }
     }
   ],
-  "diagnostics": [
-    {
-      "code": "checkpoint_invalid",
-      "message": "Saved checkpoint was discarded: fromStart requested."
-    }
-  ],
+  "diagnostics": [],
   "leaf": {
     "kind": "resolved",
     "leafId": "a1000007"
@@ -421,5 +416,5 @@
   "nextByteOffset": 1729,
   "fileSize": 1729,
   "generation": 0,
-  "reset": true
+  "reset": false
 }

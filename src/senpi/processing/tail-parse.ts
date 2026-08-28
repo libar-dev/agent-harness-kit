@@ -50,6 +50,8 @@ export function parseLines(
   let lastMalformedLine = -1;
 
   for (const line of lines) {
+    if (line.value.trim().length === 0) continue;
+
     let decoded: unknown;
     try {
       decoded = JSON.parse(line.value) as unknown;

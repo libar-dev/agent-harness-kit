@@ -1,3 +1,4 @@
+import type { JsonlScanStatus } from '../../internal/jsonl-cursor.js';
 import type { SenpiBlockChange } from './blocks.js';
 import type {
   SenpiSessionCheckpoint,
@@ -16,6 +17,10 @@ export interface SenpiSessionTailOptions extends SenpiSessionCheckpointCommitOpt
   readonly fromStart?: boolean;
   readonly includeOffPath?: boolean;
   readonly maxLineBytes?: number;
+  readonly maxScanBytes?: number;
+  readonly maxScanLines?: number;
+  readonly maxResultBytes?: number;
+  readonly maxResultRecords?: number;
   readonly checkpoint?: SenpiSessionCheckpoint;
 }
 
@@ -51,7 +56,16 @@ export interface SenpiSessionSpliceMutation extends SenpiProjectionMutation {
   readonly revision: number;
 }
 
-/** Result of one complete Senpi cursor, projection, and reduction pass. */
+/** Semantic cursor and projection position used to detect observable movement. */
+export interface SenpiTailPosition {
+  readonly generation: number;
+  readonly offset: number;
+  readonly lineNumber: number;
+  readonly pendingKind: 'discarding_oversized' | null;
+  readonly projectionRevision: number;
+}
+
+/** Result of one bounded Senpi cursor, projection, and reduction pass. */
 export interface SenpiSessionTailResult {
   readonly records: readonly SenpiProjectionRecord[];
   readonly mutations: readonly SenpiSessionSpliceMutation[];
@@ -65,5 +79,11 @@ export interface SenpiSessionTailResult {
   readonly generation: number;
   readonly revision: number;
   readonly reset: boolean;
+  readonly scanStatus: JsonlScanStatus;
+  readonly scannedBytes: number;
+  readonly scannedLines: number;
+  readonly previousPosition: SenpiTailPosition;
+  readonly nextPosition: SenpiTailPosition;
+  readonly moved: boolean;
   readonly checkpoint: SenpiSessionCheckpoint;
 }

@@ -1,4 +1,7 @@
-import type { JsonlCursor } from '../../internal/jsonl-cursor.js';
+import type {
+  JsonlCursor,
+  JsonlScanStatus,
+} from '../../internal/jsonl-cursor.js';
 import { SENPI_MARKER_MAX_BYTES, utf8PrettySize } from './accepted-graph.js';
 import type {
   InternalSenpiSessionCheckpoint,
@@ -15,7 +18,58 @@ import type { rebuildFromZero } from './tail-resume.js';
 import type {
   SenpiSessionTailResult,
   SenpiTailDiagnostic,
+  SenpiTailPosition,
 } from './tail-types.js';
+
+/**
+ * Build position fields and movement from cursor and projection revisions.
+ *
+ * @param previousCursor - Cursor observed before the bounded scan.
+ * @param nextCursor - Cursor reached by the bounded scan.
+ * @param previousRevision - Projection revision before reconciliation.
+ * @param nextRevision - Projection revision after reconciliation.
+ * @returns Previous/next semantic positions and their movement predicate.
+ */
+export function tailPositionFields(
+  previousCursor: JsonlCursor | null,
+  nextCursor: JsonlCursor,
+  previousRevision: number,
+  nextRevision: number
+): Pick<SenpiSessionTailResult, 'previousPosition' | 'nextPosition' | 'moved'> {
+  const previousPosition = tailPosition(previousCursor, previousRevision);
+  const nextPosition = tailPosition(nextCursor, nextRevision);
+  return {
+    previousPosition,
+    nextPosition,
+    moved: !positionsEqual(previousPosition, nextPosition),
+  };
+}
+
+function tailPosition(
+  cursor: JsonlCursor | null,
+  projectionRevision: number
+): SenpiTailPosition {
+  return {
+    generation: cursor?.generation ?? 0,
+    offset: cursor?.offset ?? 0,
+    lineNumber: cursor?.lineNumber ?? 1,
+    pendingKind: cursor?.pending?.kind ?? null,
+    projectionRevision,
+  };
+}
+
+function positionsEqual(
+  left: SenpiTailPosition,
+  right: SenpiTailPosition
+): boolean {
+  return (
+    left.generation === right.generation &&
+    left.offset === right.offset &&
+    left.lineNumber === right.lineNumber &&
+    left.pendingKind === right.pendingKind &&
+    left.projectionRevision === right.projectionRevision
+  );
+}
 
 /** Build a safe-stop result that carries bounded rebuild continuation state. */
 export function deferredResult(
@@ -92,6 +146,15 @@ export function deferredResult(
     generation: checkpoint.generation,
     revision,
     reset: false,
+    scanStatus: outcome.scanStatus,
+    scannedBytes: outcome.scannedBytes,
+    scannedLines: outcome.scannedLines,
+    ...tailPositionFields(
+      outcome.previousCursor,
+      outcome.progress.cursor,
+      revision,
+      revision
+    ),
     checkpoint,
   };
 }
@@ -141,7 +204,10 @@ export function unchangedResult(
   state: InternalSenpiSessionCheckpointState,
   cursor: JsonlCursor,
   fileSize: number,
-  revision: number
+  revision: number,
+  scanStatus: JsonlScanStatus,
+  scannedBytes: number,
+  scannedLines: number
 ): SenpiSessionTailResult {
   return {
     records: state.records,
@@ -159,6 +225,10 @@ export function unchangedResult(
     generation: cursor.generation,
     revision,
     reset: false,
+    scanStatus,
+    scannedBytes,
+    scannedLines,
+    ...tailPositionFields(cursor, cursor, revision, revision),
     checkpoint: { ...supplied, revision, state },
   };
 }
