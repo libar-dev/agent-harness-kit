@@ -32,6 +32,7 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ### Fixed
 
+- Compatibility probe tolerates missing git metadata in codeload/tarball installs: `candidateSha` falls back to `unknown` when `git rev-parse HEAD` fails, so `prepack` no longer fails on archive pins.
 - Bound stdin to 1 MiB in Senpi execute, Grok execute, both hook
   forwarders, and Claude `readStdin`.
 - Bound shared JSONL cursor scans to 32 MiB and 10_000 lines per pass.

@@ -287,10 +287,16 @@ async function runProbe(options: {
       second.nextByteOffset === first.nextByteOffset &&
       second.mutations.length === 0;
 
-    const candidateSha = execFileSync('git', ['rev-parse', 'HEAD'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    }).trim();
+    let candidateSha = 'unknown';
+    try {
+      candidateSha = execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+      }).trim();
+    } catch {
+      // Codeload/tarball installs have no .git; keep the probe runnable and
+      // degrade only the SHA label used for report metadata.
+    }
 
     return {
       schemaVersion: 1,

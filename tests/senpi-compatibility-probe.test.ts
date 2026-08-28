@@ -10,6 +10,7 @@ const script = 'scripts/senpi-compatibility-probe.mts';
 const temporaryRoots: string[] = [];
 
 const probeReportSchema = z.object({
+  candidateSha: z.string().min(1),
   gates: z.object({
     A: z.array(
       z.object({
@@ -80,6 +81,12 @@ describe('Pi/Senpi compatibility probe', () => {
         integrationReady: false,
       },
     });
+    // Real checkouts yield a git SHA; codeload/tarball archives have no .git
+    // and fall back to 'unknown' so the probe (and prepack) still run.
+    expect(
+      report.candidateSha === 'unknown' ||
+        /^[0-9a-f]{40}$/i.test(report.candidateSha)
+    ).toBe(true);
 
     const evidenceFields: Record<string, string[]> = {
       'A-01': ['scheme', 'collisionPolicy', 'claudeIdsByteIdentical'],
