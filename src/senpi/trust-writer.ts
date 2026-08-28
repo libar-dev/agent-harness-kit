@@ -575,8 +575,14 @@ export async function withStateLock<T>(
         await clock.sleep(LOCK_RETRY_DELAY_MS);
         continue;
       }
-      // Orphaned lock: remove and retry immediately.
-      rmSync(lockPath, { force: true });
+      // Orphaned lock: claim it atomically, re-verify staleness on the
+      // private claim, and only then remove. A fresh lock that replaced the
+      // stale one between the staleness check and the claim is restored and
+      // acquisition retried instead of deleted.
+      if (removeStaleStateLock(lockPath, clock.now)) {
+        continue;
+      }
+      await clock.sleep(LOCK_RETRY_DELAY_MS);
     }
   }
   if (!acquired) {
@@ -599,27 +605,90 @@ export async function withStateLock<T>(
  * another owner while our critical section still runs; deleting the
  * replacement's lock would admit a third writer and lose trust-state
  * updates. The token is freshly generated at acquire time, so any
- * replacement lock carries a different one; unparseable or missing content
- * fails safe by leaving the lock for the next staleness pass.
+ * replacement lock carries a different one.
+ *
+ * Check and removal race unless the lock is claimed atomically first: the
+ * file is renamed to a private uuid path, verified there, and only then
+ * removed. On a token mismatch (or unparseable content) the claimed file is
+ * restored to the lock path; if that restore is blocked the claimed file is
+ * deleted — it is no longer at the lock path, so it cannot be the lock any
+ * acquirer would see, and keeping it would leak a path nothing reclaims.
  */
 function releaseStateLock(lockPath: string, ownedToken: string): void {
-  let raw: string;
+  const claimedPath = `${lockPath}.release.${randomUUID()}`;
   try {
-    raw = readFileSync(lockPath, 'utf-8');
+    renameSync(lockPath, claimedPath);
   } catch (error: unknown) {
     if (isErrnoException(error) && error.code === 'ENOENT') return;
     throw error;
+  }
+  if (claimedTokenIs(claimedPath, ownedToken)) {
+    rmSync(claimedPath, { force: true });
+    return;
+  }
+  restoreClaimedStateLock(claimedPath, lockPath);
+}
+
+/**
+ * Atomically claim a stale trust-state lock and remove it. Returns true when
+ * a stale lock was claimed and removed; false when the path vanished or the
+ * claimed file is no longer stale (a fresh lock replaced it between the
+ * caller's staleness check and the claim — it is restored and acquisition
+ * retried rather than deleted).
+ */
+export function removeStaleStateLock(
+  lockPath: string,
+  now: () => number
+): boolean {
+  const claimedPath = `${lockPath}.reclaim.${randomUUID()}`;
+  try {
+    renameSync(lockPath, claimedPath);
+  } catch {
+    // Lock vanished between the staleness check and the claim; nothing to
+    // remove. Caller retries acquisition.
+    return false;
+  }
+  try {
+    if (now() - statSync(claimedPath).mtimeMs > LOCK_STALE_MS) {
+      rmSync(claimedPath, { force: true });
+      return true;
+    }
+    restoreClaimedStateLock(claimedPath, lockPath);
+    return false;
+  } catch (error: unknown) {
+    restoreClaimedStateLock(claimedPath, lockPath);
+    if (isErrnoException(error) && error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+function claimedTokenIs(claimedPath: string, ownedToken: string): boolean {
+  let raw: string;
+  try {
+    raw = readFileSync(claimedPath, 'utf-8');
+  } catch {
+    // Claimed but unreadable: not verifiably ours.
+    return false;
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    // Unparseable lock content belongs to an owner we cannot identify; fail
-    // safe by leaving the lock for the next staleness pass.
-    return;
+    // Unparseable lock content belongs to an owner we cannot identify.
+    return false;
   }
-  if (!isRecord(parsed) || parsed['token'] !== ownedToken) return;
-  rmSync(lockPath, { force: true });
+  return isRecord(parsed) && parsed['token'] === ownedToken;
+}
+
+function restoreClaimedStateLock(claimedPath: string, lockPath: string): void {
+  try {
+    renameSync(claimedPath, lockPath);
+  } catch {
+    // Lock path occupied mid-restore: the claimed copy is no longer at the
+    // lock path, so it cannot be the lock any acquirer sees; delete it to
+    // avoid leaking a path nothing reclaims.
+    rmSync(claimedPath, { force: true });
+  }
 }
 
 function acquireLock(lockPath: string): string {

@@ -37,10 +37,11 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
   rebuild that still cannot complete returns a non-advancing result
   (additive `stateComplete: false`, checkpoint rewound to previous cursors)
   instead of persisting a checkpoint past incomplete reconstructed state.
-- Marker lock and Senpi trust-state lock releases verify ownership before
-  removing the lock: a releasing owner whose stale lease was reclaimed by
-  another writer no longer deletes the replacement's lock and admits a third
-  writer. Locks now carry a fresh ownership token checked at release.
+- Marker lock and Senpi trust-state lock releases and stale reclamations
+  claim the lock atomically (rename to a private uuid path) and verify the
+  ownership token there before removal: a releasing owner whose stale lease
+  was reclaimed no longer deletes the replacement's lock, and a reclaimer
+  that races a fresh replacement restores it instead of deleting it.
 - Clean-consumer pack parsing survives npm < 11 running the `prepare` script during `npm pack` despite `--ignore-scripts` (npm/cli#3080): the JSON report is extracted from stdout instead of parsed from byte zero. Same fix in the packed package contract test.
 - Senpi execute real-signal cases spawn the self-killing child through `exec` so the observed close is signal death on shells that fork and wait (dash).
 - Marker-lock replacement case no longer asserts an inode number difference; ext4/overlayfs reuse inodes after rm+mkdir, and the nonce mismatch is the property under test.

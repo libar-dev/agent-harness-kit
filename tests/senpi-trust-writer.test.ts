@@ -26,6 +26,7 @@ import {
   SenpiTrustConsentError,
   SenpiTrustLockError,
   SenpiTrustStateMalformedError,
+  removeStaleStateLock,
   writeSenpiHookTrustEntry,
   withStateLock,
   type SenpiTrustWriterClock,
@@ -323,6 +324,37 @@ describe('senpi trust writer - locking', () => {
     );
 
     expect(readFileSync(`${statePath}.lock`, 'utf-8')).toBe('not-json{\n');
+  });
+
+  it('claims and removes a stale lock, leaving no reclaim leftovers', () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const statePath = globalStatePath(home);
+    const lockPath = `${statePath}.lock`;
+    writeFileSync(lockPath, '1\n', 'utf-8');
+    utimesSync(lockPath, new Date(0), new Date(0));
+
+    expect(removeStaleStateLock(lockPath, instantClock(() => 10_001).now)).toBe(
+      true
+    );
+    expect(existsSync(lockPath)).toBe(false);
+    expect(readdirSync(home)).toEqual([]);
+  });
+
+  it('restores a fresh lock that replaced a stale one before the claim', () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const statePath = globalStatePath(home);
+    const lockPath = `${statePath}.lock`;
+    // Fresh mtime (created just now); the injected now() is in the past so
+    // the claimed file re-check cannot call it stale.
+    writeFileSync(lockPath, '{"token":"owner-b"}\n', 'utf-8');
+
+    expect(removeStaleStateLock(lockPath, instantClock(() => 0).now)).toBe(
+      false
+    );
+    expect(existsSync(lockPath)).toBe(true);
+    expect(readFileSync(lockPath, 'utf-8')).toContain('owner-b');
   });
 
   it('removes a stale orphaned lock older than the staleness window', async () => {

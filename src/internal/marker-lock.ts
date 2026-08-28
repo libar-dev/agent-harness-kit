@@ -127,21 +127,36 @@ async function initializeOwnedLockDir(lockPath: string): Promise<string> {
  * lock would admit a third owner and break mutual exclusion. The nonce is
  * the ownership token: it is freshly generated at acquire time, so any
  * replacement lock carries a different one.
+ *
+ * The check and the removal race unless the lock is claimed atomically
+ * first: the directory is renamed to a private uuid path (unguessable, so
+ * nobody can move it away from us), verified there, and only then removed.
+ * On a token mismatch the claimed directory is restored to the lock path so
+ * the rightful owner keeps it; if that restore is blocked, the claimed
+ * directory is left in place and ages out through the normal staleness pass
+ * rather than being deleted under an unknown owner.
  */
 async function releaseOwnedLockDir(
   lockPath: string,
   ownedNonce: string
 ): Promise<void> {
+  const claimedPath = `${lockPath}.release.${randomUUID()}`;
   try {
-    await stat(lockPath);
+    await rename(lockPath, claimedPath);
   } catch (error: unknown) {
     if (hasErrorCode(error, 'ENOENT')) return;
     throw error;
   }
-  if ((await readLockNonce(lockPath)) !== ownedNonce) {
+  if ((await readLockNonce(claimedPath)) === ownedNonce) {
+    await rm(claimedPath, { recursive: true, force: true });
     return;
   }
-  await rm(lockPath, { recursive: true, force: true });
+  try {
+    await rename(claimedPath, lockPath);
+  } catch {
+    // no-excuse-ok: catch — lock path occupied mid-restore; the claimed
+    // directory is left for the staleness pass instead of deleted blind.
+  }
 }
 
 async function captureLockIdentity(
