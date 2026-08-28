@@ -610,7 +610,14 @@ function releaseStateLock(lockPath: string, ownedToken: string): void {
     if (isErrnoException(error) && error.code === 'ENOENT') return;
     throw error;
   }
-  const parsed: unknown = JSON.parse(raw);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // Unparseable lock content belongs to an owner we cannot identify; fail
+    // safe by leaving the lock for the next staleness pass.
+    return;
+  }
   if (!isRecord(parsed) || parsed['token'] !== ownedToken) return;
   rmSync(lockPath, { force: true });
 }

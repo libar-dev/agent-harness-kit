@@ -305,6 +305,26 @@ describe('senpi trust writer - locking', () => {
     );
   });
 
+  it('release leaves a malformed-content lock in place without throwing', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const statePath = globalStatePath(home);
+
+    // Owner A stale mid-critical-section; a non-JSON writer replaced the
+    // lock file. Release must fail safe: no throw from the unparseable
+    // content, and the foreign lock is left untouched.
+    await withStateLock(
+      statePath,
+      () => {
+        writeFileSync(`${statePath}.lock`, 'not-json{\n', 'utf-8');
+        return 'held';
+      },
+      instantClock()
+    );
+
+    expect(readFileSync(`${statePath}.lock`, 'utf-8')).toBe('not-json{\n');
+  });
+
   it('removes a stale orphaned lock older than the staleness window', async () => {
     const home = tempDir();
     mkdirSync(home, { recursive: true });
