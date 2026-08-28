@@ -2,8 +2,13 @@
  * Senpi observe-only hook forwarder (standalone asset source).
  *
  * Modeled on `hook-forwarder.ts`: reads one senpi `HookInputWire` envelope
- * from stdin and best-effort POSTs it VERBATIM as JSON to the endpoint URL
- * configured through the `SENPI_HOOK_FORWARD_URL` environment variable.
+ * from stdin (1 MiB cap) and best-effort POSTs it VERBATIM as JSON to the
+ * endpoint URL configured through `SENPI_HOOK_FORWARD_URL`.
+ *
+ * URL policy: only `http`/`https` URLs whose host is `127.0.0.1`,
+ * `localhost`, or `::1` are accepted unless
+ * `SENPI_HOOK_FORWARD_ALLOW_REMOTE=1` unlocks remote hosts. Redirects are
+ * never followed.
  *
  * Observe-only guarantee: this script NEVER emits gate or decision JSON to
  * stdout and ALWAYS exits 0. Unreachable endpoints, internal timeouts,
@@ -14,6 +19,8 @@
  */
 
 import { pathToFileURL } from 'node:url';
+
+import { readBoundedTimedStdin } from '../internal/stdin.js';
 
 /** The seven senpi hook events (vendored contract, engine 2026.8.19). */
 const SENPI_HOOK_EVENTS: ReadonlySet<string> = new Set([
@@ -27,6 +34,12 @@ const SENPI_HOOK_EVENTS: ReadonlySet<string> = new Set([
 ]);
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_STDIN_MAX_BYTES = 1024 * 1024;
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set([
+  '127.0.0.1',
+  'localhost',
+  '::1',
+]);
 
 interface ForwardedEnvelope {
   readonly event: string;
@@ -37,16 +50,52 @@ interface ForwardedEnvelope {
  *
  * Observe-only guarantee: resolves without writing anything to stdout and
  * without ever throwing; the process entry point always exits 0.
+ *
+ * Rejects non-http(s) URLs and, unless `SENPI_HOOK_FORWARD_ALLOW_REMOTE=1`,
+ * any host other than `127.0.0.1`, `localhost`, or `::1`. Stdin is capped
+ * at 1 MiB; truncated or malformed envelopes fail the shape gate silently.
  */
 export async function runSenpiForwarder(): Promise<void> {
   const url = process.env['SENPI_HOOK_FORWARD_URL'];
   if (url === undefined || url.trim() === '') return;
+  const trimmedUrl = url.trim();
+  if (!isAllowedSenpiForwardUrl(trimmedUrl)) return;
 
   const raw = await readStdin();
   const envelope = parseEnvelope(safeJson(raw));
   if (envelope === null) return;
 
-  await postJson(url, raw, getTimeoutMs());
+  await postJson(trimmedUrl, raw, getTimeoutMs());
+}
+
+/**
+ * Accept only http(s) URLs. Loopback hosts are the default; remote hosts
+ * require `SENPI_HOOK_FORWARD_ALLOW_REMOTE=1`.
+ */
+function isAllowedSenpiForwardUrl(urlText: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(urlText);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return false;
+  }
+  if (process.env['SENPI_HOOK_FORWARD_ALLOW_REMOTE'] === '1') {
+    return true;
+  }
+  return LOOPBACK_HOSTS.has(normalizeHostname(parsed.hostname));
+}
+
+/**
+ * WHATWG hostnames are usually unbracketed, but this Node reports IPv6
+ * literals as `[::1]`. Strip surrounding brackets before the allowlist check.
+ */
+function normalizeHostname(hostname: string): string {
+  return hostname.startsWith('[') && hostname.endsWith(']')
+    ? hostname.slice(1, -1)
+    : hostname;
 }
 
 /**
@@ -65,6 +114,7 @@ async function postJson(
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: payload,
+      redirect: 'error',
       signal: AbortSignal.timeout(timeoutMs),
     });
     await response.arrayBuffer();
@@ -75,11 +125,21 @@ async function postJson(
 }
 
 async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  try {
+    return await readBoundedTimedStdin({
+      stdin: process.stdin as AsyncIterable<Buffer>,
+      maxBytes: DEFAULT_STDIN_MAX_BYTES,
+      timeoutMs: getTimeoutMs(),
+      stderr: { write: () => undefined },
+      exit: () => undefined,
+      timeoutMessage: 'Timeout waiting for Senpi hook stdin input',
+      createTimeoutError: () =>
+        new Error('Timeout waiting for Senpi hook stdin input'),
+    });
+  } catch {
+    // Observe-only: timeout and read failures stay silent.
+    return '';
   }
-  return Buffer.concat(chunks).toString('utf8');
 }
 
 function safeJson(raw: string): unknown {

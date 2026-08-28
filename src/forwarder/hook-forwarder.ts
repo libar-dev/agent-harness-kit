@@ -8,8 +8,11 @@ import {
   isCwdUnderRoots,
   isProcessAlive,
 } from '../endpoint-discovery/index.js';
+import { readBoundedTimedStdin } from '../internal/stdin.js';
 
 const DEFAULT_TIMEOUT_MS = 45_000;
+const DEFAULT_STDIN_MAX_BYTES = 1024 * 1024;
+const STDIN_TIMEOUT_MS = 30_000;
 
 interface ForwarderEvent {
   readonly hook_event_name: string;
@@ -103,11 +106,19 @@ async function readEndpoint(filePath: string) {
 }
 
 async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  try {
+    return await readBoundedTimedStdin({
+      stdin: process.stdin as AsyncIterable<Buffer>,
+      maxBytes: DEFAULT_STDIN_MAX_BYTES,
+      timeoutMs: STDIN_TIMEOUT_MS,
+      stderr: { write: () => undefined },
+      exit: () => undefined,
+      timeoutMessage: 'Timeout waiting for stdin input',
+      createTimeoutError: () => new Error('Timeout waiting for stdin input'),
+    });
+  } catch {
+    return '';
   }
-  return Buffer.concat(chunks).toString('utf8');
 }
 
 function safeJson(raw: string): unknown {

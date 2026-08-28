@@ -158,6 +158,27 @@ describe('standalone hook forwarder', () => {
     const endpointPath = await writeEndpoint(serverPort(server));
     await expectSilent(validEvent(), endpointPath);
   });
+
+  it('caps a 2 MiB stdin at 1 MiB and does not POST the truncated prefix', async () => {
+    let requestCount = 0;
+    const server = await startServer((_request, response) => {
+      requestCount += 1;
+      response.end('{"decision":"allow"}');
+    });
+    const endpointPath = await writeEndpoint(serverPort(server));
+    const prefix =
+      '{"hook_event_name":"PreToolUse","cwd":"/repo/project/src","pad":"';
+    const suffix = '"}';
+    const targetBytes = 2 * 1024 * 1024;
+    const payload =
+      prefix + 'x'.repeat(targetBytes - prefix.length - suffix.length) + suffix;
+
+    const result = await runForwarder(payload, endpointPath);
+
+    expect(Buffer.byteLength(payload, 'utf8')).toBe(targetBytes);
+    expect(result).toEqual({ code: 0, stdout: '', stderr: '' });
+    expect(requestCount).toBe(0);
+  });
 });
 
 function validEvent(cwd = '/repo/project/src'): string {
@@ -195,6 +216,10 @@ async function runForwarder(
   const stderr: Buffer[] = [];
   child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
   child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+  child.stdin.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EPIPE') return;
+    throw error;
+  });
   child.stdin.end(stdin);
   const code = await new Promise<number | null>(resolveClose => {
     child.once('close', resolveClose);
