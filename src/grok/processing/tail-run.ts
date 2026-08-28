@@ -111,14 +111,17 @@ export async function tailGrokSession(
     ...orderedRecords,
   ].sort(compareGrokTailRecords);
   let reductionRecords = stateRecords.map(record => record.record);
+  const needsStateRebuild =
+    hasPriorGrokBytes(previousCursors) && supplied?.state === undefined;
+  let stateComplete = !needsStateRebuild;
   if (
-    orderedRecords.length > 0 &&
-    hasPriorGrokBytes(previousCursors) &&
-    supplied?.state === undefined
+    (orderedRecords.length > 0 || parsedDelta.diagnostics.length > 0) &&
+    needsStateRebuild
   ) {
+    const rebuildOptions = grokRebuildCursorOptions(options);
     const [allUpdates, allEvents] = await Promise.all([
-      readJsonlDelta(updatePath, null, cursorOptions),
-      readJsonlDelta(eventPath, null, cursorOptions),
+      readJsonlDelta(updatePath, null, rebuildOptions),
+      readJsonlDelta(eventPath, null, rebuildOptions),
     ]);
     if (allUpdates.fileSize === null) {
       throw new Error(`Missing required Grok updates source '${updatePath}'`);
@@ -137,6 +140,7 @@ export async function tailGrokSession(
       );
       stateRecords = [...full.records].sort(compareGrokTailRecords);
       reductionRecords = stateRecords.map(record => record.record);
+      stateComplete = true;
     }
   }
   const reduction = reduceGrokRecords(reductionRecords);
@@ -158,9 +162,15 @@ export async function tailGrokSession(
     baseRevision: marker?.revision ?? 0,
     sources: grokSourceKinds().map(sourceKind => ({
       sourceKind,
-      cursor: deltas[sourceKind].cursor,
+      cursor: stateComplete
+        ? deltas[sourceKind].cursor
+        : previousCursors[sourceKind],
     })),
-    state: { records: stateRecords },
+    ...(stateComplete
+      ? { state: { records: stateRecords } }
+      : supplied?.state === undefined
+        ? {}
+        : { state: supplied.state }),
   };
   const sources = grokSourceKinds().map(sourceKind =>
     grokSourceResult(
@@ -194,6 +204,7 @@ export async function tailGrokSession(
     resets,
     checkpoint,
     checkpointStatus,
+    stateComplete,
     scanStatus: combineGrokScanStatus(
       deltas.updates.scanStatus,
       deltas.events.scanStatus
@@ -234,6 +245,20 @@ function grokCursorOptions(options: GrokSessionTailOptions):
     ...(options.maxScanLines === undefined
       ? {}
       : { maxScanLines: options.maxScanLines }),
+  };
+}
+
+function grokRebuildCursorOptions(options: GrokSessionTailOptions): {
+  readonly maxLineBytes?: number;
+  readonly maxScanBytes: number;
+  readonly maxScanLines: number;
+} {
+  return {
+    ...(options.maxLineBytes === undefined
+      ? {}
+      : { maxLineBytes: options.maxLineBytes }),
+    maxScanBytes: Number.MAX_SAFE_INTEGER,
+    maxScanLines: Number.MAX_SAFE_INTEGER,
   };
 }
 

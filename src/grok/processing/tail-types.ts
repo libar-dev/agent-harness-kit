@@ -150,5 +150,7 @@ export interface GrokSessionTailResult {
   readonly resets: readonly GrokSourceReset[];
   readonly checkpoint: GrokSessionCheckpoint;
   readonly checkpointStatus: GrokCheckpointStatus;
+  /** Whether semantic checkpoint state was reconstructed from complete source reads. */
+  readonly stateComplete: boolean;
   readonly scanStatus: JsonlScanStatus;
 }
