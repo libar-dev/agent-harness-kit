@@ -4,17 +4,16 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { expectedMarker, sampleCheckpoint } from './senpi-checkpoint-utils.js';
+
 import {
   SENPI_MARKER_VERSION,
   commitSenpiSessionCheckpoint,
-  createSenpiSessionPathDigest,
   evaluateSenpiCheckpointInvalidation,
   getSenpiSessionMarkerPath,
-  parseSenpiSessionMarker,
   readSenpiSessionMarker,
-  type SenpiSessionCheckpoint,
-  type SenpiSessionMarker,
 } from '../src/senpi/processing/checkpoint.js';
+import { parseSenpiSessionMarkerInternal as parseSenpiSessionMarker } from '../src/internal/senpi-checkpoint-test-seam.js';
 
 describe('Senpi checkpoint markers', () => {
   let tmp: string;
@@ -45,10 +44,11 @@ describe('Senpi checkpoint markers', () => {
       allowedMarkerRoots: [tmp],
     });
 
-    expect(reread).toEqual({
-      kind: 'valid',
-      marker: expectedMarker(checkpoint, 1),
-    });
+    const { pending: _pending, ...visibleMarker } = expectedMarker(
+      checkpoint,
+      1
+    );
+    expect(reread).toEqual({ kind: 'valid', marker: visibleMarker });
     expect(
       getSenpiSessionMarkerPath(sessionPath, {
         markerDir,
@@ -230,42 +230,20 @@ describe('Senpi checkpoint markers', () => {
     expect(parseSenpiSessionMarker({ markerVersion: 99 }).kind).toBe('invalid');
     expect(SENPI_MARKER_VERSION).toBe(1);
   });
+
+  it('normalizes a missing pending field to null and rejects a malformed pending object', () => {
+    const checkpoint = sampleCheckpoint(sessionPath);
+    const legacy = expectedMarker(checkpoint, 1);
+    const { pending: _pending, ...withoutPending } = legacy;
+    const parsed = parseSenpiSessionMarker(withoutPending);
+    expect(parsed.kind).toBe('valid');
+    if (parsed.kind !== 'valid') throw new Error('expected valid marker');
+    expect(parsed.marker.pending).toBeNull();
+    expect(
+      parseSenpiSessionMarker({
+        ...legacy,
+        pending: { kind: 'discarding_oversized' },
+      }).kind
+    ).toBe('invalid');
+  });
 });
-
-function sampleCheckpoint(sessionPath: string): SenpiSessionCheckpoint {
-  return {
-    sessionPathDigest: createSenpiSessionPathDigest(sessionPath),
-    sessionId: 'sess-1',
-    device: '16777220',
-    inode: '123456',
-    generation: 0,
-    offset: 20,
-    lineNumber: 2,
-    headDigest: 'a'.repeat(64),
-    boundaryDigest: 'b'.repeat(64),
-    baseRevision: 0,
-    leafId: 'leaf-1',
-    projectedRecordKeys: ['rec:1', 'rec:2'],
-  };
-}
-
-function expectedMarker(
-  checkpoint: SenpiSessionCheckpoint,
-  revision: number
-): SenpiSessionMarker {
-  return {
-    sessionPathDigest: checkpoint.sessionPathDigest,
-    sessionId: checkpoint.sessionId,
-    device: checkpoint.device,
-    inode: checkpoint.inode,
-    generation: checkpoint.generation,
-    offset: checkpoint.offset,
-    lineNumber: checkpoint.lineNumber,
-    headDigest: checkpoint.headDigest,
-    boundaryDigest: checkpoint.boundaryDigest,
-    revision,
-    leafId: checkpoint.leafId,
-    projectedRecordKeys: checkpoint.projectedRecordKeys,
-    markerVersion: SENPI_MARKER_VERSION,
-  };
-}

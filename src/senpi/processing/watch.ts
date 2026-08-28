@@ -1,12 +1,13 @@
-// allow: SIZE_OK — cohesive async-generator state machine owns lifecycle ordering.
 import { watch } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 
 import { createFileWatchScheduler } from '../../internal/watch-scheduler.js';
-import {
-  tailSenpiSession,
-  type SenpiSessionTailOptions,
-  type SenpiSessionTailResult,
+import { publicTailResult } from './checkpoint-carrier.js';
+import { tailSenpiSessionInternal } from './tail-run.js';
+import type { SenpiInternalSessionTailOptions } from './tail-run-support.js';
+import type {
+  SenpiSessionTailOptions,
+  SenpiSessionTailResult,
 } from './tail.js';
 
 /** Default stable-cursor window elapsed before quiescence, in milliseconds. */
@@ -126,9 +127,20 @@ export type SenpiSessionWatchEvent =
  * @param options - Tail options plus signal, window sizes, and clock.
  * @returns An async sequence of ready, result, and quiescent events.
  */
-export async function* watchSenpiSession(
+/** Private watch controls for bounded continuation integration tests. */
+export type SenpiInternalSessionWatchOptions = Omit<
+  SenpiSessionWatchOptions,
+  'checkpoint'
+> &
+  SenpiInternalSessionTailOptions & {
+    /** Observe every reconcile result, including publicly silent deferrals. */
+    readonly onTailResult?: (result: SenpiSessionTailResult) => void;
+  };
+
+/** Run the watcher with private bounded-tail test controls. */
+export async function* watchSenpiSessionInternal(
   file: string,
-  options: SenpiSessionWatchOptions = {}
+  options: SenpiInternalSessionWatchOptions = {}
 ): AsyncGenerator<SenpiSessionWatchEvent, void, unknown> {
   const sessionPath = resolve(file);
   const watchDirectory = dirname(sessionPath);
@@ -143,6 +155,7 @@ export async function* watchSenpiSession(
     pollMs: _pollMs,
     clock: _clock,
     onCycle: _onCycle,
+    onTailResult: _onTailResult,
     ...tailOptions
   } = options;
 
@@ -243,13 +256,13 @@ export async function* watchSenpiSession(
   const waitForEvent = (): Promise<void> =>
     new Promise<void>(resolve => {
       resumeWait = resolve;
+      options.onCycle?.({ type: 'waiting' });
       if (wakeReason !== null || aborted) wake();
-      else options.onCycle?.({ type: 'waiting' });
     });
 
   const reconcile = async (): Promise<SenpiSessionTailResult | null> => {
     try {
-      const result = await tailSenpiSession(sessionPath, {
+      const result = await tailSenpiSessionInternal(sessionPath, {
         ...tailOptions,
         ...(continuationCheckpoint === undefined
           ? {}
@@ -257,6 +270,7 @@ export async function* watchSenpiSession(
         ...(replacementPending ? { fromStart: true } : {}),
       });
       continuationCheckpoint = result.checkpoint;
+      options.onTailResult?.(result);
       replacementPending = false;
       options.onCycle?.({ type: 'reconciled', source: 'present' });
       return result;
@@ -322,5 +336,24 @@ export async function* watchSenpiSession(
     disarmQuiescence();
     disarmPoll();
     watcher.close();
+  }
+}
+
+/** Watch one Senpi session using only the stable public option surface. */
+export async function* watchSenpiSession(
+  file: string,
+  options: SenpiSessionWatchOptions = {}
+): AsyncGenerator<SenpiSessionWatchEvent, void, unknown> {
+  for await (const event of watchSenpiSessionInternal(file, options)) {
+    if (event.type === 'quiescent') {
+      yield event;
+    } else if (event.type === 'ready') {
+      yield {
+        type: 'ready',
+        result: event.result === null ? null : publicTailResult(event.result),
+      };
+    } else {
+      yield { type: 'result', result: publicTailResult(event.result) };
+    }
   }
 }

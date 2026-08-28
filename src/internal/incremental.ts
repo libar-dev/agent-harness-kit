@@ -18,7 +18,23 @@ export function byteCursorsEqual(
     left.lineNumber === right.lineNumber &&
     left.generation === right.generation &&
     left.headDigest === right.headDigest &&
-    left.boundaryDigest === right.boundaryDigest
+    left.boundaryDigest === right.boundaryDigest &&
+    pendingEqual(left.pending, right.pending)
+  );
+}
+
+function pendingEqual(
+  left: JsonlCursor['pending'],
+  right: JsonlCursor['pending']
+): boolean {
+  const normalizedLeft = left ?? null;
+  const normalizedRight = right ?? null;
+  if (normalizedLeft === null || normalizedRight === null) {
+    return normalizedLeft === normalizedRight;
+  }
+  return (
+    normalizedLeft.kind === normalizedRight.kind &&
+    normalizedLeft.byteStart === normalizedRight.byteStart
   );
 }
 
