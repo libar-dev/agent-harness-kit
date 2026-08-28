@@ -319,4 +319,235 @@ describe('internal marker-lock identity reclamation', () => {
     expect(value).toBe('held');
     await expect(stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
+
+  // RED (three-party schedule): fails until the token-lease protocol lands
+  // (todos 4-6); flipped GREEN in todo 7.
+  it('T1 keeps fresh owner B canonical while displaced owner A releases', async () => {
+    const root = await makeTempRoot('marker-lock-t1-displaced-owner-');
+    const markerPath = join(root, 'session.marker.json');
+    const lockPath = `${markerPath}.lock`;
+
+    let finishA!: () => void;
+    const holdA = new Promise<void>(resolve => {
+      finishA = resolve;
+    });
+    let sawA!: () => void;
+    const aEntered = new Promise<void>(resolve => {
+      sawA = resolve;
+    });
+    let resumeARelease!: () => void;
+    const releaseBarrier = new Promise<void>(resolve => {
+      resumeARelease = resolve;
+    });
+    let sawARelease!: () => void;
+    const aReleasePaused = new Promise<void>(resolve => {
+      sawARelease = resolve;
+    });
+    let finishB!: () => void;
+    const holdB = new Promise<void>(resolve => {
+      finishB = resolve;
+    });
+    let sawB!: () => void;
+    const bEntered = new Promise<void>(resolve => {
+      sawB = resolve;
+    });
+
+    const ownerA = withMarkerLock(
+      markerPath,
+      async () => {
+        sawA();
+        await holdA;
+      },
+      {
+        lockedLabel: 'Senpi session marker',
+        onAfterReleaseTokensUnlinkedBeforeRmdir: async () => {
+          sawARelease();
+          await releaseBarrier;
+        },
+      }
+    );
+    await aEntered;
+    const past = new Date(Date.now() - DEFAULT_STALE_MARKER_LOCK_MS - 5_000);
+    await utimes(lockPath, past, past);
+
+    const ownerB = withMarkerLock(
+      markerPath,
+      async () => {
+        sawB();
+        await holdB;
+      },
+      { lockedLabel: 'Senpi session marker' }
+    );
+    await bEntered;
+    const ownerBBeforeRelease = parseOwnerDocument(
+      await readFile(join(lockPath, 'owner.json'), 'utf8')
+    );
+
+    finishA();
+    await aReleasePaused;
+    const canonicalDuringRelease = await stat(lockPath).then(
+      () => true,
+      () => false
+    );
+    const ownerDuringRelease = await readFile(
+      join(lockPath, 'owner.json'),
+      'utf8'
+    ).then(parseOwnerDocument, () => null);
+
+    resumeARelease();
+    await ownerA;
+    const ownerAfterARelease = await readFile(
+      join(lockPath, 'owner.json'),
+      'utf8'
+    ).then(parseOwnerDocument, () => null);
+    finishB();
+    await ownerB;
+
+    expect(
+      canonicalDuringRelease,
+      'canonical marker lock was vacated while fresh owner B was live'
+    ).toBe(true);
+    expect(
+      ownerDuringRelease,
+      'fresh owner B ownership vanished during displaced owner A release'
+    ).toEqual(ownerBBeforeRelease);
+    expect(
+      ownerAfterARelease,
+      'displaced owner A disturbed fresh owner B ownership'
+    ).toEqual(ownerBBeforeRelease);
+  });
+
+  // RED (three-party schedule): fails until the token-lease protocol lands
+  // (todos 4-6); flipped GREEN in todo 7.
+  it('T2 rejects interloper C while displaced owner A release is in flight', async () => {
+    const root = await makeTempRoot('marker-lock-t2-release-interloper-');
+    const markerPath = join(root, 'session.marker.json');
+    const lockPath = `${markerPath}.lock`;
+    const lockedMessage = `Senpi session marker is locked: '${markerPath}'`;
+
+    let finishA!: () => void;
+    const holdA = new Promise<void>(resolve => {
+      finishA = resolve;
+    });
+    let sawA!: () => void;
+    const aEntered = new Promise<void>(resolve => {
+      sawA = resolve;
+    });
+    let resumeARelease!: () => void;
+    const releaseBarrier = new Promise<void>(resolve => {
+      resumeARelease = resolve;
+    });
+    let sawARelease!: () => void;
+    const aReleasePaused = new Promise<void>(resolve => {
+      sawARelease = resolve;
+    });
+    let finishB!: () => void;
+    const holdB = new Promise<void>(resolve => {
+      finishB = resolve;
+    });
+    let sawB!: () => void;
+    const bEntered = new Promise<void>(resolve => {
+      sawB = resolve;
+    });
+
+    const ownerA = withMarkerLock(
+      markerPath,
+      async () => {
+        sawA();
+        await holdA;
+      },
+      {
+        lockedLabel: 'Senpi session marker',
+        onAfterReleaseTokensUnlinkedBeforeRmdir: async () => {
+          sawARelease();
+          await releaseBarrier;
+        },
+      }
+    );
+    await aEntered;
+    const past = new Date(Date.now() - DEFAULT_STALE_MARKER_LOCK_MS - 5_000);
+    await utimes(lockPath, past, past);
+    const ownerB = withMarkerLock(
+      markerPath,
+      async () => {
+        sawB();
+        await holdB;
+      },
+      { lockedLabel: 'Senpi session marker' }
+    );
+    await bEntered;
+
+    finishA();
+    await aReleasePaused;
+    let interloperEntered = false;
+    const interloperError = await withMarkerLock(
+      markerPath,
+      async () => {
+        interloperEntered = true;
+      },
+      { lockedLabel: 'Senpi session marker' }
+    ).then(
+      () => null,
+      (error: unknown) => error
+    );
+
+    resumeARelease();
+    await ownerA;
+    finishB();
+    await ownerB;
+
+    expect(
+      interloperEntered,
+      'interloper C entered through the canonical release vacancy'
+    ).toBe(false);
+    expect(errorMessage(interloperError)).toBe(lockedMessage);
+  });
+
+  // RED (three-party schedule): fails until the token-lease protocol lands
+  // (todos 4-6); flipped GREEN in todo 7.
+  it('T3 rejects interloper C while stale owner A reclamation is in flight', async () => {
+    const root = await makeTempRoot('marker-lock-t3-reclaim-interloper-');
+    const markerPath = join(root, 'session.marker.json');
+    const lockPath = `${markerPath}.lock`;
+    const lockedMessage = `Senpi session marker is locked: '${markerPath}'`;
+    await plantLockDir(lockPath, { nonce: randomUUID(), stale: true });
+
+    let resumeReclaimer!: () => void;
+    const reclaimBarrier = new Promise<void>(resolve => {
+      resumeReclaimer = resolve;
+    });
+    let sawReclaimGap!: () => void;
+    const reclaimerPaused = new Promise<void>(resolve => {
+      sawReclaimGap = resolve;
+    });
+    const reclaimer = withMarkerLock(markerPath, async () => 'reclaimed', {
+      lockedLabel: 'Senpi session marker',
+      onAfterExpiredTokensUnlinkedBeforeRmdir: async () => {
+        sawReclaimGap();
+        await reclaimBarrier;
+      },
+    });
+    await reclaimerPaused;
+
+    let interloperEntered = false;
+    const interloperError = await withMarkerLock(
+      markerPath,
+      async () => {
+        interloperEntered = true;
+      },
+      { lockedLabel: 'Senpi session marker' }
+    ).then(
+      () => null,
+      (error: unknown) => error
+    );
+
+    resumeReclaimer();
+    await reclaimer;
+
+    expect(
+      interloperEntered,
+      'interloper C entered through the canonical reclamation vacancy'
+    ).toBe(false);
+    expect(errorMessage(interloperError)).toBe(lockedMessage);
+  });
 });

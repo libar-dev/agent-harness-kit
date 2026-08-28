@@ -372,6 +372,230 @@ describe('senpi trust writer - locking', () => {
     expect(result.id).toMatch(/^hk_/);
     expect(existsSync(lockPath)).toBe(false);
   });
+
+  // RED (three-party schedule): fails until the token-lease protocol lands
+  // (todos 4-6); flipped GREEN in todo 7.
+  it('T1 keeps fresh owner B canonical while displaced owner A releases', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const statePath = globalStatePath(home);
+    const lockPath = `${statePath}.lock`;
+
+    let finishA!: () => void;
+    const holdA = new Promise<void>(resolve => {
+      finishA = resolve;
+    });
+    let sawA!: () => void;
+    const aEntered = new Promise<void>(resolve => {
+      sawA = resolve;
+    });
+    let resumeARelease!: () => void;
+    const releaseBarrier = new Promise<void>(resolve => {
+      resumeARelease = resolve;
+    });
+    let sawARelease!: () => void;
+    const aReleasePaused = new Promise<void>(resolve => {
+      sawARelease = resolve;
+    });
+    let finishB!: () => void;
+    const holdB = new Promise<void>(resolve => {
+      finishB = resolve;
+    });
+    let sawB!: () => void;
+    const bEntered = new Promise<void>(resolve => {
+      sawB = resolve;
+    });
+
+    const ownerA = withStateLock(
+      statePath,
+      async () => {
+        sawA();
+        await holdA;
+      },
+      instantClock(),
+      {
+        onAfterReleaseTokensUnlinkedBeforeRmdir: async () => {
+          sawARelease();
+          await releaseBarrier;
+        },
+      }
+    );
+    await aEntered;
+    const ownerB = withStateLock(
+      statePath,
+      async () => {
+        sawB();
+        await holdB;
+      },
+      instantClock(() => Date.now() + 20_000)
+    );
+    await bEntered;
+    const ownerBBeforeRelease = readFileSync(lockPath, 'utf-8');
+
+    finishA();
+    await aReleasePaused;
+    const canonicalDuringRelease = existsSync(lockPath);
+    const ownerDuringRelease = canonicalDuringRelease
+      ? readFileSync(lockPath, 'utf-8')
+      : null;
+
+    resumeARelease();
+    await ownerA;
+    const ownerAfterARelease = existsSync(lockPath)
+      ? readFileSync(lockPath, 'utf-8')
+      : null;
+    finishB();
+    await ownerB;
+
+    expect(
+      canonicalDuringRelease,
+      'canonical trust lock was vacated while fresh owner B was live'
+    ).toBe(true);
+    expect(
+      ownerDuringRelease,
+      'fresh owner B ownership vanished during displaced owner A release'
+    ).toBe(ownerBBeforeRelease);
+    expect(
+      ownerAfterARelease,
+      'displaced owner A disturbed fresh owner B ownership'
+    ).toBe(ownerBBeforeRelease);
+  });
+
+  // RED (three-party schedule): fails until the token-lease protocol lands
+  // (todos 4-6); flipped GREEN in todo 7.
+  it('T2 rejects interloper C while displaced owner A release is in flight', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const statePath = globalStatePath(home);
+
+    let finishA!: () => void;
+    const holdA = new Promise<void>(resolve => {
+      finishA = resolve;
+    });
+    let sawA!: () => void;
+    const aEntered = new Promise<void>(resolve => {
+      sawA = resolve;
+    });
+    let resumeARelease!: () => void;
+    const releaseBarrier = new Promise<void>(resolve => {
+      resumeARelease = resolve;
+    });
+    let sawARelease!: () => void;
+    const aReleasePaused = new Promise<void>(resolve => {
+      sawARelease = resolve;
+    });
+    let finishB!: () => void;
+    const holdB = new Promise<void>(resolve => {
+      finishB = resolve;
+    });
+    let sawB!: () => void;
+    const bEntered = new Promise<void>(resolve => {
+      sawB = resolve;
+    });
+
+    const ownerA = withStateLock(
+      statePath,
+      async () => {
+        sawA();
+        await holdA;
+      },
+      instantClock(),
+      {
+        onAfterReleaseTokensUnlinkedBeforeRmdir: async () => {
+          sawARelease();
+          await releaseBarrier;
+        },
+      }
+    );
+    await aEntered;
+    const ownerB = withStateLock(
+      statePath,
+      async () => {
+        sawB();
+        await holdB;
+      },
+      instantClock(() => Date.now() + 20_000)
+    );
+    await bEntered;
+
+    finishA();
+    await aReleasePaused;
+    let interloperEntered = false;
+    const interloperError = await withStateLock(
+      statePath,
+      () => {
+        interloperEntered = true;
+      },
+      instantClock()
+    ).then(
+      () => null,
+      (error: unknown) => error
+    );
+
+    resumeARelease();
+    await ownerA;
+    finishB();
+    await ownerB;
+
+    expect(
+      interloperEntered,
+      'interloper C entered through the canonical release vacancy'
+    ).toBe(false);
+    expect(interloperError).toBeInstanceOf(SenpiTrustLockError);
+  });
+
+  // RED (three-party schedule): fails until the token-lease protocol lands
+  // (todos 4-6); flipped GREEN in todo 7.
+  it('T3 rejects interloper C while stale owner A reclamation is in flight', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const statePath = globalStatePath(home);
+    const lockPath = `${statePath}.lock`;
+    writeFileSync(lockPath, `${JSON.stringify({ token: randomUUID() })}\n`);
+    utimesSync(lockPath, new Date(0), new Date(0));
+
+    let resumeReclaimer!: () => void;
+    const reclaimBarrier = new Promise<void>(resolve => {
+      resumeReclaimer = resolve;
+    });
+    let sawReclaimGap!: () => void;
+    const reclaimerPaused = new Promise<void>(resolve => {
+      sawReclaimGap = resolve;
+    });
+    const reclaimer = withStateLock(
+      statePath,
+      () => 'reclaimed',
+      instantClock(() => 10_001),
+      {
+        onAfterExpiredTokensUnlinkedBeforeRmdir: async () => {
+          sawReclaimGap();
+          await reclaimBarrier;
+        },
+      }
+    );
+    await reclaimerPaused;
+
+    let interloperEntered = false;
+    const interloperError = await withStateLock(
+      statePath,
+      () => {
+        interloperEntered = true;
+      },
+      instantClock()
+    ).then(
+      () => null,
+      (error: unknown) => error
+    );
+
+    resumeReclaimer();
+    await reclaimer;
+
+    expect(
+      interloperEntered,
+      'interloper C entered through the canonical reclamation vacancy'
+    ).toBe(false);
+    expect(interloperError).toBeInstanceOf(SenpiTrustLockError);
+  });
 });
 
 describe('senpi trust writer - fail-closed on malformed state', () => {
