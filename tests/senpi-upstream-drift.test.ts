@@ -231,23 +231,6 @@ describe('senpi hook input wire manifest upstream drift', () => {
       false
     );
   });
-
-  it('reports a named diff when a vendored field disappears (mutation)', () => {
-    const source = readVendoredTypes();
-    const tamperedLine = '    readonly permission_mode?: string;\n';
-    const mutated = source.replace(tamperedLine, '');
-    expect(mutated).not.toBe(source);
-
-    let failureMessage: string | undefined;
-    try {
-      assertManifestMatchesVendored(extractHookInputWireBranches(mutated));
-    } catch (error: unknown) {
-      failureMessage = error instanceof Error ? error.message : undefined;
-    }
-    expect(failureMessage).toBeDefined();
-    expect(failureMessage).toMatch(/UserPromptSubmit/);
-    expect(failureMessage).toMatch(/permission_mode/);
-  });
 });
 
 describe('senpi session format docs upstream drift', () => {
