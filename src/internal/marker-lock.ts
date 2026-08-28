@@ -1,18 +1,32 @@
-import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  lstat,
+  readdir,
+  readFile,
+  unlink,
+  utimes,
+} from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import { hasErrorCode } from './marker-store.js';
+import {
+  LeaseLockBusyError,
+  withLeaseLock,
+  type ExpiredLeaseToken,
+  type Lease,
+  type LegacyLeaseTokenData,
+} from './lease-lock.js';
 
 /** Lock directories older than this age are treated as abandoned. */
 export const DEFAULT_STALE_MARKER_LOCK_MS = 30_000;
 
-const MARKER_LOCK_OWNER_FILENAME = 'owner.json';
+const VERSION2_TOKEN_NAME_PATTERN =
+  /^owner\.([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
 
 /**
- * Identity captured for stale-lock reclamation.
+ * Identity captured for stale-lock reclamation hooks.
  *
- * `nonce` is null for legacy lock dirs that predate `owner.json`.
+ * `nonce` is taken from a legacy `owner.json` `{ nonce }` token when present.
+ * Version-2 tokens use `owner.<ownerId>.<leaseId>` and report `nonce: null`.
  */
 export type MarkerLockIdentity = {
   readonly dev: number;
@@ -35,8 +49,9 @@ export type WithMarkerLockOptions = {
   readonly onAfterExpiredTokensUnlinkedBeforeRmdir?: () => void | Promise<void>;
   readonly onAfterCanonicalMkdirBeforeToken?: () => void | Promise<void>;
   /**
-   * Test-only hook fired after the first identity capture and stale-age check,
-   * before the re-stat / nonce re-read that gates unlink.
+   * Test-only hook fired from `canReclaimExpiredToken` after the first identity
+   * capture and stale-age check, before the re-stat / nonce re-read that gates
+   * whether the captured token is treated as reclaimable.
    *
    * @internal
    */
@@ -45,7 +60,7 @@ export type WithMarkerLockOptions = {
   ) => void | Promise<void>;
   /**
    * Test-only hook fired after identity and stale-age re-verification,
-   * immediately before attempting to claim the stale lock.
+   * immediately before the core unlinks expired tokens / rmdirs (claim).
    *
    * @internal
    */
@@ -57,24 +72,27 @@ export type WithMarkerLockOptions = {
 /**
  * Hold an exclusive directory lock around a marker write.
  *
- * Creates `<markerPath>.lock` with `mkdir`/`O_EXCL` semantics (`mode 0o700`)
- * and writes `owner.json` `{ nonce }` into the new lock dir. A lock whose
- * mtime is older than `staleLockMs` (default
- * {@link DEFAULT_STALE_MARKER_LOCK_MS}) is atomically replaced, but only when
- * an atomic rename claim and post-rename re-verification still match the
- * captured `{dev, ino}` and nonce (legacy locks with no `owner.json` compare
- * nonce as null). Fresh contention or an identity mismatch throws using
- * `lockedLabel`.
+ * Creates `<markerPath>.lock` via the shared token-lease core (`mkdir` /
+ * `O_EXCL` semantics, mode `0o700`). New holders publish a version-2 token
+ * named `owner.<ownerId>.<leaseId>` (the core default). The previous
+ * `owner.json` `{ nonce }` naming is legacy only: the core still captures
+ * that shape when the token is mtime-stale. The canonical lock path is never
+ * renamed; release unlinks this holder's tokens and `rmdir`s.
+ *
+ * A competing lock whose age exceeds `staleLockMs` (default
+ * {@link DEFAULT_STALE_MARKER_LOCK_MS}) is reclaimed by the core. Fresh
+ * contention throws using `lockedLabel`.
  *
  * @param markerPath - Marker file path whose sibling `.lock` directory is held.
- * @param action - Critical section run while the lock is held.
+ * @param action - Critical section run while the lock is held. Zero-arg
+ *   callbacks stay source-compatible; `action` may also receive the `Lease`.
  * @param options - Adapter lock label and optional stale age.
  * @returns The value returned by `action`.
  * @throws When a fresh competing lock is present or lock creation fails.
  */
 export async function withMarkerLock<T>(
   markerPath: string,
-  action: () => Promise<T>,
+  action: (lease: Lease) => T | Promise<T>,
   options: WithMarkerLockOptions
 ): Promise<T> {
   const lockPath = `${markerPath}.lock`;
@@ -82,128 +100,160 @@ export async function withMarkerLock<T>(
   const lockedMessage = `${options.lockedLabel} is locked: '${markerPath}'`;
 
   await mkdir(dirname(markerPath), { recursive: true, mode: 0o700 });
-  let ownedNonce: string;
+  await alignStaleDirectoryTokenMtimes(lockPath, staleLockMs);
+
+  let claimIdentity: MarkerLockIdentity | undefined;
   try {
-    ownedNonce = await createExclusiveLockDir(
-      lockPath,
-      options.onAfterCanonicalMkdirBeforeToken
-    );
+    return await withLeaseLock(lockPath, action, {
+      staleMs: staleLockMs,
+      ...(options.onAfterCanonicalMkdirBeforeToken === undefined
+        ? {}
+        : {
+            onAfterCanonicalMkdirBeforeToken:
+              options.onAfterCanonicalMkdirBeforeToken,
+          }),
+      ...(options.onAfterExpiredTokensUnlinkedBeforeRmdir === undefined
+        ? {}
+        : {
+            onAfterExpiredTokensUnlinkedBeforeRmdir:
+              options.onAfterExpiredTokensUnlinkedBeforeRmdir,
+          }),
+      ...(options.onAfterReleaseTokensUnlinkedBeforeRmdir === undefined
+        ? {}
+        : {
+            onAfterReleaseTokensUnlinkedBeforeRmdir:
+              options.onAfterReleaseTokensUnlinkedBeforeRmdir,
+          }),
+      onAfterExpiredTokensClassified: async () => {
+        if (claimIdentity !== undefined) {
+          await options.onBeforeStaleClaim?.(claimIdentity);
+        }
+        await options.onAfterExpiredTokensClassified?.();
+      },
+      canReclaimExpiredToken: async captured => {
+        const first = await identityFromExpired(lockPath, captured);
+        await options.onBeforeStaleUnlink?.(first);
+        let second: MarkerLockIdentity;
+        try {
+          second = await captureMarkerLockIdentity(lockPath);
+        } catch {
+          return false;
+        }
+        if (!identitiesMatch(first, second)) return false;
+        if (Date.now() - second.mtimeMs <= staleLockMs) return false;
+        claimIdentity = second;
+        return true;
+      },
+    });
   } catch (error: unknown) {
-    if (!hasErrorCode(error, 'EEXIST')) throw error;
-    const reclaimedNonce = await replaceStaleMarkerLock(
-      lockPath,
-      staleLockMs,
-      options.onBeforeStaleUnlink,
-      options.onBeforeStaleClaim,
-      options.onAfterExpiredTokensClassified,
-      options.onAfterExpiredTokensUnlinkedBeforeRmdir,
-      options.onAfterCanonicalMkdirBeforeToken
-    );
-    if (reclaimedNonce === false) {
+    if (error instanceof LeaseLockBusyError) {
       throw new Error(lockedMessage);
     }
-    ownedNonce = reclaimedNonce;
-  }
-  try {
-    return await action();
-  } finally {
-    await releaseOwnedLockDir(
-      lockPath,
-      ownedNonce,
-      options.onAfterReleaseTokensUnlinkedBeforeRmdir
-    );
-  }
-}
-
-async function createExclusiveLockDir(
-  lockPath: string,
-  onAfterCanonicalMkdirBeforeToken?: () => void | Promise<void>
-): Promise<string> {
-  await mkdir(lockPath, { mode: 0o700 });
-  await onAfterCanonicalMkdirBeforeToken?.();
-  return initializeOwnedLockDir(lockPath);
-}
-
-async function initializeOwnedLockDir(lockPath: string): Promise<string> {
-  const nonce = randomUUID();
-  try {
-    await writeFile(
-      join(lockPath, MARKER_LOCK_OWNER_FILENAME),
-      JSON.stringify({ nonce }),
-      { encoding: 'utf8', mode: 0o600 }
-    );
-  } catch (error: unknown) {
-    await rm(lockPath, { recursive: true, force: true });
     throw error;
   }
-  return nonce;
 }
 
 /**
- * Remove a lock directory this owner acquired, leaving it untouched when the
- * lock no longer belongs to us. A stale lease can be reclaimed by another
- * owner while our critical section still runs; deleting the replacement's
- * lock would admit a third owner and break mutual exclusion. The nonce is
- * the ownership token: it is freshly generated at acquire time, so any
- * replacement lock carries a different one.
- *
- * The check and the removal race unless the lock is claimed atomically
- * first: the directory is renamed to a private uuid path (unguessable, so
- * nobody can move it away from us), verified there, and only then removed.
- * On a token mismatch the claimed directory is restored to the lock path so
- * the rightful owner keeps it; if that restore is blocked, the claimed
- * directory is left in place and ages out through the normal staleness pass
- * rather than being deleted under an unknown owner.
+ * Previous marker locks used directory mtime as the staleness clock. Tests
+ * (and the three-party schedules) still age the lock directory with `utimes`.
+ * The core expires tokens by file mtime, so a stale directory's capturable
+ * tokens are aligned to the directory clock before acquire. Malformed
+ * `owner.json` is dropped only when the directory is already stale, matching
+ * the previous "unreadable owner.json is a legacy occupant" rule that the
+ * core's fail-closed parser would otherwise refuse.
  */
-async function releaseOwnedLockDir(
+async function alignStaleDirectoryTokenMtimes(
   lockPath: string,
-  ownedNonce: string,
-  onAfterReleaseTokensUnlinkedBeforeRmdir?: () => void | Promise<void>
+  staleLockMs: number
 ): Promise<void> {
-  const claimedPath = `${lockPath}.release.${randomUUID()}`;
+  let dirStats: { readonly isDirectory: boolean; readonly mtimeMs: number };
   try {
-    await rename(lockPath, claimedPath);
-    await onAfterReleaseTokensUnlinkedBeforeRmdir?.();
-  } catch (error: unknown) {
-    if (hasErrorCode(error, 'ENOENT')) return;
-    throw error;
-  }
-  if ((await readLockNonce(claimedPath)) === ownedNonce) {
-    await rm(claimedPath, { recursive: true, force: true });
+    const stats = await lstat(lockPath);
+    dirStats = { isDirectory: stats.isDirectory(), mtimeMs: stats.mtimeMs };
+  } catch {
     return;
   }
+  if (!dirStats.isDirectory) return;
+  if (Date.now() - dirStats.mtimeMs <= staleLockMs) return;
+
+  let names: readonly string[];
   try {
-    await rename(claimedPath, lockPath);
+    names = await readdir(lockPath);
   } catch {
-    // no-excuse-ok: catch — lock path occupied mid-restore; the claimed
-    // directory is left for the staleness pass instead of deleted blind.
+    return;
+  }
+  const past = new Date(dirStats.mtimeMs);
+  for (const name of names) {
+    const tokenPath = join(lockPath, name);
+    if (name === 'owner.json') {
+      await prepareLegacyOwnerJson(lockPath, tokenPath, past);
+      continue;
+    }
+    if (!VERSION2_TOKEN_NAME_PATTERN.test(name)) continue;
+    try {
+      await utimes(tokenPath, past, past);
+    } catch {
+      // no-excuse-ok: catch — token vanished or is not utimes-able mid-race
+    }
   }
 }
 
-async function captureLockIdentity(
-  lockPath: string
+async function prepareLegacyOwnerJson(
+  lockPath: string,
+  tokenPath: string,
+  past: Date
+): Promise<void> {
+  try {
+    const raw = await readFile(tokenPath, 'utf8');
+    if (isCapturableLegacyDocument(parseJson(raw))) {
+      await utimes(tokenPath, past, past);
+      return;
+    }
+  } catch {
+    // no-excuse-ok: catch — unreadable or non-JSON owner.json is legacy debris
+  }
+  try {
+    await unlink(tokenPath);
+    // Unlink refreshes the directory clock; restore the stale mtime so the
+    // core's empty-dir reclaim still sees an abandoned lock.
+    await utimes(lockPath, past, past);
+  } catch {
+    // no-excuse-ok: catch — already gone, or unlink raced with another reclaimer
+  }
+}
+
+async function identityFromExpired(
+  lockPath: string,
+  captured: ExpiredLeaseToken
 ): Promise<MarkerLockIdentity> {
-  const stats = await stat(lockPath);
+  const stats = await lstat(lockPath);
   return {
     dev: stats.dev,
     ino: stats.ino,
-    nonce: await readLockNonce(lockPath),
+    nonce: nonceFromToken(captured.token),
     mtimeMs: stats.mtimeMs,
   };
 }
 
-async function readLockNonce(lockPath: string): Promise<string | null> {
+async function captureMarkerLockIdentity(
+  lockPath: string
+): Promise<MarkerLockIdentity> {
+  const stats = await lstat(lockPath);
+  return {
+    dev: stats.dev,
+    ino: stats.ino,
+    nonce: await readLegacyNonce(lockPath),
+    mtimeMs: stats.mtimeMs,
+  };
+}
+
+async function readLegacyNonce(lockPath: string): Promise<string | null> {
   try {
-    const raw = await readFile(
-      join(lockPath, MARKER_LOCK_OWNER_FILENAME),
-      'utf8'
+    const parsed = parseJson(
+      await readFile(join(lockPath, 'owner.json'), 'utf8')
     );
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    const nonce = (parsed as { nonce?: unknown }).nonce;
-    return typeof nonce === 'string' && nonce.length > 0 ? nonce : null;
+    return isCapturableLegacyDocument(parsed) ? parsed.nonce : null;
   } catch {
-    // no-excuse-ok: catch — missing or unreadable owner.json is a legacy lock
     return null;
   }
 }
@@ -219,82 +269,24 @@ function identitiesMatch(
   );
 }
 
-async function replaceStaleMarkerLock(
-  lockPath: string,
-  staleLockMs: number,
-  onBeforeStaleUnlink?: (captured: MarkerLockIdentity) => void | Promise<void>,
-  onBeforeStaleClaim?: (captured: MarkerLockIdentity) => void | Promise<void>,
-  onAfterExpiredTokensClassified?: () => void | Promise<void>,
-  onAfterExpiredTokensUnlinkedBeforeRmdir?: () => void | Promise<void>,
-  onAfterCanonicalMkdirBeforeToken?: () => void | Promise<void>
-): Promise<string | false> {
-  let first: MarkerLockIdentity;
-  try {
-    first = await captureLockIdentity(lockPath);
-  } catch {
-    // no-excuse-ok: catch — missing lock mid-race is treated as not stale-removable
-    return false;
-  }
-  if (Date.now() - first.mtimeMs <= staleLockMs) {
-    return false;
-  }
-  if (onBeforeStaleUnlink) {
-    await onBeforeStaleUnlink(first);
-  }
-  let second: MarkerLockIdentity;
-  try {
-    second = await captureLockIdentity(lockPath);
-  } catch {
-    // no-excuse-ok: catch — lock vanished between capture and re-stat
-    return false;
-  }
-  if (!identitiesMatch(first, second)) {
-    return false;
-  }
-  if (Date.now() - second.mtimeMs <= staleLockMs) {
-    return false;
-  }
-  await onAfterExpiredTokensClassified?.();
-  if (onBeforeStaleClaim) {
-    await onBeforeStaleClaim(second);
-  }
-  const claimedPath = `${lockPath}.reclaim.${randomUUID()}`;
-  try {
-    await rename(lockPath, claimedPath);
-  } catch {
-    // no-excuse-ok: catch — another reclaimer won the atomic rename
-    return false;
-  }
-  await onAfterExpiredTokensUnlinkedBeforeRmdir?.();
+function nonceFromToken(token: ExpiredLeaseToken['token']): string | null {
+  return 'nonce' in token && typeof token.nonce === 'string'
+    ? token.nonce
+    : null;
+}
 
-  try {
-    await mkdir(lockPath, { mode: 0o700 });
-    await onAfterCanonicalMkdirBeforeToken?.();
-  } catch {
-    // no-excuse-ok: catch — fail closed if a creator occupied the rename gap
-    return false;
-  }
+function isCapturableLegacyDocument(
+  value: unknown
+): value is Extract<LegacyLeaseTokenData, { readonly nonce: string }> {
+  if (typeof value !== 'object' || value === null) return false;
+  const nonce = (value as { nonce?: unknown }).nonce;
+  return typeof nonce === 'string' && nonce.length > 0;
+}
 
-  let claimed: MarkerLockIdentity;
+function parseJson(raw: string): unknown {
   try {
-    claimed = await captureLockIdentity(claimedPath);
+    return JSON.parse(raw) as unknown;
   } catch {
-    // no-excuse-ok: catch — preserve the guard when the claim is unverifiable
-    return false;
+    return undefined;
   }
-  if (
-    !identitiesMatch(first, claimed) ||
-    Date.now() - claimed.mtimeMs <= staleLockMs
-  ) {
-    try {
-      // Replacing our empty guard restores a recreated live lock atomically.
-      await rename(claimedPath, lockPath);
-    } catch {
-      // no-excuse-ok: catch — preserve both paths rather than delete unknown state
-    }
-    return false;
-  }
-
-  await rm(claimedPath, { recursive: true, force: true });
-  return initializeOwnedLockDir(lockPath);
 }

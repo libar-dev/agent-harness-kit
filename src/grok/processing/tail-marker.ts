@@ -141,7 +141,7 @@ export async function commitGrokSessionCheckpoint(
   const markerPath = getGrokSessionMarkerPath(resolvedSessionDir, options);
   await withMarkerLock(
     markerPath,
-    async () => {
+    async lease => {
       const marker = await readGrokSessionMarker(markerPath, sessionPathDigest);
       const revision = marker?.revision ?? 0;
       if (checkpoint.baseRevision !== revision) {
@@ -151,6 +151,7 @@ export async function commitGrokSessionCheckpoint(
         });
       }
       validateProgression(marker, nextSources);
+      await lease.renew();
       await writePrivateJson(
         markerPath,
         {

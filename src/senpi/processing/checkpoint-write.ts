@@ -60,7 +60,7 @@ export async function commitSenpiSessionCheckpointInternal(
   const markerPath = getSenpiSessionMarkerPath(resolved, options);
   await withMarkerLock(
     markerPath,
-    async () => {
+    async lease => {
       const existing = await readSenpiSessionMarkerInternal(resolved, options);
       const revision = existing.kind === 'valid' ? existing.marker.revision : 0;
       if (checkpoint.baseRevision !== revision) {
@@ -73,6 +73,7 @@ export async function commitSenpiSessionCheckpointInternal(
       if (utf8PrettySize(marker) > SENPI_MARKER_MAX_BYTES) {
         throw new Error('Senpi session marker exceeds the 1MiB write bound');
       }
+      await lease.renew();
       await writePrivateJson(
         markerPath,
         marker,
