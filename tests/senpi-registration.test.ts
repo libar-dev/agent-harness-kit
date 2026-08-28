@@ -21,6 +21,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import {
   buildSenpiHooksRegistration,
+  readSenpiHooksConfig,
   writeSenpiHooksConfig,
 } from '../src/senpi/registration.js';
 import {
@@ -184,6 +185,169 @@ describe('writeSenpiHooksConfig', () => {
 
     expect(await readdir(dir)).toEqual(['blocker']);
   });
+});
+
+/**
+ * Vendored registration fixtures, built from CommandHookConfig and the
+ * matcher-group shape in docs/upstream/senpi/hooks/types.d.ts.
+ * Extra CommandHookConfig fields must still parse.
+ */
+const VENDORED_REGISTRATION_FIXTURES: ReadonlyArray<{
+  readonly name: string;
+  readonly document: unknown;
+}> = [
+  {
+    name: 'minimal command-only Stop group',
+    document: {
+      hooks: {
+        Stop: [{ hooks: [{ type: 'command', command: 'observe' }] }],
+      },
+    },
+  },
+  {
+    name: 'PreToolUse matcher group',
+    document: {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: 'Bash',
+            hooks: [{ type: 'command', command: 'guard' }],
+          },
+        ],
+      },
+    },
+  },
+  {
+    name: 'full CommandHookConfig optional fields',
+    document: {
+      hooks: {
+        UserPromptSubmit: [
+          {
+            matcher: '*',
+            hooks: [
+              {
+                type: 'command',
+                command: 'echo prompt',
+                commandWindows: 'echo prompt-win',
+                timeout: 10,
+                statusMessage: 'validating prompt',
+              },
+            ],
+          },
+        ],
+      },
+    },
+  },
+  {
+    name: 'empty hooks object',
+    document: { hooks: {} },
+  },
+  {
+    name: 'builder seven-event document',
+    document: buildSenpiHooksRegistration(
+      [...SENPI_HOOK_EVENT_NAMES],
+      'node forwarder.mjs'
+    ),
+  },
+];
+
+describe('readSenpiHooksConfig', () => {
+  async function writeHooksDocument(
+    document: unknown
+  ): Promise<{ dir: string; path: string }> {
+    const dir = await mkdtemp(join(tmpdir(), 'senpi-registration-read-'));
+    tempDirs.push(dir);
+    const path = join(dir, 'hooks.json');
+    await writeFile(path, `${JSON.stringify(document, null, 2)}\n`, 'utf8');
+    return { dir, path };
+  }
+
+  it('accepts a minimal valid document', async () => {
+    const document = {
+      hooks: {
+        Stop: [{ hooks: [{ type: 'command', command: 'observe-hook' }] }],
+      },
+    };
+    const { path } = await writeHooksDocument(document);
+
+    const result = readSenpiHooksConfig({ target: { filePath: path } });
+
+    expect(result).toEqual({
+      ok: true,
+      document,
+      path,
+    });
+  });
+
+  it('rejects an unknown event key through the read-error union', async () => {
+    const { path } = await writeHooksDocument({
+      hooks: {
+        Stop: [{ hooks: [{ type: 'command', command: 'observe-hook' }] }],
+        NotAnEvent: [{ hooks: [{ type: 'command', command: 'observe-hook' }] }],
+      },
+    });
+
+    const result = readSenpiHooksConfig({ target: { filePath: path } });
+
+    expect(result).toEqual({
+      ok: false,
+      error: `Malformed hooks.json at ${path}: invalid registration shape`,
+      path,
+    });
+  });
+
+  it('rejects a group without handlers', async () => {
+    const { path } = await writeHooksDocument({
+      hooks: { Stop: [{ matcher: 'Bash' }] },
+    });
+
+    expect(readSenpiHooksConfig({ target: { filePath: path } })).toEqual({
+      ok: false,
+      error: `Malformed hooks.json at ${path}: invalid registration shape`,
+      path,
+    });
+  });
+
+  it('rejects a handler with an empty command', async () => {
+    const { path } = await writeHooksDocument({
+      hooks: {
+        Stop: [{ hooks: [{ type: 'command', command: '   ' }] }],
+      },
+    });
+
+    expect(readSenpiHooksConfig({ target: { filePath: path } })).toEqual({
+      ok: false,
+      error: `Malformed hooks.json at ${path}: invalid registration shape`,
+      path,
+    });
+  });
+
+  it('rejects an arbitrary object', async () => {
+    const { path } = await writeHooksDocument({
+      version: 1,
+      enabled: true,
+      extra: { nested: true },
+    });
+
+    expect(readSenpiHooksConfig({ target: { filePath: path } })).toEqual({
+      ok: false,
+      error: `Malformed hooks.json at ${path}: invalid registration shape`,
+      path,
+    });
+  });
+
+  it.each(VENDORED_REGISTRATION_FIXTURES)(
+    'accepts vendored-format fixture: $name',
+    async ({ document }) => {
+      const { path } = await writeHooksDocument(document);
+
+      expect(readSenpiHooksConfig({ target: { filePath: path } })).toEqual({
+        ok: true,
+        document,
+        path,
+      });
+    }
+  );
 });
 
 describe('standalone senpi hook forwarder', () => {

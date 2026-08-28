@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import { type SenpiHookEventName } from './settings.js';
+import { SENPI_HOOK_EVENT_NAMES, type SenpiHookEventName } from './settings.js';
 import { SENPI_PROJECT_CONFIG_DIR } from './trust.js';
 
 /**
@@ -426,10 +426,52 @@ function isConfigTarget(value: unknown): value is SenpiHooksConfigTarget {
   );
 }
 
+function isSenpiHookEventName(value: string): value is SenpiHookEventName {
+  return (SENPI_HOOK_EVENT_NAMES as readonly string[]).includes(value);
+}
+
+function isRegistrationHandler(
+  value: unknown
+): value is SenpiHooksRegistrationHandler {
+  if (!isRecord(value) || value['type'] !== 'command') {
+    return false;
+  }
+  const command = value['command'];
+  return typeof command === 'string' && command.trim() !== '';
+}
+
+function isRegistrationGroup(
+  value: unknown
+): value is SenpiHooksRegistrationGroup {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (value['matcher'] !== undefined && typeof value['matcher'] !== 'string') {
+    return false;
+  }
+  const handlers = value['hooks'];
+  return (
+    Array.isArray(handlers) &&
+    handlers.length > 0 &&
+    handlers.every(isRegistrationHandler)
+  );
+}
+
 function isRegistrationDocument(
   value: unknown
 ): value is SenpiHooksRegistrationDocument {
-  return isRecord(value) && isRecord(value['hooks']);
+  if (!isRecord(value) || !isRecord(value['hooks'])) {
+    return false;
+  }
+  for (const [event, groups] of Object.entries(value['hooks'])) {
+    if (!isSenpiHookEventName(event) || !Array.isArray(groups)) {
+      return false;
+    }
+    if (!groups.every(isRegistrationGroup)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
