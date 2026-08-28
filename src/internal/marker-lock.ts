@@ -88,7 +88,12 @@ export type WithMarkerLockOptions = {
  *   callbacks stay source-compatible; `action` may also receive the `Lease`.
  * @param options - Adapter lock label and optional stale age.
  * @returns The value returned by `action`.
- * @throws When a fresh competing lock is present or lock creation fails.
+ * @throws {Error} When a fresh competing lock is present (`lockedLabel`
+ *   message) or lock creation fails.
+ * @throws {LeaseLockLostError} When `action` calls `renew` or `assertHeld`
+ *   after the lease is no longer held.
+ *
+ * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
  */
 export async function withMarkerLock<T>(
   markerPath: string,

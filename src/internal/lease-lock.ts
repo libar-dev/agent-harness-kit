@@ -185,6 +185,25 @@ const syncOps: FileOps = {
   rmdir: path => resolved(() => rmdirSync(path)),
 };
 
+/**
+ * Acquire an exclusive token lease on `lockPath` using async filesystem calls.
+ *
+ * Creates the canonical lock directory if absent, then publishes an
+ * `owner.<ownerId>.<leaseId>` token. On `EEXIST`, entries are classified
+ * and only captured mtime-expired tokens are unlinked before a
+ * non-recursive `rmdir`. Expiry is `now - token.mtimeMs > staleMs`.
+ * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ *
+ * @param lockPath - Canonical lock directory path.
+ * @param options - Stale age, clock, owner identity, token schema, and
+ *   optional reclaim / schedule hooks.
+ * @returns A {@link Lease} whose `release` unlinks this owner's tokens
+ *   and `rmdir`s when the directory is empty.
+ * @throws {RangeError} When `options.staleMs` is not a non-negative finite number.
+ * @throws {LeaseLockBusyError} When a live occupant remains after reclaim
+ *   attempts, or the directory identity changes before the token is bound.
+ * @throws {Error} When the published token path is not a regular file.
+ */
 export function acquireLeaseLock(
   lockPath: string,
   options: LeaseLockOptions
@@ -192,7 +211,22 @@ export function acquireLeaseLock(
   return acquire(lockPath, options, asyncOps);
 }
 
-/** Uses synchronous filesystem calls while preserving awaitable schedule hooks. */
+/**
+ * Acquire an exclusive token lease on `lockPath` using synchronous
+ * filesystem calls. Schedule hooks may still be async, so the function
+ * returns a Promise.
+ *
+ * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ *
+ * @param lockPath - Canonical lock directory path.
+ * @param options - Stale age, clock, owner identity, token schema, and
+ *   optional reclaim / schedule hooks.
+ * @returns A {@link SyncLease} (same shape as {@link Lease}).
+ * @throws {RangeError} When `options.staleMs` is not a non-negative finite number.
+ * @throws {LeaseLockBusyError} When a live occupant remains after reclaim
+ *   attempts, or the directory identity changes before the token is bound.
+ * @throws {Error} When the published token path is not a regular file.
+ */
 export function acquireLeaseLockSync(
   lockPath: string,
   options: LeaseLockOptions
@@ -200,6 +234,24 @@ export function acquireLeaseLockSync(
   return acquire(lockPath, options, syncOps);
 }
 
+/**
+ * Acquire a lease, run `action`, and release in `finally`.
+ *
+ * Call `lease.renew()` or `lease.assertHeld()` at commit points; there is
+ * no heartbeat. The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ *
+ * @param lockPath - Canonical lock directory path.
+ * @param action - Critical section. Receives the {@link Lease}.
+ * @param options - Stale age, clock, owner identity, token schema, and
+ *   optional reclaim / schedule hooks.
+ * @returns The value returned by `action`.
+ * @throws {RangeError} When `options.staleMs` is not a non-negative finite number.
+ * @throws {LeaseLockBusyError} When a live occupant remains after reclaim
+ *   attempts, or the directory identity changes before the token is bound.
+ * @throws {LeaseLockLostError} When `action` calls `renew` or `assertHeld`
+ *   after the lease is released or the token is no longer held.
+ * @throws {Error} When the published token path is not a regular file.
+ */
 export async function withLeaseLock<T>(
   lockPath: string,
   action: (lease: Lease) => T | Promise<T>,
@@ -213,6 +265,23 @@ export async function withLeaseLock<T>(
   }
 }
 
+/**
+ * Same as {@link withLeaseLock}, using {@link acquireLeaseLockSync}.
+ *
+ * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ *
+ * @param lockPath - Canonical lock directory path.
+ * @param action - Critical section. Receives the {@link SyncLease}.
+ * @param options - Stale age, clock, owner identity, token schema, and
+ *   optional reclaim / schedule hooks.
+ * @returns The value returned by `action`.
+ * @throws {RangeError} When `options.staleMs` is not a non-negative finite number.
+ * @throws {LeaseLockBusyError} When a live occupant remains after reclaim
+ *   attempts, or the directory identity changes before the token is bound.
+ * @throws {LeaseLockLostError} When `action` calls `renew` or `assertHeld`
+ *   after the lease is released or the token is no longer held.
+ * @throws {Error} When the published token path is not a regular file.
+ */
 export async function withLeaseLockSync<T>(
   lockPath: string,
   action: (lease: SyncLease) => T | Promise<T>,

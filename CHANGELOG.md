@@ -21,6 +21,19 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ### Changed
 
+- Token-lease lock protocol replaces the rename-based claim/release
+  mechanism at the marker, trust, and raw-transcript lock sites.
+  Canonical lock directories hold immutable `owner.<ownerId>.<leaseId>`
+  token files. Expiry is age-based (`now - token.mtimeMs > staleMs`).
+  The trust lock is a directory (`<statePath>.lock`), not a file;
+  pre-existing FILE-shaped locks are still captured when mtime-stale.
+  Pre-protocol sibling debris (`.release.*` / `.reclaim.*` / `.stale.*`)
+  is inert: the protocol never creates those names, and leftover debris
+  is left alone (no automatic cleanup). Renewal is explicit
+  (`Lease.renew()` / `assertHeld()`) at commit points, not a heartbeat.
+  `removeStaleStateLock` in `src/senpi/trust-writer.ts` is async
+  (`Promise<boolean>`). Direct importers of that module should treat
+  the return as a Promise; the symbol is not on the package barrel.
 - Relocated the shared JSONL cursor, incremental resume, watch scheduler,
   discovery primitives, and bounded-line reader into unbarreled
   `src/internal/`. Type-only `JsonlCursor` re-exports from the Grok and

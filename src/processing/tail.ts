@@ -919,6 +919,22 @@ async function mutateRawTranscriptSessionMarker(
   );
 }
 
+/**
+ * Hold the raw-transcript session marker lock around `action`.
+ *
+ * Uses the shared token-lease core on `<markerPath>.lock`. Age-expired
+ * tokens are reclaimable only when the recorded pid is dead and
+ * `createdAt` is within clock-skew. `LeaseLockBusyError` is retried
+ * until `acquireTimeoutMs`. The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ *
+ * @param markerPath - Session marker file whose sibling `.lock` is held.
+ * @param action - Critical section. The lease handle is not passed in.
+ * @param options - Clock, timeout, retry, pid, liveness probe, and
+ *   optional schedule hooks.
+ * @returns The value returned by `action`.
+ * @throws {Error} When acquire stays busy past `acquireTimeoutMs`.
+ * @throws Re-throws any non-busy error from the lease core or `action`.
+ */
 export async function withRawTranscriptSessionMarkerLock<T>(
   markerPath: string,
   action: () => Promise<T>,

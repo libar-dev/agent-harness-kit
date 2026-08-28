@@ -50,6 +50,22 @@ export interface LeaseLockOptions extends LeaseLockHooks {
   ) => boolean | Promise<boolean>;
 }
 
+/**
+ * Handle for one owner on a canonical lock directory.
+ *
+ * `renew` publishes the successor token before unlinking this owner's
+ * previous token. `release` unlinks this owner's created tokens and
+ * non-recursively `rmdir`s. The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ *
+ * @param lockPath - Canonical lock directory this handle occupies.
+ * @param ownerId - Owner UUID written into token names and bodies.
+ * @param leaseId - Current lease UUID; changes on a successful `renew`.
+ * @param tokenPath - Current token file path.
+ * @param createdTokenPaths - Every token pathname this handle created.
+ * @returns The handle object; `renew`, `assertHeld`, and `release` return `Promise<void>`.
+ * @throws {LeaseLockLostError} From `renew` or `assertHeld` when the
+ *   lease is no longer held.
+ */
 export interface Lease {
   readonly lockPath: string;
   readonly ownerId: string;
@@ -62,8 +78,24 @@ export interface Lease {
   release(): Promise<void>;
 }
 
+/**
+ * Alias of {@link Lease}. Produced by the sync-filesystem acquire path.
+ * Handle methods stay async because schedule hooks may be async.
+ *
+ * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ *
+ * @returns The same shape as {@link Lease}.
+ */
 export type SyncLease = Lease;
 
+/**
+ * Thrown when acquire cannot take the canonical lock directory because a
+ * live occupant remains, or the directory identity changed mid-claim.
+ *
+ * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ *
+ * @param lockPath - Canonical lock path included in the message.
+ */
 export class LeaseLockBusyError extends Error {
   constructor(lockPath: string) {
     super(`Lease lock is busy: '${lockPath}'`);
@@ -71,6 +103,14 @@ export class LeaseLockBusyError extends Error {
   }
 }
 
+/**
+ * Thrown by `Lease.renew` or `Lease.assertHeld` when this handle no
+ * longer holds a live token.
+ *
+ * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ *
+ * @param lockPath - Canonical lock path included in the message.
+ */
 export class LeaseLockLostError extends Error {
   constructor(lockPath: string) {
     super(`Lease lock is no longer held: '${lockPath}'`);

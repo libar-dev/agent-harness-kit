@@ -62,10 +62,14 @@ export class SenpiTrustStateMalformedError extends Error {
 }
 
 /**
- * Typed error thrown when the internal file lock cannot be acquired within
+ * Typed error thrown when the trust-state lock cannot be acquired within
  * the bounded retry budget (mirroring vendored trust-storage.js:
  * 10 attempts spaced ~20 ms apart) or when acquisition fails with a
  * non-contention filesystem error.
+ *
+ * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
+ *
+ * @param message - Error text, including the lock path when known.
  */
 export class SenpiTrustLockError extends Error {
   constructor(message: string) {
@@ -557,6 +561,12 @@ function atomicWriteState(path: string, contents: string): void {
  * @param clock - Injected now/sleep seam for retry and staleness.
  * @param hooks - Optional test-schedule hooks mapped onto the lease core.
  * @returns Whatever `fn` returns.
+ * @throws {SenpiTrustLockError} When acquire stays busy for
+ *   {@link LOCK_MAX_ATTEMPTS} attempts, or a non-contention error occurs.
+ * @throws {LeaseLockLostError} When `fn` calls `renew` or `assertHeld`
+ *   after the lease is no longer held.
+ *
+ * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
  */
 export async function withStateLock<T>(
   statePath: string,
@@ -613,7 +623,11 @@ export async function withStateLock<T>(
  *
  * @param lockPath - Canonical `<statePath>.lock` path.
  * @param now - Clock used for the age-based stale gate.
- * @returns Whether a stale lock was reclaimed.
+ * @returns Whether a stale lock was reclaimed (`Promise<boolean>`).
+ * @throws Errors other than {@link LeaseLockBusyError} from
+ *   {@link acquireLeaseLockSync}. Busy contention returns `false`.
+ *
+ * The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
  */
 export async function removeStaleStateLock(
   lockPath: string,
