@@ -11,12 +11,24 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ## [Unreleased]
 
+### Added
+
+- Exported `byteCursorsEqual` from the Grok processing barrel so
+  consumers can compare per-source cursors without an internal barrel.
+  Contract tests pin `StaleCheckpointConflict` shape (`name`,
+  constructor fields, and `isStaleCheckpointConflict`) as a cross-repo
+  contract.
+
 ### Changed
 
 - Relocated the shared JSONL cursor, incremental resume, watch scheduler,
   discovery primitives, and bounded-line reader into unbarreled
   `src/internal/`. Type-only `JsonlCursor` re-exports from the Grok and
   Senpi processing barrels keep the public surface unchanged.
+- Timing-sensitive CLI, Senpi trust-writer, and lifecycle tests use
+  injected clocks and fake timers instead of wall-clock waits. The
+  trust writer accepts an optional `clock` so lock-budget assertions
+  never sleep.
 
 ### Fixed
 
@@ -42,6 +54,9 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
   newline commits the entry on the next listing pass.
 - `listAllSenpiSessions` skips root-level `*-artifacts/` directories,
   matching the nested-directory filter.
+- Senpi registration-document reads reject unknown hook-event keys,
+  groups without handlers, empty commands, and arbitrary hooks objects.
+  Inspect surfaces the existing malformed-shape read-error union.
 
 ### Security
 
@@ -49,6 +64,13 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
   (`127.0.0.1`, `localhost`, `::1`) unless
   `SENPI_HOOK_FORWARD_ALLOW_REMOTE=1` is set. Redirects are refused and
   stdin is capped at 1 MiB.
+- Marker-root containment realpath-walks the candidate and allowed
+  roots so a symlink inside a root that points outward is rejected.
+  Write-path re-verification (`assertMarkerDirStillAllowed`) rejects a
+  directory swapped for an outward symlink after resolve.
+- Marker-lock stale reclamation writes `owner.json` `{ nonce }` after
+  `mkdir` and re-checks `{dev, ino}` plus nonce immediately before
+  unlink. A lock recreated between stat and rm is left intact.
 
 ## [0.3.0] - 2026-08-23
 
