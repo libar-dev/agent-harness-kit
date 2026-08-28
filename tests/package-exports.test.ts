@@ -300,6 +300,7 @@ const expectedGrokProcessingRuntimeExports = [
   'isStaleCheckpointConflict',
   'STALE_CHECKPOINT_CONFLICT_CODE',
   'StaleCheckpointConflict',
+  'byteCursorsEqual',
   'listGrokSessions',
   'parseGrokEvent',
   'parseGrokSessionUpdate',

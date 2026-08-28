@@ -1,5 +1,7 @@
 /** Public processing APIs for persisted Grok sessions. */
 
+export { byteCursorsEqual } from '../../internal/incremental.js';
+
 export {
   encodeGrokCwdDirname,
   findGrokSessionDirs,
