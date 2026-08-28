@@ -124,16 +124,12 @@ describe('senpi accepted-graph marker resume', () => {
       cycles,
       cycle => cycle.type === 'waiting'
     );
-    const nextEvent = iterator.next();
+    let nextEvent = iterator.next();
     await initialWaiting;
     const offsets = [firstProgress?.cursor.offset ?? 0];
     const scanned = [firstProgress?.scannedLines ?? 0];
     for (const expectedLines of [8, 12, 16, 20]) {
       const nextResult = waitForSignal(reconciled, () => true);
-      const nextWaiting = waitForSignal(
-        cycles,
-        cycle => cycle.type === 'waiting'
-      );
       clock.advanceBy(20);
       const partial = await nextResult;
       const progress = rebuildProgress(partial.checkpoint);
@@ -141,6 +137,12 @@ describe('senpi accepted-graph marker resume', () => {
       offsets.push(progress?.cursor.offset ?? 0);
       scanned.push(progress?.scannedLines ?? 0);
       expect(await readFile(markerPath, 'utf8')).toBe(markerBefore);
+      expect((await nextEvent).value?.type).toBe('result');
+      const nextWaiting = waitForSignal(
+        cycles,
+        cycle => cycle.type === 'waiting'
+      );
+      nextEvent = iterator.next();
       await nextWaiting;
     }
     expect(

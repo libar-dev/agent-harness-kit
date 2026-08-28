@@ -52,6 +52,7 @@ import {
   type ManualClock,
   type Signal,
 } from './senpi-watch-clock-utils.js';
+import { emitFilesystemWake } from './senpi-watch-fake.js';
 /** Build the canonical session header line. */
 export function headerLine(): string {
   return `${JSON.stringify({
@@ -171,6 +172,7 @@ export async function reconcileEdit(
   const waiting = running.waitForCycle(cycle => cycle.type === 'waiting');
 
   await action();
+  emitFilesystemWake('session.jsonl');
   await filesystemWake;
   running.clock.advanceBy(COALESCE_MS);
   await wakeConsumed;

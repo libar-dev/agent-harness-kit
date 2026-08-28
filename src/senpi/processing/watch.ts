@@ -9,6 +9,7 @@ import type { SenpiInternalSessionTailOptions } from './tail-run-support.js';
 import type {
   SenpiSessionTailOptions,
   SenpiSessionTailResult,
+  SenpiTailPosition,
 } from './tail.js';
 
 /** Default stable-cursor window elapsed before quiescence, in milliseconds. */
@@ -51,6 +52,19 @@ const defaultClock: SenpiWatchClock = {
   clearTimeout: handle => clearTimeout(handle),
 };
 
+function positionsEqual(
+  left: SenpiTailPosition,
+  right: SenpiTailPosition
+): boolean {
+  return (
+    left.generation === right.generation &&
+    left.offset === right.offset &&
+    left.lineNumber === right.lineNumber &&
+    left.pendingKind === right.pendingKind &&
+    left.projectionRevision === right.projectionRevision
+  );
+}
+
 /** Options for {@link watchSenpiSession}. */
 export interface SenpiSessionWatchOptions extends SenpiSessionTailOptions {
   /** Ends observation and releases the underlying filesystem watcher. */
@@ -84,8 +98,8 @@ export interface SenpiSessionWatchOptions extends SenpiSessionTailOptions {
  *
  * - `ready`: initial handshake emitted once observation is active. The
  *   attached tail result is `null` when the file did not exist yet.
- * - `result`: a tail pass observed cursor movement - new records, a splice
- *   mutation, block changes, a reset, or a moved byte offset.
+ * - `result`: a tail pass reached a different semantic cursor/projection
+ *   position. Reset and checkpoint status alone are not movement.
  * - `quiescent`: the stable-cursor window elapsed with no movement.
  */
 export type SenpiSessionWatchEvent =
@@ -102,14 +116,11 @@ export type SenpiSessionWatchEvent =
  * wake (and every quiescence check) reconciles through `tailSenpiSession`, so
  * projection, checkpointing, and reset detection are never duplicated here.
  *
- * Quiescence contract: after each tail pass a stable-cursor window of
- * `quiescenceMs` (default 30000) starts on the injected clock. If the window
- * elapses without cursor movement, exactly one `quiescent` event is yielded
- * and a fresh window begins. Any observed activity cancels the pending
- * window, and the window restarts only after the resulting tail pass
- * completes. A tail pass counts as movement only when the session cursor or
- * checkpoint revision changed relative to the previous pass, so re-reads of
- * an unchanged file never suppress quiescence.
+ * Quiescence contract: a stable-cursor window of `quiescenceMs` (default
+ * 30000) starts when observation begins and restarts only when the semantic
+ * tail position moves. If the window elapses without movement, exactly one
+ * `quiescent` event is yielded and a fresh reporting window begins. Filesystem
+ * hints and tail passes at the same position never postpone quiescence.
  *
  * Missing-file contract: while the file is absent the retained checkpoint is
  * kept untouched and nothing is yielded. Only
@@ -158,9 +169,10 @@ export async function* watchSenpiSessionInternal(
 
   let aborted = false;
   const pollIntervalMs = options.pollMs ?? 0;
-  let lastRevision: number | null = null;
-  let lastByteOffset: number | null = null;
-  let replacementPending = false;
+  let lastObservedPosition: SenpiTailPosition | null = null;
+  let stableSince = clock.now();
+  let lastQuiescentAt: number | null = null;
+  let quiescenceDue = false;
   let wakeReason: 'change' | 'quiet' | 'poll' | null = null;
   let resumeWait: (() => void) | undefined;
   let continuationCheckpoint = tailOptions.checkpoint;
@@ -189,11 +201,19 @@ export async function* watchSenpiSessionInternal(
 
   const armQuiescence = (): void => {
     disarmQuiescence();
-    quiescenceHandle = clock.setTimeout(() => {
-      quiescenceHandle = null;
-      markWake('quiet');
-      wake();
-    }, quiescenceMs);
+    const dueAt = Math.max(
+      stableSince + quiescenceMs,
+      (lastQuiescentAt ?? stableSince) + quiescenceMs
+    );
+    quiescenceHandle = clock.setTimeout(
+      () => {
+        quiescenceHandle = null;
+        quiescenceDue = true;
+        markWake('quiet');
+        wake();
+      },
+      Math.max(0, dueAt - clock.now())
+    );
   };
 
   const coalescer = createFileWatchScheduler(
@@ -228,7 +248,6 @@ export async function* watchSenpiSessionInternal(
   };
 
   const onActivity = (): void => {
-    disarmQuiescence();
     coalescer.request();
   };
 
@@ -264,16 +283,15 @@ export async function* watchSenpiSessionInternal(
         ...(continuationCheckpoint === undefined
           ? {}
           : { checkpoint: continuationCheckpoint }),
-        ...(replacementPending ? { fromStart: true } : {}),
       });
-      continuationCheckpoint = result.checkpoint;
+      if (result.checkpointStatus.status !== 'failed') {
+        continuationCheckpoint = result.checkpoint;
+      }
       options.onTailResult?.(result);
-      replacementPending = false;
       options.onCycle?.({ type: 'reconciled', source: 'present' });
       return result;
     } catch (error: unknown) {
       if (error instanceof SenpiMissingSessionSourceError) {
-        replacementPending = true;
         options.onCycle?.({ type: 'reconciled', source: 'missing' });
         return null;
       }
@@ -284,9 +302,9 @@ export async function* watchSenpiSessionInternal(
   try {
     const initial = await reconcile();
     if (initial !== null) {
-      lastRevision = initial.revision;
-      lastByteOffset = initial.nextByteOffset;
+      lastObservedPosition = initial.nextPosition;
     }
+    stableSince = clock.now();
     yield { type: 'ready', result: initial };
     armQuiescence();
 
@@ -304,25 +322,24 @@ export async function* watchSenpiSessionInternal(
       if (aborted) return;
       const observed =
         result !== null &&
-        (result.reset ||
-          result.revision !== lastRevision ||
-          result.nextByteOffset !== lastByteOffset);
+        (lastObservedPosition === null ||
+          !positionsEqual(result.nextPosition, lastObservedPosition));
       if (result !== null) {
-        lastRevision = result.revision;
-        lastByteOffset = result.nextByteOffset;
+        lastObservedPosition = result.nextPosition;
       }
       if (observed && result !== null) {
+        stableSince = clock.now();
+        lastQuiescentAt = null;
+        quiescenceDue = false;
         yield { type: 'result', result };
         armQuiescence();
-      } else if (reason === 'quiet') {
+      } else if (quiescenceDue) {
+        quiescenceDue = false;
+        lastQuiescentAt = clock.now();
         yield { type: 'quiescent' };
         armQuiescence();
-      } else if (reason === 'change') {
-        // Activity happened but moved nothing observable; restart the window.
-        armQuiescence();
       }
-      // A poll wake with nothing observed leaves the pending quiescence
-      // window running so polling can never suppress quiescence.
+      // Wakes with no semantic movement leave the stable window untouched.
     }
   } finally {
     signal?.removeEventListener('abort', onAbort);

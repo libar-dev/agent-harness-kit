@@ -1,16 +1,29 @@
 import {
   appendFile,
   chmod,
-  mkdir,
   link,
+  mkdir,
+  readFile,
+  rename,
   rm,
+  truncate,
+  utimes,
   writeFile,
 } from 'node:fs/promises';
+import type * as NodeFsModule from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('node:fs', async importOriginal => {
+  const actual = await importOriginal<typeof NodeFsModule>();
+  const { fakeWatch } = await import('./senpi-watch-fake.js');
+  return { ...actual, watch: fakeWatch };
+});
+
+import { getSenpiSessionMarkerPath } from '../src/senpi/processing/checkpoint.js';
 import { watchSenpiSession } from '../src/senpi/processing/watch.js';
+import { emitFilesystemWake, emitWatcherError } from './senpi-watch-fake.js';
 import { createManualClock } from './senpi-watch-clock-utils.js';
 import {
   COALESCE_MS,
@@ -141,7 +154,76 @@ describe('watchSenpiSession', () => {
     expect(closed).toEqual({ type: 'closed' });
   });
 
-  it('keeps the checkpoint across deletion and resets a same-inode replacement', async () => {
+  it('coalesces repeated watcher errors and then aborts cleanly', async () => {
+    const file = await makeTemporaryFile();
+    await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
+    const running = await startWatch(file, { checkpointMode: 'manual' });
+    const reconciled = running.waitForCycle(
+      cycle => cycle.type === 'reconciled' && cycle.source === 'present'
+    );
+    const waiting = running.waitForCycle(cycle => cycle.type === 'waiting');
+
+    emitWatcherError(new Error('interruption one'));
+    emitWatcherError(new Error('interruption two'));
+    running.clock.advanceBy(COALESCE_MS);
+    await reconciled;
+    await waiting;
+    expect(resultEvents(running.events)).toHaveLength(0);
+
+    running.controller.abort();
+    expect(await running.closed).toEqual({ type: 'closed' });
+    await running.done;
+  });
+
+  it('manual mode ignores repeated filesystem noise and still reaches quiescence', async () => {
+    const file = await makeTemporaryFile();
+    await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
+    const running = await startWatch(file, { checkpointMode: 'manual' });
+
+    for (let index = 0; index < 50; index += 1) {
+      emitFilesystemWake('session.jsonl');
+    }
+    const reconciled = running.waitForCycle(
+      cycle => cycle.type === 'reconciled' && cycle.source === 'present'
+    );
+    running.clock.advanceBy(COALESCE_MS);
+    await reconciled;
+    expect(resultEvents(running.events)).toHaveLength(0);
+
+    await advanceToQuiescence(running);
+    expect(countType(running.events, 'quiescent')).toBe(1);
+    expect(resultEvents(running.events)).toHaveLength(0);
+  });
+
+  it('mtime-only noise yields nothing and does not postpone quiescence', async () => {
+    const file = await makeTemporaryFile();
+    await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
+    const running = await startWatch(file, { checkpointMode: 'manual' });
+
+    running.clock.advanceBy(QUIESCENCE_MS - 100);
+    const touchedAt = new Date('2026-01-02T00:00:00.000Z');
+    await reconcileEdit(running, () => utimes(file, touchedAt, touchedAt));
+    expect(resultEvents(running.events)).toHaveLength(0);
+
+    const delivered = running.waitForEvent(event => event.type === 'quiescent');
+    running.clock.advanceBy(100 - COALESCE_MS);
+    await delivered;
+    expect(countType(running.events, 'quiescent')).toBe(1);
+    expect(resultEvents(running.events)).toHaveLength(0);
+  });
+
+  it('partial EOF growth without a newline yields nothing', async () => {
+    const file = await makeTemporaryFile();
+    await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
+    const running = await startWatch(file, { checkpointMode: 'manual' });
+
+    await reconcileEdit(running, () => appendFile(file, '{"type":"message"'));
+    expect(resultEvents(running.events)).toHaveLength(0);
+    await advanceToQuiescence(running);
+    expect(countType(running.events, 'quiescent')).toBe(1);
+  });
+
+  it('keeps the checkpoint across deletion and resumes a same-inode append', async () => {
     const file = await makeTemporaryFile();
     const replacement = `${file}.replacement`;
     await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
@@ -160,6 +242,7 @@ describe('watchSenpiSession', () => {
     );
     const waiting = running.waitForCycle(cycle => cycle.type === 'waiting');
     await rm(file);
+    emitFilesystemWake('session.jsonl');
     await filesystemWake;
     running.clock.advanceBy(COALESCE_MS);
     await wakeConsumed;
@@ -171,23 +254,61 @@ describe('watchSenpiSession', () => {
     expect(countType(running.events, 'quiescent')).toBe(1);
     expect(resultEvents(running.events)).toHaveLength(0);
 
-    const resetDelivered = running.waitForEvent(
-      event => event.type === 'result'
-    );
+    const resumed = running.waitForEvent(event => event.type === 'result');
     await reconcileEdit(running, async () => {
       await link(replacement, file);
       await appendFile(file, messageLine('a2', 'a1', 'second'));
     });
-    await resetDelivered;
+    await resumed;
 
     const results = resultEvents(running.events);
     expect(results).toHaveLength(1);
-    expect(requireResult(results[0]).reset).toBe(true);
+    expect(requireResult(results[0]).reset).toBe(false);
     expect(recordKeys(results[0])).toEqual(['a1', 'a2']);
-    expect(requireResult(results[0]).generation).toBe(1);
+    expect(requireResult(results[0]).generation).toBe(0);
   });
 
-  it('survives automatic checkpoint failure and keeps iterating', async () => {
+  it('resets exactly once after an atomic rename replacement', async () => {
+    const file = await makeTemporaryFile();
+    const replacement = `${file}.replacement`;
+    await writeFile(file, `${headerLine()}${messageLine('a1', null, 'first')}`);
+    const running = await startWatch(file, { checkpointMode: 'manual' });
+    await writeFile(
+      replacement,
+      `${headerLine()}${messageLine('b1', null, 'replacement')}`
+    );
+
+    await reconcileEdit(running, () => rename(replacement, file));
+    expect(resultEvents(running.events)).toHaveLength(1);
+    expect(requireResult(resultEvents(running.events)[0]).reset).toBe(true);
+    expect(recordKeys(resultEvents(running.events)[0])).toEqual(['b1']);
+
+    await reconcileEdit(running, async () => undefined);
+    expect(resultEvents(running.events)).toHaveLength(1);
+  });
+
+  it('resets exactly once after a same-inode truncate', async () => {
+    const file = await makeTemporaryFile();
+    const replacementContents = `${headerLine()}${messageLine('b1', null, 'replacement')}`;
+    await writeFile(
+      file,
+      `${headerLine()}${messageLine('a1', null, 'first')}${messageLine('a2', 'a1', 'second')}`
+    );
+    const running = await startWatch(file, { checkpointMode: 'manual' });
+
+    await reconcileEdit(running, async () => {
+      await truncate(file, 0);
+      await writeFile(file, replacementContents);
+    });
+    expect(resultEvents(running.events)).toHaveLength(1);
+    expect(requireResult(resultEvents(running.events)[0]).reset).toBe(true);
+    expect(recordKeys(resultEvents(running.events)[0])).toEqual(['b1']);
+
+    await reconcileEdit(running, async () => undefined);
+    expect(resultEvents(running.events)).toHaveLength(1);
+  });
+
+  it('survives automatic checkpoint failure and dedupes replay by candidate position', async () => {
     if (process.platform === 'win32' || process.getuid?.() === 0) return;
     const file = await makeTemporaryFile();
     const markerDir = join(dirname(file), 'markers');
@@ -203,6 +324,11 @@ describe('watchSenpiSession', () => {
       throw new Error('expected an initial ready result');
     }
     expect(ready.result.checkpointStatus).toEqual({ status: 'committed' });
+    const markerPath = getSenpiSessionMarkerPath(file, {
+      markerDir,
+      allowedMarkerRoots: [dirname(file)],
+    });
+    const committedMarker = await readFile(markerPath);
 
     await chmod(markerDir, 0o555);
     try {
@@ -217,11 +343,35 @@ describe('watchSenpiSession', () => {
       expect(results).toHaveLength(1);
       expect(requireResult(results[0]).checkpointStatus.status).toBe('failed');
       expect(recordKeys(results[0])).toEqual(['a1', 'a2']);
+
+      await reconcileEdit(running, async () => undefined);
+      expect(resultEvents(running.events)).toHaveLength(1);
+
+      const secondPosition = running.waitForEvent(
+        event => event.type === 'result'
+      );
+      await reconcileEdit(running, () =>
+        appendFile(file, messageLine('a3', 'a2', 'third'))
+      );
+      await secondPosition;
+      expect(resultEvents(running.events)).toHaveLength(2);
+      expect(recordKeys(resultEvents(running.events)[1])).toEqual([
+        'a1',
+        'a2',
+        'a3',
+      ]);
+
+      await reconcileEdit(running, async () => undefined);
+      expect(resultEvents(running.events)).toHaveLength(2);
       await advanceToQuiescence(running);
       expect(countType(running.events, 'quiescent')).toBe(1);
     } finally {
       await chmod(markerDir, 0o700);
     }
+
+    await reconcileEdit(running, async () => undefined);
+    expect(resultEvents(running.events)).toHaveLength(2);
+    expect(await readFile(markerPath)).not.toEqual(committedMarker);
   });
 
   it('does not match missing sources by message prefix', async () => {
