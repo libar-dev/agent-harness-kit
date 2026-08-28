@@ -4,10 +4,22 @@ import {
   createMarkerPathDigest,
   resolveAllowedMarkerDir,
   sanitizeMarkerBase,
+  type ResolveAllowedMarkerDirOptions,
 } from '../../internal/marker-store.js';
 import type { SenpiSessionCheckpointCommitOptions } from './checkpoint-types.js';
 
 const MARKER_ROOTS_ENV = 'SENPI_TAIL_MARKER_ROOTS';
+
+function senpiAllowedMarkerDirOptions(
+  options: Pick<SenpiSessionCheckpointCommitOptions, 'allowedMarkerRoots'>
+): ResolveAllowedMarkerDirOptions {
+  return {
+    allowedMarkerRoots: options.allowedMarkerRoots,
+    rootsEnvVar: MARKER_ROOTS_ENV,
+    emptyRootsMessage:
+      'Custom markerDir requires allowedMarkerRoots (or SENPI_TAIL_MARKER_ROOTS) to include an allowed root',
+  };
+}
 
 /**
  * SHA-256 hex digest of the resolved session JSONL path.
@@ -35,12 +47,10 @@ export function getSenpiSessionMarkerPath(
   const dir =
     options.markerDir === undefined
       ? resolve(dirname(resolvedSessionPath), '.tail-markers')
-      : resolveAllowedMarkerDir(options.markerDir, {
-          allowedMarkerRoots: options.allowedMarkerRoots,
-          rootsEnvVar: MARKER_ROOTS_ENV,
-          emptyRootsMessage:
-            'Custom markerDir requires allowedMarkerRoots (or SENPI_TAIL_MARKER_ROOTS) to include an allowed root',
-        });
+      : resolveAllowedMarkerDir(
+          options.markerDir,
+          senpiAllowedMarkerDirOptions(options)
+        );
   const digest = createSenpiSessionPathDigest(resolvedSessionPath);
   const base = sanitizeMarkerBase(basename(resolvedSessionPath, '.jsonl'));
   return join(dir, `senpi-${base}-${digest.slice(0, 16)}.json`);

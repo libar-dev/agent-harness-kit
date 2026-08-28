@@ -11,6 +11,7 @@ import {
   resolveAllowedMarkerDir,
   sanitizeMarkerBase,
   writePrivateJson,
+  type ResolveAllowedMarkerDirOptions,
 } from '../../internal/marker-store.js';
 import {
   parseJsonlOversizedPending,
@@ -47,11 +48,10 @@ export function getGrokSessionMarkerPath(
   const markerDir =
     options.markerDir === undefined
       ? resolve(sessionDir, '.tail-markers')
-      : resolveAllowedMarkerDir(options.markerDir, {
-          allowedMarkerRoots: options.allowedMarkerRoots ?? [],
-          emptyRootsMessage:
-            'Custom markerDir requires allowedMarkerRoots to include an allowed root',
-        });
+      : resolveAllowedMarkerDir(
+          options.markerDir,
+          grokAllowedMarkerDirOptions(options)
+        );
   const digest = createGrokSessionPathDigest(sessionDir);
   const sessionName = sanitizeMarkerBase(basename(sessionDir));
   return join(
@@ -151,15 +151,31 @@ export async function commitGrokSessionCheckpoint(
         });
       }
       validateProgression(marker, nextSources);
-      await writePrivateJson(markerPath, {
-        version: MARKER_VERSION,
-        sessionPathDigest,
-        revision: checkpointRevision(revision, true),
-        sources: nextSources,
-      } satisfies GrokSessionMarker);
+      await writePrivateJson(
+        markerPath,
+        {
+          version: MARKER_VERSION,
+          sessionPathDigest,
+          revision: checkpointRevision(revision, true),
+          sources: nextSources,
+        } satisfies GrokSessionMarker,
+        options.markerDir === undefined
+          ? undefined
+          : grokAllowedMarkerDirOptions(options)
+      );
     },
     { lockedLabel: 'Grok session marker' }
   );
+}
+
+function grokAllowedMarkerDirOptions(
+  options: GrokSessionCheckpointCommitOptions
+): ResolveAllowedMarkerDirOptions {
+  return {
+    allowedMarkerRoots: options.allowedMarkerRoots ?? [],
+    emptyRootsMessage:
+      'Custom markerDir requires allowedMarkerRoots to include an allowed root',
+  };
 }
 
 function parseCursor(value: unknown): JsonlCursor | null | undefined {

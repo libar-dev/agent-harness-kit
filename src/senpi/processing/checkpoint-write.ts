@@ -73,7 +73,18 @@ export async function commitSenpiSessionCheckpointInternal(
       if (utf8PrettySize(marker) > SENPI_MARKER_MAX_BYTES) {
         throw new Error('Senpi session marker exceeds the 1MiB write bound');
       }
-      await writePrivateJson(markerPath, marker);
+      await writePrivateJson(
+        markerPath,
+        marker,
+        options.markerDir === undefined
+          ? undefined
+          : {
+              allowedMarkerRoots: options.allowedMarkerRoots,
+              rootsEnvVar: 'SENPI_TAIL_MARKER_ROOTS',
+              emptyRootsMessage:
+                'Custom markerDir requires allowedMarkerRoots (or SENPI_TAIL_MARKER_ROOTS) to include an allowed root',
+            }
+      );
     },
     { lockedLabel: 'Senpi session marker' }
   );
