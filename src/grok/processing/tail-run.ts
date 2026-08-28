@@ -166,11 +166,7 @@ export async function tailGrokSession(
         ? deltas[sourceKind].cursor
         : previousCursors[sourceKind],
     })),
-    ...(stateComplete
-      ? { state: { records: stateRecords } }
-      : supplied?.state === undefined
-        ? {}
-        : { state: supplied.state }),
+    ...(stateComplete ? { state: { records: stateRecords } } : {}),
   };
   const sources = grokSourceKinds().map(sourceKind =>
     grokSourceResult(
