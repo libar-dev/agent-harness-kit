@@ -1,0 +1,131 @@
+{
+  "engineVersion": "2026.8.19",
+  "pinnedAt": "2026-08-21",
+  "source": "npm",
+  "registryIntegrity": "sha512-Uo+oI3DeYNn43ehmaLBFn9zDB+TojNtOecrTTrjE9iouxhIvMgee6yiMPveVIU5e5rk6sX3T96POOSTR/9eODQ==",
+  "files": {
+    "session-format.md": {
+      "upstreamPath": "docs/session-format.md",
+      "sha256": "628785e46242ee18ebae05263a0b412446330a97d9ea4c206791d95e0918e077"
+    },
+    "settings.md": {
+      "upstreamPath": "docs/settings.md",
+      "sha256": "fcf50b66e794cfadebe30e0f9dbd9ee7ed9022df157d8c5bccf876c3867b4e54"
+    },
+    "environment-variables.md": {
+      "upstreamPath": "docs/environment-variables.md",
+      "sha256": "f39e6e4ba0697d2fd349d5b61ec188f1456fe61017506089f27996b11ffebc64"
+    },
+    "hooks/types.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/types.d.ts",
+      "sha256": "055c19cb992d0eee0ad8de2c27eec40b0dd513b9db05ddad5669bd5d4cce988e"
+    },
+    "hooks/index.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/index.d.ts",
+      "sha256": "88fb5dbe99b67884cfb634ca0fd6cd1b33b516505da5704ddc5d83f63e14f6a3"
+    },
+    "hooks/schema.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/schema.d.ts",
+      "sha256": "55e27b2ad71bfe3540028f31687584b65d2178f47fddbe36ad48214a64f571f0"
+    },
+    "hooks/trust.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/trust.d.ts",
+      "sha256": "9fab928fae267556ee3856a8a754d0cacb6e34848b86a96aeebd0d592ead95a8"
+    },
+    "hooks/trust-storage.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/trust-storage.d.ts",
+      "sha256": "8cdb99403b355ef85237a40d15e1a8a6fd074f36dbc792efa12c2c67660c9dcc"
+    },
+    "hooks/config-loader.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/config-loader.d.ts",
+      "sha256": "c8f3e342eb7a67f2e589a4bdb1d82d8326ee3910a4295f80da3934d67c3661e6"
+    },
+    "hooks/command-runner.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/command-runner.d.ts",
+      "sha256": "1261e91c0dbfb3c1802aa8c8d074d36ed77e77bcf7f0897747f1dc55b4f801dc"
+    },
+    "hooks/dispatcher.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/dispatcher.d.ts",
+      "sha256": "f516782cfd3d4f9b3ce5eed98a5c1418afa87159ba80d42194c879d0fd050f85"
+    },
+    "hooks/output-parser.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/output-parser.d.ts",
+      "sha256": "122f7782f475c2c8c65af964ab7d92f891c7687b037a59a562007b5c285f3ec2"
+    },
+    "hooks/output-bounds.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/output-bounds.d.ts",
+      "sha256": "58484814214b8e57164c20ebde8f7a1f47af6b148bc29245bb778f7a1085e084"
+    },
+    "hooks/safety.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/safety.d.ts",
+      "sha256": "e1af2b6f554c314027fb3106e4fb5e5545ad71b8a7d07abe2c8650ee39b8edc0"
+    },
+    "hooks/matcher.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/matcher.d.ts",
+      "sha256": "b077d8fe2a62638458442232319da0af0b54360b6351b6b1b8eac51e9ec2df11"
+    },
+    "hooks/command.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/command.d.ts",
+      "sha256": "f4c24842d007282c21148e78f105717953f1aa854608c9ebac18879fa4e1fbca"
+    },
+    "hooks/handler.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/handler.d.ts",
+      "sha256": "049945d65c3bf65622deeb16023836b1f5f06de7f34ead98177c25cfb992e337"
+    },
+    "hooks/diagnostics.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/diagnostics.d.ts",
+      "sha256": "30923d1ff2c50b99c1f01d9458986319bd286f3b26b3709e6df17bf4fe6615ee"
+    },
+    "hooks/plugin-loader.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/plugin-loader.d.ts",
+      "sha256": "b2b3f4db03c207ad3bb7b5a4d3f050afabf8d4f208443f854f04cfd64703f5b4"
+    },
+    "hooks/plugin-manifest.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/plugin-manifest.d.ts",
+      "sha256": "b24cab50b2f8da596cdf2e556ed13adc4b7f1215fb4481350e31967f21d5493b"
+    },
+    "hooks/lifecycle-adapter.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/lifecycle-adapter.d.ts",
+      "sha256": "71e6e5cb586ea11a81ba897f631ba1c93d13d8ad315284524a93037fabe01806"
+    },
+    "hooks/tool-adapter.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/tool-adapter.d.ts",
+      "sha256": "77cfc522f8c2022a06223abde77d2408b4c56dbcc01b8670f740511e615e2c7c"
+    },
+    "hooks/stop-adapter.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/stop-adapter.d.ts",
+      "sha256": "3e1164dddb12dbb64e43fb4c117162aaf54b811506b1f754d6b49f0df7067817"
+    },
+    "hooks/prompt-adapter.d.ts": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/prompt-adapter.d.ts",
+      "sha256": "e2843c96e3c7919c9ef8bdd52fb844cbd0e9937d30c85e0ff27ce57f3dc85a38"
+    },
+    "hooks/trust.js": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/trust.js",
+      "sha256": "396160f2a40ceed4e6f19e94309946de1eadbb88b91965f522cf73c2822dd477"
+    },
+    "hooks/output-parser.js": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/output-parser.js",
+      "sha256": "a4b9d7080c751ee8ea87a4427bec9b56a6d5ccaf2e1b2f73956a288bf4076636"
+    },
+    "hooks/trust-storage.js": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/trust-storage.js",
+      "sha256": "a7ad655a4d0c5a48119aa8dc36d7c8ab9e0ae4bcc13b4798c8c35f205d42fa1d"
+    },
+    "hooks/output-bounds.js": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/output-bounds.js",
+      "sha256": "d9261a519e02173172b42a23b98d2d8b6df21154628f040229f5675e2dfca2d0"
+    },
+    "hooks/types.js": {
+      "upstreamPath": "dist/core/extensions/builtin/hooks/types.js",
+      "sha256": "7bbb639e976a932f03eeec5aede5d7a733ac896deb39157f123a5af855fc6e03"
+    }
+  },
+  "fixtureRedump": "copy small redacted *.jsonl from ~/.omo/agent/sessions/<encoded-cwd>/ into tests/fixtures/senpi/",
+  "notes": [
+    "Artifact of record is the npm tarball for @code-yeongyu/senpi@2026.8.19; registryIntegrity is npm view dist.integrity (sha512).",
+    "Vendored set is complete at pin time: 3 docs, 21 hooks .d.ts, and 5 hooks .js implementations required because .d.ts signatures alone are insufficient (hashCommandHook, output parsing, trust storage lock paths, output bounds, types constants).",
+    "No runtime import of @code-yeongyu/senpi; drift checks re-extract from a provided local tarball only (no network at check time).",
+    "Upstream package license is MIT (code-yeongyu/senpi)."
+  ]
+}

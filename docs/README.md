@@ -22,6 +22,7 @@
 | [Types](reference/types.md) | Full type catalogue — inputs, outputs, tools, config |
 | [Environment Variables](reference/environment-variables.md) | Every `CLAUDE_HOOK_*` variable with type, default, and description |
 | [Grok Adapter](reference/grok-adapter.md) | Grok Build envelopes, settings, and session processing (attach-only) |
+| [Senpi Adapter](reference/senpi-adapter.md) | OmO-native (senpi) envelopes, consent-gated register/trust, forwarder assets, and session processing. Cockpit is observe-only. |
 
 ## Architecture & Internal
 
@@ -30,6 +31,7 @@
 | [API Update Checklist](internal/api-update-checklist.md) | Maintainer checklist for tracking Claude Code API changes |
 | [Export Sessions Script](internal/export-sessions.md) | How the export-sessions utility works |
 | [Session Tailing](internal/tail-session.md) | CLI and library APIs, marker offsets, multi-source session discovery, and live polling |
+| [Release 0.3.0](internal/release-0.3.0.md) | Public contract, Node `>=22`, provenance publish steps (owner-gated) |
 
 ## Upstream Reference (Mirrored)
 

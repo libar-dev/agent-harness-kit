@@ -1,0 +1,8 @@
+{
+  "event": "SessionStart",
+  "sessionId": "sess-session-start-0001",
+  "cwd": "/project",
+  "hook_event_name": "SessionStart",
+  "reason": "startup",
+  "transcript_path": "/project/.senpi/transcript.jsonl"
+}

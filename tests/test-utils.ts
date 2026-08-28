@@ -1,46 +1,46 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import * as os from 'node:os';
+import * as path from 'node:path';
 import { vi } from 'vitest';
 import {
   HookValidationError,
-  type PreToolUseInputSchema,
-  type PostToolUseInputSchema,
-  type PermissionRequestInputSchema,
-  type PermissionDeniedInputSchema,
-  type PostToolUseFailureInputSchema,
-  type PostToolBatchInputSchema,
-  type UserPromptSubmitInputSchema,
-  type UserPromptExpansionInputSchema,
   type BashToolInputSchema,
-  type WriteToolInputSchema,
-  type EditToolInputSchema,
-  type ReadToolInputSchema,
-  type WebFetchToolInputSchema,
-  type WebSearchToolInputSchema,
-  type TaskToolInputSchema,
-  type SessionStartInputSchema,
-  type SessionEndInputSchema,
-  type NotificationInputSchema,
-  type StopInputSchema,
-  type StopFailureInputSchema,
-  type SubagentStartInputSchema,
-  type SubagentStopInputSchema,
-  type TeammateIdleInputSchema,
-  type TaskCreatedInputSchema,
-  type TaskCompletedInputSchema,
-  type InstructionsLoadedInputSchema,
   type ConfigChangeInputSchema,
   type CwdChangedInputSchema,
-  type FileChangedInputSchema,
-  type WorktreeCreateInputSchema,
-  type WorktreeRemoveInputSchema,
-  type PreCompactInputSchema,
-  type PostCompactInputSchema,
-  type SetupInputSchema,
-  type MessageDisplayInputSchema,
+  type EditToolInputSchema,
   type ElicitationInputSchema,
   type ElicitationResultInputSchema,
+  type FileChangedInputSchema,
+  type InstructionsLoadedInputSchema,
+  type MessageDisplayInputSchema,
+  type NotificationInputSchema,
+  type PermissionDeniedInputSchema,
+  type PermissionRequestInputSchema,
+  type PostCompactInputSchema,
+  type PostToolBatchInputSchema,
+  type PostToolUseFailureInputSchema,
+  type PostToolUseInputSchema,
+  type PreCompactInputSchema,
+  type PreToolUseInputSchema,
+  type ReadToolInputSchema,
+  type SessionEndInputSchema,
+  type SessionStartInputSchema,
+  type SetupInputSchema,
+  type StopFailureInputSchema,
+  type StopInputSchema,
+  type SubagentStartInputSchema,
+  type SubagentStopInputSchema,
+  type TaskCompletedInputSchema,
+  type TaskCreatedInputSchema,
+  type TaskToolInputSchema,
+  type TeammateIdleInputSchema,
+  type UserPromptExpansionInputSchema,
+  type UserPromptSubmitInputSchema,
+  type WebFetchToolInputSchema,
+  type WebSearchToolInputSchema,
+  type WorktreeCreateInputSchema,
+  type WorktreeRemoveInputSchema,
+  type WriteToolInputSchema,
 } from '../src/validation/index.js';
 import { type HookInputSchema } from '../src/validation/schemas.js';
 
@@ -754,6 +754,13 @@ export function createTempTestFile(content: string = 'test content'): {
   return { filePath, cleanup };
 }
 
+/**
+ * Wall-clock sleep helper retained for fixture setup only.
+ * Consumers must not use this in timing-sensitive assertions - inject a
+ * clock or subscribe to the exact event instead. Audit (todo 4): no test
+ * file currently imports `sleep`; keep it for rare fixture delays that do
+ * not assert elapsed time.
+ */
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }

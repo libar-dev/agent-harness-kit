@@ -1,5 +1,7 @@
 /** Public processing APIs for persisted Grok sessions. */
 
+export { byteCursorsEqual } from '../../internal/incremental.js';
+
 export {
   encodeGrokCwdDirname,
   findGrokSessionDirs,
@@ -24,7 +26,10 @@ export { grokEventSchema, parseGrokEvent } from './events.js';
 export type { GrokEvent, GrokEventParseResult } from './events.js';
 
 export {
+  STALE_CHECKPOINT_CONFLICT_CODE,
+  StaleCheckpointConflict,
   commitGrokSessionCheckpoint,
+  isStaleCheckpointConflict,
   tailGrokSession,
   watchGrokSession,
 } from './tail.js';
@@ -32,10 +37,12 @@ export type {
   GrokCheckpointStatus,
   GrokSessionCheckpoint,
   GrokSessionCheckpointCommitOptions,
+  GrokSessionCheckpointState,
   GrokSessionSourceCheckpoint,
   GrokSessionTailOptions,
   GrokSessionTailResult,
   GrokSessionWatchOptions,
+  GrokWatchClock,
   GrokSourceReset,
   GrokSourceTailResult,
   GrokTailDiagnostic,
@@ -63,3 +70,8 @@ export type {
   GrokToolUseBlock,
   GrokUserTextBlock,
 } from './blocks.js';
+
+export type {
+  JsonlCursor,
+  JsonlScanStatus,
+} from '../../internal/jsonl-cursor.js';

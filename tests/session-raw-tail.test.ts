@@ -16,8 +16,10 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
+  STALE_CHECKPOINT_CONFLICT_CODE,
   commitRawTranscriptSessionCheckpoint,
   getRawTranscriptSessionMarkerPath,
+  isStaleCheckpointConflict,
   tailRawTranscriptSessionRecords,
   watchRawTranscriptSessionRecords,
   type RawTranscriptSessionTailOptions,
@@ -26,6 +28,7 @@ import {
   type RawTranscriptSessionCheckpoint,
   type RawTranscriptSourceTailResult,
 } from '../src/processing/index.js';
+import { withRawTranscriptSessionMarkerLock } from '../src/processing/tail.js';
 import { must } from './test-utils.js';
 
 const execFileAsync = promisify(execFile);
@@ -1006,14 +1009,17 @@ describe('session-level raw transcript tail', () => {
     ]);
     const lockPath = `${markerPath}.lock`;
     await mkdir(lockPath, { recursive: true });
+    const ownerPath = join(lockPath, 'owner.json');
     await writeFile(
-      join(lockPath, 'owner.json'),
+      ownerPath,
       JSON.stringify({
         token: '00000000-0000-4000-8000-000000000001',
         pid: 2_147_483_647,
         createdAt: Date.now() - 60_000,
       })
     );
+    const staleDate = new Date(Date.now() - 60_000);
+    await utimes(ownerPath, staleDate, staleDate);
 
     await expect(
       commitRawTranscriptSessionCheckpoint(mainPath, batch.checkpoint, {
@@ -1026,15 +1032,16 @@ describe('session-level raw transcript tail', () => {
       (await readdir(dirname(markerPath))).filter(entry =>
         entry.startsWith(`${basename(markerPath)}.lock.stale.`)
       )
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
-  it('recovers malformed lock owners without using their fields as paths', async () => {
+  it('reclaims capturable legacy owners and fails closed on malformed fields without path use', async () => {
     const deadPid = 2_147_483_647;
     const oldTimestamp = Date.now() - 60_000;
     const cases = [
       {
         label: 'traversal-token',
+        reclaimable: true,
         owner: {
           token: 'pivot/../../escaped',
           pid: deadPid,
@@ -1043,6 +1050,7 @@ describe('session-level raw transcript tail', () => {
       },
       {
         label: 'nested-token',
+        reclaimable: true,
         owner: {
           token: 'nested/path',
           pid: deadPid,
@@ -1051,6 +1059,7 @@ describe('session-level raw transcript tail', () => {
       },
       {
         label: 'invalid-pid',
+        reclaimable: false,
         owner: {
           token: '00000000-0000-4000-8000-000000000002',
           pid: 0,
@@ -1059,6 +1068,7 @@ describe('session-level raw transcript tail', () => {
       },
       {
         label: 'invalid-created-at',
+        reclaimable: false,
         owner: {
           token: '00000000-0000-4000-8000-000000000003',
           pid: deadPid,
@@ -1093,12 +1103,11 @@ describe('session-level raw transcript tail', () => {
       );
       const lockPath = `${markerPath}.lock`;
       await mkdir(lockPath, { recursive: true });
-      await writeFile(
-        join(lockPath, 'owner.json'),
-        JSON.stringify(testCase.owner)
-      );
+      const ownerPath = join(lockPath, 'owner.json');
+      const ownerContents = JSON.stringify(testCase.owner);
+      await writeFile(ownerPath, ownerContents);
       const oldDate = new Date(oldTimestamp);
-      await utimes(lockPath, oldDate, oldDate);
+      await utimes(ownerPath, oldDate, oldDate);
 
       const escapedPath = resolve(
         `${lockPath}.stale.pivot`,
@@ -1111,14 +1120,35 @@ describe('session-level raw transcript tail', () => {
         await expect(access(escapedPath)).rejects.toThrow();
       }
 
-      await expect(
-        commitRawTranscriptSessionCheckpoint(
+      if (testCase.reclaimable) {
+        await expect(
+          commitRawTranscriptSessionCheckpoint(
+            mainPath,
+            batch.checkpoint,
+            commitOptions
+          )
+        ).resolves.toBeUndefined();
+        await expect(access(lockPath)).rejects.toThrow();
+      } else {
+        let entered = false;
+        await expect(
+          withRawTranscriptSessionMarkerLock(
+            markerPath,
+            async () => {
+              entered = true;
+            },
+            { acquireTimeoutMs: 0, retryMs: 0, isProcessAlive: () => false }
+          )
+        ).rejects.toThrow('Timed out acquiring session marker lock');
+        expect(entered).toBe(false);
+        expect(await readFile(ownerPath, 'utf8')).toBe(ownerContents);
+        await rm(lockPath, { recursive: true });
+        await commitRawTranscriptSessionCheckpoint(
           mainPath,
           batch.checkpoint,
           commitOptions
-        )
-      ).resolves.toBeUndefined();
-      await expect(access(lockPath)).rejects.toThrow();
+        );
+      }
       await expect(access(escapedPath)).rejects.toThrow();
 
       const tombstonePrefix = `${basename(markerPath)}.lock.stale.`;
@@ -1126,7 +1156,7 @@ describe('session-level raw transcript tail', () => {
         if (!entry.startsWith(tombstonePrefix)) return false;
         return /^[a-f0-9]{64}$/.test(entry.slice(tombstonePrefix.length));
       });
-      expect(tombstones).toHaveLength(1);
+      expect(tombstones).toHaveLength(0);
 
       const next = await tailRawTranscriptSessionRecords(mainPath, tailOptions);
       await expect(
@@ -1345,7 +1375,13 @@ describe('session-level raw transcript tail', () => {
         initial.checkpoint,
         commitOptions
       )
-    ).rejects.toThrow(/stale/);
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        isStaleCheckpointConflict(error) &&
+        error.code === STALE_CHECKPOINT_CONFLICT_CODE &&
+        error.expectedRevision === initial.checkpoint.baseRevision &&
+        error.actualRevision === removed.checkpoint.baseRevision + 1
+    );
     const quiet = await tailRawTranscriptSessionRecords(mainPath, tailOptions);
     const mainCheckpoint = must(
       quiet.checkpoint.sources.find(source => source.sourceKind === 'main')

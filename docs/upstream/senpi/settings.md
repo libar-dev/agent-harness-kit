@@ -1,0 +1,598 @@
+# Settings
+
+Senpi uses JSON settings files with project settings overriding global settings.
+
+| Location | Scope |
+|----------|-------|
+| `~/.senpi/agent/settings.json` | Global (all projects) |
+| `.senpi/settings.json` | Project (current directory) |
+
+Edit directly or use `/settings` for common options.
+
+## Project Trust
+
+On interactive startup, senpi asks before trusting a project folder that contains project-local settings, resources, or project `.agents/skills` and has no saved decision for the folder or a parent folder in `~/.senpi/agent/trust.json`. Trusting a project allows senpi to load `.senpi/settings.json` and `.senpi` resources, install missing project packages, and execute project extensions.
+
+Non-interactive modes (`-p`, `--mode json`, and `--mode rpc`) do not show a trust prompt. Without an applicable saved trust decision, they use `defaultProjectTrust` from global settings: `ask` (default) and `never` ignore those project resources, while `always` trusts them. Pass `--approve`/`-a` or `--no-approve`/`-na` to override project trust for one run.
+
+If no extension or saved decision applies, `defaultProjectTrust` controls the fallback behavior. Set it to `"ask"`, `"always"`, or `"never"` in `~/.senpi/agent/settings.json`, or change it with `/settings`.
+
+`senpi config` and package commands use the same project trust flow, except `senpi update` never prompts. Pass `--approve` to trust project-local settings for one command or `--no-approve` to ignore them.
+
+Use `/trust` in interactive mode to save a project trust decision for future sessions, including trust for the immediate parent folder. It writes `~/.senpi/agent/trust.json` only; the current session is not reloaded, so restart senpi for changes to take effect.
+
+## Permissions
+
+Senpi includes a built-in permission system for tool calls. It evaluates a preset first, then applies explicit rules from global settings, project settings, and CLI flags. The last matching rule wins.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `permissionPreset` | string | `"full-access"` | Permission preset: `"full-access"`, `"workspace"`, `"read-only"`, or `"ask"` |
+| `permission` | object | - | Explicit permission rules that override the selected preset |
+
+Presets:
+
+| Preset | Behavior |
+|--------|----------|
+| `full-access` | Allow all permission checks without prompting |
+| `workspace` | Allow `read`, `list`, `grep`, `edit`, and `bash`; ask for `external_directory` |
+| `read-only` | Allow `read`, `list`, and `grep`; ask for `edit`, `bash`, and `external_directory` |
+| `ask` | Restore prompt-on-unknown behavior |
+
+Example:
+
+```json
+{
+  "permissionPreset": "workspace",
+  "permission": {
+    "bash": {
+      "rm *": "deny"
+    },
+    "edit": {
+      "secrets/*": "ask"
+    }
+  }
+}
+```
+
+Flat rules apply to all patterns for that permission:
+
+```json
+{
+  "permissionPreset": "read-only",
+  "permission": {
+    "bash": "deny"
+  }
+}
+```
+
+CLI overrides have the highest precedence:
+
+```bash
+senpi --permission-preset ask
+senpi --permission-preset workspace --permission "bash:rm *=deny"
+```
+
+Permission rules are a confirmation policy, not a sandbox. Senpi, extensions, package installs, and child processes still run with the host process permissions.
+
+## All Settings
+
+### Model & Thinking
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `defaultProvider` | string | - | Default provider (e.g., `"anthropic"`, `"openai"`) |
+| `defaultModel` | string | - | Default model ID |
+| `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"` |
+| `modelThinkingLevels` | object | - | Per-model reasoning effort memory (`"provider/id": "level"`) |
+| `modelLastOnThinkingLevels` | object | - | Per-model last non-off reasoning level, used by `/reasoning on` to restore the previous effort |
+| `modelServiceTiers` | object | - | Per-model service tier memory (`"provider/id": "auto" \| "priority"`) |
+| `promptPreset` | string | `"auto"` | Force a system prompt preset: `"auto"`, `"kimi-k2-6"`, `"kimi-k2-7"`, `"kimi-k3"`, `"glm-5.2"`, `"glm-5.3"`, `"grok-4.5"`, `"grok-4.6"`, `"claude-fable-5"`, `"claude-opus-5"`, `"claude-opus-4-5"`, `"claude-opus-4-6"`, `"claude-opus-4-7"`, `"claude-opus-4-8"`, `"deepseek-v4-flash"`, `"deepseek-v4-flash-0731"`, `"deepseek-v4-pro"`, `"gpt-5"`, `"gpt-5.2"`, `"gpt-5.3-codex"`, `"gpt-5.4"`, `"gpt-5.5"`, or `"gpt-5.6"` |
+| `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in output |
+| `showCacheMissNotices` | boolean | `false` | Show transcript notices for significant prompt-cache misses and compaction or branch-summary usage |
+| `thinkingBudgets` | object | - | Custom token budgets per thinking level. Anthropic, Google, and Bedrock use these natively. OpenAI-compatible models use them when `compat.thinkingTokenBudgetField` (or `supportsThinkingTokenBudget`) is set. |
+
+#### promptPreset
+
+Use `promptPreset` when a provider's model ID does not auto-detect to the preset you want, or when you want to force one preset for a project.
+
+```json
+{
+  "promptPreset": "kimi-k2-6"
+}
+```
+
+Project settings in `.senpi/settings.json` override global settings in `~/.senpi/agent/settings.json`.
+When this value is anything other than `"auto"`, it overrides any model-level `promptPreset` configured in `models.json`.
+
+#### thinkingBudgets
+
+```json
+{
+  "thinkingBudgets": {
+    "minimal": 1024,
+    "low": 4096,
+    "medium": 10240,
+    "high": 32768
+  }
+}
+```
+
+### UI & Display
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `theme` | string | `"dark"` | Theme name (`"dark"`, `"light"`, or custom) |
+| `externalEditor` | string | `$VISUAL`, then `$EDITOR`, then Notepad on Windows or `nano` elsewhere | Command for Ctrl+G external editor; takes precedence over environment variables |
+| `quietStartup` | boolean | `false` | Hide startup header |
+| `tips` | boolean | `true` | Show the rotating startup and working-status tip lines |
+| `tipsHistory` | object | - | Internal record of which tips were shown last (managed automatically) |
+| `defaultProjectTrust` | string | `"ask"` | Fallback project trust behavior: `"ask"`, `"always"`, or `"never"`. Global setting only |
+| `collapseChangelog` | boolean | `false` | Show condensed changelog after updates |
+| `enableInstallTelemetry` | boolean | `true` | Send an anonymous install/update version ping after first install or changelog-detected updates. This does not control update checks |
+| `enableAnalytics` | boolean | `false` | Opt-in analytics data sharing. Currently only asked for during the experimental first-time setup (`PI_EXPERIMENTAL=1`) |
+| `trackingId` | string | - | Analytics tracking identifier, generated when `enableAnalytics` is turned on |
+| `doubleEscapeAction` | string | `"tree"` | Action for double-escape: `"tree"`, `"fork"`, or `"none"` |
+| `treeFilterMode` | string | `"default"` | Default filter for `/tree`: `"default"`, `"no-tools"`, `"user-only"`, `"labeled-only"`, `"all"` |
+| `editorPaddingX` | number | `0` | Horizontal padding for input editor (0-3) |
+| `outputPad` | number | `1` | Horizontal padding for user messages, assistant messages, and thinking (0 or 1) |
+| `autocompleteMaxVisible` | number | `5` | Max visible items in autocomplete dropdown (3-20) |
+| `showHardwareCursor` | boolean | `false` | Show the terminal cursor while TUI positions it for IME support |
+| `tuiMode` | string | `"regular"` | Interactive TUI mode: `"regular"` or experimental `"fullscreen"`. Changes from `/settings` apply immediately; `--tui-mode` overrides this setting at startup |
+| `fullscreenExitOutput` | string | `"transcript"` | Fullscreen exit output: `"transcript"` prints the final transcript and resume hint, while `"resume-hint"` restores the previous screen and prints only the resume hint. Has no effect in regular TUI mode |
+| `fullscreenScrollbar` | string | `"auto"` | Fullscreen transcript scrollbar: `"auto"` shows it temporarily while scrolling, `"always"` reserves the rightmost column and keeps it visible, and `"hidden"` hides it. Has no effect in regular TUI mode |
+
+For VS Code, include `--wait` so senpi resumes after the editor exits:
+
+```json
+{
+  "externalEditor": "code --wait"
+}
+```
+
+### Telemetry and update checks
+
+`enableInstallTelemetry` only controls the anonymous install/update ping to `https://pi.dev/api/report-install`. Opting out of telemetry does not disable update checks; senpi can still fetch the latest published `@code-yeongyu/senpi` version from the npm registry (`registry.npmjs.org`).
+
+Set `PI_SKIP_VERSION_CHECK=1` to disable the senpi version update check. Use `--offline` or `PI_OFFLINE=1` to disable all startup network operations described here, including update checks, package update checks, and install/update telemetry.
+
+### Network
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `httpProxy` | string | - | HTTP proxy URL applied as `HTTP_PROXY` and `HTTPS_PROXY`. Global setting only. |
+
+```json
+{
+  "httpProxy": "http://127.0.0.1:7890"
+}
+```
+
+### Warnings
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `warnings.anthropicExtraUsage` | boolean | `true` | Show a warning when Anthropic subscription auth may use paid extra usage |
+
+```json
+{
+  "warnings": {
+    "anthropicExtraUsage": false
+  }
+}
+```
+
+### Compaction
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `compaction.enabled` | boolean | `true` | Enable auto-compaction |
+| `compaction.reserveTokens` | number | `16384` | Tokens reserved for LLM response |
+| `compaction.keepRecentTokens` | number | `20000` | Recent tokens to keep (not summarized) |
+
+```json
+{
+  "compaction": {
+    "enabled": true,
+    "reserveTokens": 16384,
+    "keepRecentTokens": 20000
+  }
+}
+```
+
+### Branch Summary
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `branchSummary.reserveTokens` | number | `16384` | Tokens reserved for branch summarization |
+| `branchSummary.skipPrompt` | boolean | `false` | Skip "Summarize branch?" prompt on `/tree` navigation (defaults to no summary) |
+
+### Retry
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `retry.enabled` | boolean | `true` | Enable automatic agent-level retry on transient errors |
+| `retry.maxRetries` | number | `3` | Maximum agent-level retry attempts |
+| `retry.baseDelayMs` | number | `2000` | Base delay for agent-level exponential backoff (2s, 4s, 8s) |
+| `retry.modelFallback` | boolean | `true` | Let eligible retry failures advance through configured per-model fallback chains |
+| `retry.fallbackChains` | `Record<string, string[]>` | `{}` | Ordered exact model-selector to fallback-selector chains |
+| `retry.fallbackRevertPolicy` | `"cooldown-expiry"` \| `"never"` | `"cooldown-expiry"` | Automatic primary-model restoration policy |
+| `retry.abortServerSideFallback` | boolean | `true` | Abort a turn when the provider substitutes a different model after a classifier decline |
+| `retry.provider.timeoutMs` | number | `300000` | Provider/SDK request timeout and stream idle timeout in milliseconds |
+| `retry.provider.streamStartTimeoutMs` | number | `90000` | Maximum wait for the first provider stream event; `0` disables |
+| `retry.provider.streamRetryTimeoutMs` | number | `30000` | First-request liveness cap after a known provider stream/transport timeout; `0` disables the cap |
+| `retry.provider.maxRetries` | number | `0` | Provider/SDK retry attempts |
+| `retry.provider.maxRetryDelayMs` | number | `60000` | Max server-requested delay honored on the same model before the fallback chain engages (60s) |
+
+A server-requested retry delay at or below `retry.provider.maxRetryDelayMs` is honored on the same model. A longer delay means the model is unavailable rather than busy, so Senpi engages the configured fallback chain instead of waiting, suppressing the primary for the requested duration; the turn fails with an informative error only when no chain candidate can take over.
+
+After an exact provider stream/transport timeout, `retry.provider.streamRetryTimeoutMs` caps the retry's first
+provider request and defers queued user input from that request. The cap applies only to stream guards that are
+already enabled, never turns a disabled guard back on, and restores configured timeouts for later requests.
+
+Keep `retry.provider.maxRetries` at `0` unless provider-level retries are explicitly needed. Setting it above `0` can make SDK/provider retries handle out-of-usage-limit errors before senpi sees them, which may block the agent until the provider quota resets in some circumstances.
+
+```json
+{
+  "retry": {
+    "enabled": true,
+    "maxRetries": 3,
+    "baseDelayMs": 2000,
+    "provider": {
+      "timeoutMs": 3600000,
+      "streamStartTimeoutMs": 90000,
+      "streamRetryTimeoutMs": 30000,
+      "maxRetries": 0,
+      "maxRetryDelayMs": 60000
+    }
+  }
+}
+```
+
+#### Model fallback chains
+
+`retry.fallbackChains` maps a primary-model selector to an ordered list of fallback selectors. A selector is `provider/model` with an optional `:thinking-level` suffix, or a bare `model` id that applies to every provider serving that model family. Bare selectors expand against the models you actually have: providers holding an OAuth credential are preferred, then a fixed precedence order, and OpenRouter is never chosen by expansion. Senpi ships a bare default chain for `claude-fable-5`, so Fable 5 keeps a fallback chain whichever provider serves it; set that key to `[]` to opt out entirely, or set one `provider/claude-fable-5` key to override just that provider. For example, this switches Fable 5 to Kimi K3 at `max` thinking when an eligible failure occurs:
+
+```json
+{
+  "retry": {
+    "modelFallback": true,
+    "fallbackChains": {
+      "anthropic/claude-fable-5": ["ccapi/kimi-k3:max"]
+    },
+    "fallbackRevertPolicy": "cooldown-expiry"
+  }
+}
+```
+
+A chain is only for the exact primary model it names: selector lookup first considers an exact thinking-level selector, then the same `provider/model` without its thinking suffix. Wildcard selectors, role keys such as `default`, and other catch-all chains are not supported.
+
+A fallback entry with `:thinking-level` requests that level on the target model; a bare entry inherits the current thinking level. Either value is clamped to the target model's supported levels. When an unpinned fallback later returns to the primary, it restores the original thinking level unless you changed it while using the fallback.
+
+`/fallback` writes these settings to the global settings file. Project settings are still merged when read; because `fallbackChains` is a nested map, a project `retry.fallbackChains` replaces the global map rather than merging individual chain keys.
+
+#### Fallback behavior and diagnostics
+
+With `retry.enabled` and `retry.modelFallback` enabled, Senpi can switch from a transient or eligible hard provider failure to the next configured candidate. Transient failures (timeouts, overload, 429, 5xx, transport drops) first retry the same model on the existing exponential backoff; the chain engages only after `retry.maxRetries` attempts are spent, and each fallback candidate starts with a fresh retry budget. Hard failures (quota, auth, model-not-found) and classifier refusals still switch immediately. The switch continues the current turn without changing the existing conversation prefix, preserving prompt-cache inputs; fallback lifecycle events are never added to model context. Returning to a primary model happens only at a turn boundary, never while a response is streaming. Selector cooldowns are error-derived, and a provider retry-after hint always wins: quota and billing failures park a model for 30 minutes, rate limits for 30 seconds, overload for 45 seconds plus jitter, 5xx for 20 seconds, and timeout or connection/transport failures for 60 seconds; unmatched failures default to five minutes. A fully failing chain costs up to `1 + (chainLength + 1) * maxRetries` provider calls plus per-rung backoff before the turn fails; with `maxRetries: 0` every failure switches immediately, costing `1 + chainLength` calls.
+
+Billing-class failures — Anthropic's 400 *credit balance is too low*, OpenAI's 429 `insufficient_quota`, and other credit/quota exhaustion responses — never recover by retrying the same account, so a configured chain candidate receives a **pinned** fallback switch, exactly like a refusal-pinned fallback: it never auto-reverts and later turns keep running on the replacement model instead of returning to the exhausted account after the 30-minute billing cooldown.
+
+Anthropic streaming refusals are identified from typed `stopDetails`. A configured candidate receives an immediate **pinned** fallback switch with a user-visible fallback notice: Senpi does not retry the refusing model and a pinned fallback never auto-reverts. Set `retry.fallbackRevertPolicy` to `"cooldown-expiry"` (the default) to return an unpinned fallback to its primary after the primary's cooldown expires, or `"never"` to keep the fallback until you change models.
+
+#### Provider-substituted models
+
+Anthropic's server-side fallback betas can retry a classifier-declined request on a substitute model *inside the same response*, marking the handoff with a `fallback` content block; a gateway may enable this on your behalf. Honoring that response means paying for a model you did not select, and after the first handoff Anthropic routes later turns of the conversation straight to the substitute with no marker at all — reported only as a `fallback_message` entry in `usage.iterations`.
+
+With `retry.abortServerSideFallback` enabled (the default), Senpi treats either signal as a decline: it aborts the request as soon as the signal arrives, discards the substitute's partial output, and re-enters the turn as a classifier refusal so your own `retry.fallbackChains` chooses the replacement model. The transcript shows `Server fallback <from> -> <to> aborted`, naming `/fallback` when no chain is configured for the current model.
+
+Two caveats. Aborting minimizes but cannot eliminate cost: output already streamed before the abort is billed, and because per-attempt usage never arrives on an aborted stream, the turn carries a `billing_incomplete_after_client_abort` diagnostic instead of a precise cost. A served-model string that merely differs from the requested one never triggers an abort, because gateways and Bedrock-style endpoints legitimately rewrite model ids.
+
+Set it to `false` to keep the substituted response instead. If a gateway in front of Senpi injects the fallback itself, disabling the injection there avoids launching the substitute at all and is cheaper than aborting it client-side.
+
+Fallback decisions are process-local. A `senpi-task` or subagent child process reads its own settings and maintains its own in-memory suppression state; it does not affect its parent process. Disable fallback for one run without changing settings with `--no-model-fallback` or `SENPI_NO_FALLBACK=1`.
+
+For diagnostics, Senpi writes sanitized NDJSON records for candidate skips, cooldowns, switches, reverts, manual clears, and validation warnings to `<agentDir>/logs/fallback.log`. The file is mode `0600` and rotates at 5 MB (`fallback.log.1`).
+
+### Message Delivery
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `steeringMode` | string | `"one-at-a-time"` | How steering messages are sent: `"all"` or `"one-at-a-time"` |
+| `followUpMode` | string | `"one-at-a-time"` | How follow-up messages are sent: `"all"` or `"one-at-a-time"` |
+| `transport` | string | `"auto"` | Preferred transport for providers that support multiple transports: `"sse"`, `"websocket"`, `"websocket-cached"`, or `"auto"` |
+| `httpIdleTimeoutMs` | number | `300000` | HTTP header/body idle timeout in milliseconds, also used by providers with explicit stream idle timeouts. Set to `0` to disable. |
+| `websocketConnectTimeoutMs` | number | `15000` | WebSocket connect/open handshake timeout in milliseconds for providers that support WebSocket transports. Set to `0` to disable. |
+
+### OpenAI
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `openai.serviceTier` | string | - | Injects OpenAI Responses `service_tier`: `"auto"`, `"flex"`, or `"priority"` |
+
+```json
+{
+  "openai": {
+    "serviceTier": "priority"
+  }
+}
+```
+
+When unset, senpi leaves provider payloads unchanged. This setting currently applies only to the built-in OpenAI Responses provider path.
+
+### Providers
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `claudeSdkOauthProvider.enabled` | boolean | `false` | Enable the ambient (host-CLI-derived) lane of `claude-sdk-oauth`. Env override: `SENPI_CLAUDE_SDK_OAUTH_ENABLED`. Explicit senpi-side logins (stored OAuth accounts in `auth.json`, `CLAUDE_CODE_OAUTH_TOKEN` / `CLAUDE_CODE_OAUTH_TOKEN_<n>` env accounts) keep the provider available with this unset |
+| `cursorCliOauthProvider.enabled` | boolean | `false` | Enable the `cursor-cli-oauth` fallback lane and automatic native credential bootstrap. Env override: `SENPI_CURSOR_CLI_OAUTH_ENABLED` |
+
+Both ambient-auth providers are explicit opt-in: a vendor CLI being logged in on the machine is not consent to spend that subscription. Before these gates existed, a logged-in Claude Code or `cursor-agent` CLI made the lane available with no senpi-side action, so subscription usage could flow through a provider you never configured. Env overrides follow the usual precedence (`env > project settings > global settings > default`). See [providers.md](providers.md) for the full lane documentation.
+
+```json
+{
+  "claudeSdkOauthProvider": {
+    "enabled": true
+  },
+  "cursorCliOauthProvider": {
+    "enabled": true
+  }
+}
+```
+
+### Terminal & Images
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `terminal.showImages` | boolean | `true` | Show images in terminal (if supported) |
+| `terminal.imageWidthCells` | number | `60` | Preferred inline image width in terminal cells |
+| `terminal.clearOnShrink` | boolean | `false` | Clear empty rows when content shrinks (can cause flicker) |
+| `images.autoResize` | boolean | `true` | Resize images to 2000x2000 max. Applies to `@file` attachments, `read`, and images returned by tools |
+| `images.blockImages` | boolean | `false` | Block all images from being sent to LLM |
+
+### Prompt Cache
+
+Sizes how long foreground tools may block on the active model's prompt-cache lifetime, so a long
+`bash` call never straddles cache expiry and forces a full re-read. When the model's cache TTL is
+unknown (e.g. Google models) or caching is off, no budget applies and timeout behavior is unchanged.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `promptCache.cacheAwareTimeouts` | boolean | `true` | Cap foreground tool waits at the model's prompt-cache TTL minus the safety buffer; `false` restores the fixed legacy ceilings |
+| `promptCache.safetyBufferSeconds` | number | `30` | Headroom subtracted from the cache TTL (a 5m TTL yields a 270s ceiling). If it consumes the whole TTL, no budget applies |
+
+A foreground `bash` command still running at the budget is handed to a live background session
+instead of being killed; its explicit `timeout` remains the kill deadline. See
+`terminal.timeoutAction` to switch that hand-off back to a kill.
+
+### Shell
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `shellPath` | string | - | Custom shell path (e.g., for Cygwin on Windows); supports a leading `~` for the home directory |
+| `shellCommandPrefix` | string | - | Prefix for every bash command (e.g., `"shopt -s expand_aliases"`) |
+| `npmCommand` | string[] | - | Command argv used for npm package lookup/install operations (e.g., `["mise", "exec", "node@20", "--", "npm"]`) |
+
+Windows paths in JSON must use forward slashes or escaped backslashes:
+
+```json
+{
+  "shellPath": "C:/Program Files/Git/bin/bash.exe"
+}
+```
+
+```json
+{
+  "shellPath": "C:\\Program Files\\Git\\bin\\bash.exe"
+}
+```
+
+```json
+{
+  "npmCommand": ["mise", "exec", "node@20", "--", "npm"]
+}
+```
+
+`npmCommand` is used for all npm package-manager operations, including installs, uninstalls, and dependency installs inside git packages. User-scoped npm packages install under `~/.senpi/agent/npm/`; project-scoped npm packages install under `.senpi/npm/`. Use argv-style entries exactly as the process should be launched. When `npmCommand` is configured, git package dependency installs use plain `install` to avoid npm-specific flags in wrappers or alternate package managers.
+
+### Tools
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `defaultTools` | string[] | - | Built-in tools enabled initially. When omitted, Pi uses its standard defaults |
+
+`defaultTools` selects the built-in tools enabled at startup. Extension and SDK custom tools remain enabled:
+
+```json
+{
+  "defaultTools": ["bash", "edit", "write"]
+}
+```
+
+An empty array starts with no built-in tools while preserving extension and SDK custom tools. `--tools` replaces this behavior with a strict allowlist for all tools, `--no-tools` disables all tools, and `--no-builtin-tools` disables the built-in defaults. `--exclude-tools` filters the resulting list. A project `defaultTools` array replaces the global array.
+
+### Sessions
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sessionDir` | string | - | Directory where session files are stored. Accepts absolute or relative paths, plus `~`. |
+
+```json
+{ "sessionDir": ".senpi/sessions" }
+```
+
+When multiple sources specify a session directory, precedence is `--session-dir`, `SENPI_CODING_AGENT_SESSION_DIR`, then `sessionDir` in settings.json.
+
+### Model Cycling
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `favoriteModels` | string[] | - | Favorite model patterns for Ctrl+P cycling (same format as `--models` CLI flag) |
+| `enabledModels` | string[] | - | Legacy global model-catalog narrowing patterns (same format as `--models` CLI flag) |
+
+```json
+{
+  "enabledModels": ["anthropic/*", "openai/*"],
+  "favoriteModels": ["anthropic/claude-*", "openai/gpt-5.4"]
+}
+```
+
+`enabledModels` changes which models appear in the catalog, startup selection, and `/model` narrowing. `favoriteModels` is separate and only controls Ctrl+P cycling.
+
+#### Per-model memory
+
+`modelThinkingLevels`, `modelLastOnThinkingLevels`, and `modelServiceTiers` are maps from `"provider/id"` to a level or tier value. They're managed automatically: switching models, using `/reasoning`, `/efforts`, or `/fast` writes the appropriate key. You rarely need to edit them by hand, but the shape looks like this:
+
+```json
+{
+  "modelThinkingLevels": {
+    "openai-codex/gpt-5.6-sol": "xhigh",
+    "anthropic/claude-fable-5": "high"
+  },
+  "modelServiceTiers": {
+    "openai-codex/gpt-5.6-sol": "priority"
+  }
+}
+```
+
+A `-fast` catalog variant (like `gpt-5.6-sol-fast`) and its base model share one entry, so you can't give them conflicting tiers.
+
+#### Favorite model decorators
+
+Favorite model patterns accept optional decorator suffixes for reasoning level and service tier:
+
+```
+provider/model-id                  # bare pattern
+provider/model-id:high             # pin reasoning to high
+provider/model-id:priority         # pin service tier to priority
+provider/model-id:priority:high    # pin both tier and level
+claude-*:xhigh                     # glob with level pin
+```
+
+Decorators survive favorite toggling. A `:level` pin takes precedence over the per-model memory for reasoning, and a `:priority` pin takes precedence for the service tier. Under a pin, `/fast off` notifies that fast mode is fixed by the active model selection.
+
+#### Thinking level precedence
+
+When a model becomes active, its reasoning level is resolved in this order:
+
+1. An explicit or ephemeral session-scoped level (e.g. turn-scope `set_thinking_level`)
+2. A favorite pattern `:level` pin
+3. The per-model `modelThinkingLevels` memory
+4. `defaultThinkingLevel`
+5. `"medium"` (the hardcoded fallback)
+
+The resolved level is always clamped to what the model actually supports.
+
+#### Service tier precedence
+
+The service tier on outgoing requests is resolved as:
+
+1. A scoped/favorite `:priority` pin
+2. The model catalog's `compat.serviceTier`
+3. `openai.serviceTier` (the global OpenAI setting)
+
+The per-model `modelServiceTiers` memory is not part of that resolution: it applies to OpenAI Codex
+models only, through fast mode. It acts as the session-start default for `/fast` (a remembered
+`"priority"` starts the session fast) and as an explicit `"auto"` opt-out of a catalog-inherited
+priority tier, which keeps `service_tier` off the wire. Under a `:priority` pin the memory has no
+effect, because the pin outranks it.
+
+### Markdown
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `markdown.codeBlockIndent` | string | `"  "` | Indentation for code blocks |
+| `markdown.mermaid` | string | `"streaming"` | Mermaid rendering mode: `"off"`, `"final"`, or `"streaming"` |
+
+### Resources
+
+These settings define where to load extensions, skills, prompts, and themes from.
+
+Paths in `~/.senpi/agent/settings.json` resolve relative to `~/.senpi/agent`. Paths in `.senpi/settings.json` resolve relative to `.senpi`. Absolute paths and `~` are supported.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `packages` | array | `[]` | npm/git packages to load resources from |
+| `enabledBuiltinExtensions` | string[] | all builtins | Optional allowlist of builtin extension ids to load |
+| `disabledBuiltinExtensions` | string[] | `[]` | Builtin extension ids to skip; overrides `enabledBuiltinExtensions` |
+| `extensions` | string[] | `[]` | Local extension file paths or directories |
+| `skills` | string[] | `[]` | Local skill file paths or directories |
+| `prompts` | string[] | `[]` | Local prompt template paths or directories |
+| `themes` | string[] | `[]` | Local theme file paths or directories |
+| `enableSkillCommands` | boolean | `true` | Register skills as `/skill:name` commands |
+
+Arrays support glob patterns and exclusions. Use `!pattern` to exclude. Use `+path` to force-include an exact path and `-path` to force-exclude an exact path.
+
+#### packages
+
+String form loads all resources from a package:
+
+```json
+{
+  "packages": ["pi-skills", "@org/my-extension"]
+}
+```
+
+Object form filters which resources to load:
+
+```json
+{
+  "packages": [
+    {
+      "source": "pi-skills",
+      "skills": ["brave-search", "transcribe"],
+      "extensions": []
+    }
+  ]
+}
+```
+
+See [packages.md](packages.md) for package management details.
+
+## Example
+
+```json
+{
+  "defaultProvider": "anthropic",
+  "defaultModel": "claude-sonnet-4-20250514",
+  "defaultThinkingLevel": "medium",
+  "theme": "dark",
+  "compaction": {
+    "enabled": true,
+    "reserveTokens": 16384,
+    "keepRecentTokens": 20000
+  },
+  "retry": {
+    "enabled": true,
+    "maxRetries": 3
+  },
+  "enabledModels": ["claude-*", "gpt-4o"],
+  "favoriteModels": ["anthropic/claude-sonnet-4-20250514", "openai/gpt-4o"],
+  "warnings": {
+    "anthropicExtraUsage": true
+  },
+  "packages": ["pi-skills"]
+}
+```
+
+## Project Overrides
+
+Project settings (`.senpi/settings.json`) override global settings. Nested objects are merged:
+
+```json
+// ~/.senpi/agent/settings.json (global)
+{
+  "theme": "dark",
+  "compaction": { "enabled": true, "reserveTokens": 16384 }
+}
+
+// .senpi/settings.json (project)
+{
+  "compaction": { "reserveTokens": 8192 }
+}
+
+// Result
+{
+  "theme": "dark",
+  "compaction": { "enabled": true, "reserveTokens": 8192 }
+}
+```

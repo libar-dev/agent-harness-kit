@@ -1,0 +1,36 @@
+export const SUPPORTED_HOOK_EVENTS = [
+    "PreToolUse",
+    "PostToolUse",
+    "UserPromptSubmit",
+    "SessionStart",
+    "PreCompact",
+    "PostCompact",
+    "Stop",
+];
+export const UNSUPPORTED_KNOWN_HOOK_EVENTS = [
+    "PermissionRequest",
+    "PermissionDenied",
+    "SubagentStart",
+    "SubagentStop",
+    "Notification",
+    "Setup",
+    "UserPromptExpansion",
+    "PostToolUseFailure",
+    "PostToolBatch",
+    "TaskCreated",
+    "TaskCompleted",
+    "StopFailure",
+    "TeammateIdle",
+    "InstructionsLoaded",
+    "ConfigChange",
+    "CwdChanged",
+    "FileChanged",
+    "WorktreeCreate",
+    "WorktreeRemove",
+    "MessageDisplay",
+    "SessionEnd",
+    "Elicitation",
+    "ElicitationResult",
+];
+export const UNSUPPORTED_HANDLER_TYPES = ["prompt", "agent", "http", "mcp_tool"];
+//# sourceMappingURL=types.js.map

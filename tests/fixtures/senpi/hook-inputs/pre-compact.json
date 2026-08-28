@@ -1,0 +1,10 @@
+{
+  "event": "PreCompact",
+  "reason": "context_window_exceeded",
+  "cwd": "/project",
+  "custom_instructions": "Keep the failing-test discussion intact.",
+  "hook_event_name": "PreCompact",
+  "request_id": "req-pre-compact-0005",
+  "session_id": "sess-pre-compact-0005",
+  "will_retry": false
+}

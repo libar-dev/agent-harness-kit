@@ -13,6 +13,121 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ### Added
 
+- Exported `byteCursorsEqual` from the Grok processing barrel so
+  consumers can compare per-source cursors without an internal barrel.
+  Contract tests pin `StaleCheckpointConflict` shape (`name`,
+  constructor fields, and `isStaleCheckpointConflict`) as a cross-repo
+  contract.
+
+### Changed
+
+- Token-lease lock protocol replaces the rename-based claim/release
+  mechanism at the marker, trust, and raw-transcript lock sites.
+  Canonical lock directories hold immutable `owner.<ownerId>.<leaseId>`
+  token files. Expiry is age-based (`now - token.mtimeMs > staleMs`).
+  The trust lock is a directory (`<statePath>.lock`), not a file;
+  pre-existing FILE-shaped locks are still captured when mtime-stale.
+  Pre-protocol sibling debris (`.release.*` / `.reclaim.*` / `.stale.*`)
+  is inert: the protocol never creates those names, and leftover debris
+  is left alone (no automatic cleanup). Renewal is explicit
+  (`Lease.renew()` / `assertHeld()`) at commit points, not a heartbeat.
+  `removeStaleStateLock` in `src/senpi/trust-writer.ts` is async
+  (`Promise<boolean>`). Direct importers of that module should treat
+  the return as a Promise; the symbol is not on the package barrel.
+- Relocated the shared JSONL cursor, incremental resume, watch scheduler,
+  discovery primitives, and bounded-line reader into unbarreled
+  `src/internal/`. Type-only `JsonlCursor` re-exports from the Grok and
+  Senpi processing barrels keep the public surface unchanged.
+- Timing-sensitive CLI, Senpi trust-writer, and lifecycle tests use
+  injected clocks and fake timers instead of wall-clock waits. The
+  trust writer accepts an optional `clock` so lock-budget assertions
+  never sleep.
+
+### Fixed
+
+- Grok tail full-state rebuilds ignore the steady-state scan bounds
+  (`maxScanBytes`/`maxScanLines`; per-line `maxLineBytes` still applies), and a
+  rebuild that still cannot complete returns a non-advancing result
+  (additive `stateComplete: false`, checkpoint rewound to previous cursors)
+  instead of persisting a checkpoint past incomplete reconstructed state.
+- Marker lock and Senpi trust-state lock releases and stale reclamations
+  claim the lock atomically (rename to a private uuid path) and verify the
+  ownership token there before removal: a releasing owner whose stale lease
+  was reclaimed no longer deletes the replacement's lock, and a reclaimer
+  that races a fresh replacement restores it instead of deleting it.
+- Clean-consumer pack parsing survives npm < 11 running the `prepare` script during `npm pack` despite `--ignore-scripts` (npm/cli#3080): the JSON report is extracted from stdout instead of parsed from byte zero. Same fix in the packed package contract test.
+- Senpi execute real-signal cases spawn the self-killing child through `exec` so the observed close is signal death on shells that fork and wait (dash).
+- Marker-lock replacement case no longer asserts an inode number difference; ext4/overlayfs reuse inodes after rm+mkdir, and the nonce mismatch is the property under test.
+- Compatibility probe tolerates missing git metadata in codeload/tarball installs: `candidateSha` falls back to `unknown` when `git rev-parse HEAD` fails, so `prepack` no longer fails on archive pins.
+- Bound stdin to 1 MiB in Senpi execute, Grok execute, both hook
+  forwarders, and Claude `readStdin`.
+- Bound shared JSONL cursor scans to 32 MiB and 10_000 lines per pass.
+  Senpi and Grok tail results expose additive `scanStatus` (`complete` or
+  `limited`) when a pass stops early.
+- Senpi tail reports `reset: false` on a first-ever scan, treats movement
+  as cursor and projection position change, and skips complete blank lines
+  so a trailing blank is not `terminalMalformed`.
+- Senpi automatic checkpoint writes return additive `checkpointStatus`
+  (`committed`, `unchanged`, `manual`, `failed`, or `deferred`) instead of
+  throwing on write failure.
+- Senpi watch quiesces on position stability. Reset, mtime, size beyond
+  the cursor, and filesystem noise no longer count as movement or re-arm
+  the quiet window.
+- Grok watch wakes on null-filename `fs.watch` events and supports an
+  optional `pollMs` backstop.
+- Bound Grok discovery reads of `summary.json` (64 KiB) and `.cwd` (4 KiB).
+  Oversized files take the existing invalid or diagnostic path.
+- Senpi listing never yields or parses an unterminated final line. The
+  newline commits the entry on the next listing pass.
+- `listAllSenpiSessions` skips root-level `*-artifacts/` directories,
+  matching the nested-directory filter.
+- Senpi registration-document reads reject unknown hook-event keys,
+  groups without handlers, empty commands, and arbitrary hooks objects.
+  Inspect surfaces the existing malformed-shape read-error union.
+
+### Security
+
+- Senpi hook forwarder accepts only loopback `http`/`https` URLs
+  (`127.0.0.1`, `localhost`, `::1`) unless
+  `SENPI_HOOK_FORWARD_ALLOW_REMOTE=1` is set. Redirects are refused and
+  stdin is capped at 1 MiB.
+- Marker-root containment realpath-walks the candidate and allowed
+  roots so a symlink inside a root that points outward is rejected.
+  Write-path re-verification (`assertMarkerDirStillAllowed`) rejects a
+  directory swapped for an outward symlink after resolve.
+- Marker-lock stale reclamation writes `owner.json` `{ nonce }` after
+  `mkdir`, atomically rename-claims a stale lock, and re-checks `{dev, ino}`
+  plus nonce after the claim. Exactly one concurrent reclaimer can remove a
+  captured stale lock, and a recreated lock is restored rather than deleted.
+
+## [0.3.0] - 2026-08-23
+
+First public contract freeze. This release documents the Claude, Grok, and
+Senpi library surfaces that ship in the package. It is not a desktop product
+integration and does not publish itself; npm publication with provenance is a
+separate owner-authorized step.
+
+Supported runtime: Node.js `>=22.0.0`. Development and CI also run on Node 24.
+Node 20 and Windows are not supported.
+
+### Added
+
+- Added the attach-only Grok Build surface on `/grok` (hook validation, output
+  builder, runner, JSON/TOML settings) and `/grok/processing` (discovery, parse,
+  tail, watch, checkpoint commit, block reduction).
+- Added the attach-only OmO-native (senpi) surface on `/senpi` (agent-home
+  resolution, hook wire/validation, output builder, runner, read-only trust
+  inspection, consent-gated trust grant/revoke, observe-only hooks.json
+  register/inspect/unregister) and `/senpi/processing` (discovery, listing,
+  parse, projection, tail, watch, checkpoint commit, native block reduction).
+  Mutating primitives require `{ consent: true, reason, target }` and never
+  run at module import.
+- Added the standalone Senpi hook forwarder at
+  `dist/standalone/hook-forwarder-senpi.mjs` alongside the existing Claude
+  forwarder at `dist/standalone/hook-forwarder.mjs`. `/forwarder` exports the
+  pack-relative asset paths and `RUN_HOOK_WRAPPER_SH`; it does not install.
+- Added a packed-tarball clean-consumer CI matrix on Node 22 and 24, plus a
+  Node 20 engine-mismatch job that must surface `engines.node >=22.0.0`.
 - Added Claude Code hook parity for optional `prompt_id`, eight Notification
   types, Stop/SubagentStop background-task and session-cron registries, six
   permission-update variants, the `manual` set-mode alias, `disableAllHooks`,
@@ -30,6 +145,8 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
 
 ### Changed
 
+- Package version is exact `0.3.0`. `publishConfig.provenance` is enabled so
+  the owner-gated release workflow can attest the npm tarball.
 - Notification output is restricted to universal hook fields.
 - Stop and SubagentStop block outputs require a present `reason` string (empty
   string accepted) and remain distinct from non-error `additionalContext`
@@ -49,6 +166,19 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
   schemas instead of using `.strict()`.
 - `sessionStartContext(options)` preserves empty strings and empty `watchPaths`
   via presence checks rather than truthiness.
+
+### Compatibility
+
+- Runtime floor remains Node.js `>=22.0.0`. It is not raised and not broadened.
+- Grok and Senpi are observe/attach contracts only. This library does not spawn,
+  drive, Commit, or translate Claude hook scripts to those engines.
+- Claude `/processing` stays the session parse/tail/export surface. Marker
+  helpers remain public; JSONL cursor internals and Senpi marker-schema helpers
+  stay unexported and resolve as `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+- There is no public plugin ABI and no shared cross-harness `SessionBlock`.
+- This package is a library. It does not ship a Cockpit (or any other) product
+  integration, daemon, or UI. Cockpit is observe-only for OmO/Senpi and must
+  not call kit hook/trust writers or install the Senpi forwarder.
 
 ### Fixed
 
@@ -180,4 +310,7 @@ Development milestone for `@libar-dev/claude-code-hooks` before the first public
 - Exact `--format raw-records` payloads and `rawLine` bytes are gated behind the explicit
   `--unsafe-raw-unredacted` opt-in; without it, raw records are redacted.
 
+[Unreleased]: https://github.com/libar-dev/agent-harness-kit/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/libar-dev/agent-harness-kit/releases/tag/v0.3.0
+[0.2.0]: https://github.com/libar-dev/agent-harness-kit/releases/tag/v0.2.0
 [0.1.0]: https://github.com/libar-dev/agent-harness-kit/releases/tag/v0.1.0

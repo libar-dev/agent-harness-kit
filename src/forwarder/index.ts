@@ -1,1 +1,5 @@
-export { RUN_HOOK_WRAPPER_SH } from './assets.js';
+export {
+  RUN_HOOK_WRAPPER_SH,
+  STANDALONE_HOOK_FORWARDER_ASSET,
+  STANDALONE_SENPI_HOOK_FORWARDER_ASSET,
+} from './assets.js';

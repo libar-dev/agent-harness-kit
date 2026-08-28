@@ -62,18 +62,52 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
 
+/**
+ * Event-driven wait for child-process output. Subscribes to stream data
+ * events and resolves on the first buffer match - no polling sleeps.
+ * Hang budget uses AbortSignal.timeout (wall-clock ceiling only).
+ */
 async function waitForOutput(
   reader: () => string,
   pattern: RegExp,
+  subscribe: (listener: () => void) => () => void,
   timeoutMs = 5000
 ): Promise<string> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const output = reader();
-    if (pattern.test(output)) return output;
-    await new Promise(resolve => setTimeout(resolve, 25));
-  }
-  throw new Error(`Timed out waiting for ${String(pattern)}`);
+  const existing = reader();
+  if (pattern.test(existing)) return existing;
+
+  return new Promise<string>((resolve, reject) => {
+    let settled = false;
+    const hang = AbortSignal.timeout(timeoutMs);
+
+    const finish = (action: () => void): void => {
+      if (settled) return;
+      settled = true;
+      unsubscribe();
+      hang.removeEventListener('abort', onHang);
+      action();
+    };
+
+    const onHang = (): void => {
+      finish(() => {
+        reject(new Error(`Timed out waiting for ${String(pattern)}`));
+      });
+    };
+
+    const onData = (): void => {
+      const output = reader();
+      if (pattern.test(output)) {
+        finish(() => {
+          resolve(output);
+        });
+      }
+    };
+
+    hang.addEventListener('abort', onHang, { once: true });
+    const unsubscribe = subscribe(onData);
+    // Catch data that arrived between the initial check and subscribe.
+    onData();
+  });
 }
 
 function makeUserTextLine(uuid: string, text: string, ts: string): string {
@@ -602,16 +636,22 @@ describe('CLI argument validation', () => {
       child.stderr.on('data', chunk => {
         stderr += chunk;
       });
+      const subscribeStdout = (listener: () => void): (() => void) => {
+        child.stdout.on('data', listener);
+        return () => {
+          child.stdout.off('data', listener);
+        };
+      };
 
       try {
-        await waitForOutput(() => stdout, /"id":"u-1:0"/);
+        await waitForOutput(() => stdout, /"id":"u-1:0"/, subscribeStdout);
 
         await appendFile(
           jsonlPath,
           makeUserTextLine('u-2', 'follow-up', '2026-02-16T20:00:01.000Z')
         );
 
-        await waitForOutput(() => stdout, /"id":"u-2:0"/);
+        await waitForOutput(() => stdout, /"id":"u-2:0"/, subscribeStdout);
 
         child.kill(signal);
         const exitResult: unknown[] = await once(child, 'exit');
@@ -657,9 +697,15 @@ describe('CLI argument validation', () => {
       child.stderr.on('data', chunk => {
         stderr += chunk;
       });
+      const subscribeStderr = (listener: () => void): (() => void) => {
+        child.stderr.on('data', listener);
+        return () => {
+          child.stderr.off('data', listener);
+        };
+      };
 
       try {
-        await waitForOutput(() => stderr, /tail: watching /);
+        await waitForOutput(() => stderr, /tail: watching /, subscribeStderr);
 
         child.kill(signal);
         const exitResult: unknown[] = await once(child, 'exit');

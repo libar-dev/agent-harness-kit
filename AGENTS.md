@@ -1,6 +1,6 @@
 # Agent harness kit
 
-`@libar-dev/agent-harness-kit` is a TypeScript library for Claude Code hooks, session export/tail CLIs, and a Grok Build adapter. Claude Code has 30 hook events. `CLAUDE.md` is a symlink to this file. Edit this file.
+`@libar-dev/agent-harness-kit` is a TypeScript library for Claude Code hooks, session export/tail CLIs, and attach-only Grok Build and OmO-native (senpi) observe adapters. Claude Code has 30 hook events. `CLAUDE.md` is a symlink to this file. Edit this file.
 
 ## `any`
 
@@ -22,6 +22,7 @@ Imports use `.js` extensions (NodeNext).
 | [docs/guides/configuring-settings-json.md](docs/guides/configuring-settings-json.md) | handler types, matcher, `if` / `once` / `timeout` |
 | [docs/guides/writing-your-first-hook.md](docs/guides/writing-your-first-hook.md) | `executeHook` module pattern |
 | [docs/reference/grok-adapter.md](docs/reference/grok-adapter.md) | Grok envelopes, settings, or processing |
+| [docs/reference/senpi-adapter.md](docs/reference/senpi-adapter.md) | senpi hook input/output shapes, trust model, forwarder, or tail/watch APIs |
 | [docs/internal/tail-session.md](docs/internal/tail-session.md) | tail markers or `CLAUDE_TAIL_MARKER_ROOTS` |
 | [docs/upstream/hooks-reference.md](docs/upstream/hooks-reference.md) | mirrored official hook contract |
 | [tests/docs-round-trip.test.ts](tests/docs-round-trip.test.ts) | changing JSON examples in `docs/upstream/hooks-*.md` |
@@ -50,7 +51,7 @@ Greptile reviews this public repo. After a commit: `greptile review -b main --js
 
 ## Public tree
 
-Keep scratch out of the index: `prometheus-implementation-context.md`, `.omo/notepads/`, `.omo/senpi-task/`, `.omo/start-work/`, `.omo/run-continuation/`, `boulder.json`, root `plans/`, `.grok/`. Product law goes in `docs/` or `docs/decisions/`.
+Keep scratch out of the index: `prometheus-implementation-context.md`, `.omo/notepads/`, `.omo/senpi-task/`, `.omo/start-work/`, `.omo/run-continuation/`, `boulder.json`, root `plans/`, `.grok/`. Product law goes in `docs/` or `docs/decisions/`. The `@noble/hashes` BLAKE3-parity exception is `docs/decisions/0001-noble-hashes-blake3-parity.md`.
 
 `.omo/` is live. At most one unchecked plan in `.omo/plans/`. Archive to `.plans/NN-slug.md`. Workstation copy: `~/.agents/AGENTS.md` (skill `omo-workspace-state`).
 
@@ -60,6 +61,6 @@ Unslop every reply, commit message, PR body, and new doc. Skill: `~/.agents/skil
 
 Commits are recovery boundaries. A plan's commit strategy authorizes commits on that work branch. Otherwise ask. Push only when asked. No `git stash`.
 
-Before a push, the remote must be `git@github.com:<owner>/<repo>.git` and `gh auth status` must report `Git operations protocol: ssh`. Ask before changing remotes or credentials.
+Push over the existing remote and protocol - HTTPS + gh token works here. Treat SSH + key checks as a fallback only when HTTPS/token auth fails (the old ssh-first rule came from a Fedora machine where tokens kept breaking, not this one). Ask before changing remotes or credentials.
 
 The user owns `~/dev-admin/oh-my-openagent` and `~/.omo/omo.jsonc`. Inspect and report. Do not checkout, pull, build, install, or edit OmO unless asked.

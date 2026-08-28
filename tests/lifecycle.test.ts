@@ -34,11 +34,17 @@ function runLifecycleHook(
 
     let stdout = '';
     let stderr = '';
+    let settled = false;
 
-    const timeout = setTimeout(() => {
+    // Hang budget only - resolution is event-driven on child close/error.
+    const hang = AbortSignal.timeout(5000);
+    const onHang = (): void => {
+      if (settled) return;
+      settled = true;
       child.kill('SIGKILL');
       reject(new Error(`Timed out waiting for ${script} to exit`));
-    }, 5000);
+    };
+    hang.addEventListener('abort', onHang, { once: true });
 
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -50,12 +56,16 @@ function runLifecycleHook(
     });
 
     child.on('error', error => {
-      clearTimeout(timeout);
+      if (settled) return;
+      settled = true;
+      hang.removeEventListener('abort', onHang);
       reject(error);
     });
 
     child.on('close', code => {
-      clearTimeout(timeout);
+      if (settled) return;
+      settled = true;
+      hang.removeEventListener('abort', onHang);
       resolve({
         code: code ?? 1,
         stdout,

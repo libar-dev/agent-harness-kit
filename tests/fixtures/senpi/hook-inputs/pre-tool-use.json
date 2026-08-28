@@ -1,0 +1,9 @@
+{
+  "event": "PreToolUse",
+  "toolName": "read_file",
+  "toolInput": { "path": "/project/src/example.ts" },
+  "cwd": "/project",
+  "session_id": "sess-pre-tool-use-0003",
+  "hook_event_name": "PreToolUse",
+  "tool_use_id": "call_pre_0003"
+}

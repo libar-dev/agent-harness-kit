@@ -3,9 +3,13 @@
  */
 
 import { stdin, stdout, stderr, env, exit } from 'node:process';
+import { readBoundedTimedStdin } from '../internal/stdin.js';
 import type { HookInput, HookOutput, HookConfig } from '../types/index.js';
 import { validateHookInput as zodValidateHookInput } from '../validation/validators.js';
 import type { HookInputSchema } from '../validation/schemas.js';
+
+const DEFAULT_STDIN_MAX_BYTES = 1024 * 1024;
+const STDIN_TIMEOUT_MS = 30_000;
 
 /**
  * Read JSON from stdin and validate it at the hook boundary.
@@ -30,32 +34,29 @@ export async function readStdinJson(): Promise<HookInputSchema> {
 }
 
 /**
- * Read raw stdin text with a 30-second timeout.
+ * Read raw stdin text with a 30-second timeout and a 1 MiB byte cap.
+ *
+ * Truncation policy matches {@link readBoundedTimedStdin}: stop consuming
+ * once 1 MiB has accumulated and abandon unread bytes. On timeout the
+ * shared reader logs `Timeout waiting for stdin input` and exits 1.
+ *
+ * @returns The UTF-8 decoded retained prefix.
+ * @throws The timeout error after the log and exit hook have run.
  */
 export async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-
-  const timeout = setTimeout(() => {
-    logError('Timeout waiting for stdin input');
-    exit(1);
-  }, 30000);
-
-  try {
-    for await (const chunk of stdin as AsyncIterable<Buffer>) {
-      chunks.push(chunk);
-    }
-    clearTimeout(timeout);
-
-    const result = Buffer.concat(chunks).toString('utf-8');
-    if (getConfig().debug) {
-      logDebug(`Read ${result.length} characters from stdin`);
-    }
-
-    return result;
-  } catch (error) {
-    clearTimeout(timeout);
-    throw error;
+  const result = await readBoundedTimedStdin({
+    stdin: stdin as AsyncIterable<Buffer>,
+    maxBytes: DEFAULT_STDIN_MAX_BYTES,
+    timeoutMs: STDIN_TIMEOUT_MS,
+    stderr,
+    exit,
+    timeoutMessage: 'Timeout waiting for stdin input',
+    createTimeoutError: () => new Error('Timeout waiting for stdin input'),
+  });
+  if (getConfig().debug) {
+    logDebug(`Read ${result.length} characters from stdin`);
   }
+  return result;
 }
 
 /**

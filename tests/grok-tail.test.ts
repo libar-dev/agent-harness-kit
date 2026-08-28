@@ -232,6 +232,42 @@ describe('Grok session tail', () => {
     expect((await tailGrokSession(session, options)).records).toEqual([]);
   });
 
+  it('rebuilds complete semantic state before advancing a bounded resume checkpoint', async () => {
+    const session = await createSession('bounded-state-rebuild');
+    const markerDir = join(root, 'bounded-state-rebuild-markers');
+    const markerOptions = { markerDir, allowedMarkerRoots: [root] } as const;
+    await writeFile(
+      join(session, 'updates.jsonl'),
+      updateLine(1_000, 'zero', 'zero', 0) + updateLine(2_000, 'one', 'one', 1)
+    );
+    await writeFile(join(session, 'events.jsonl'), '');
+
+    await tailGrokSession(session, { ...markerOptions, fromStart: true });
+    await appendFile(
+      join(session, 'updates.jsonl'),
+      updateLine(3_000, 'two', 'two', 2)
+    );
+    const adopted = await tailGrokSession(session, {
+      ...markerOptions,
+      checkpointMode: 'manual',
+      maxScanLines: 1,
+    });
+    expect(adopted.records).toHaveLength(1);
+    expect(adopted.stateComplete).toBe(true);
+
+    await appendFile(join(session, 'updates.jsonl'), rewindLine(4_000, 0));
+    const rewound = await tailGrokSession(session, {
+      checkpoint: adopted.checkpoint,
+      checkpointMode: 'manual',
+    });
+
+    expect(
+      rewound.changes
+        .filter(change => change.type === 'delete')
+        .map(change => change.id)
+    ).toEqual(['session-tail:user_text:one', 'session-tail:user_text:two']);
+  });
+
   it('surfaces rewind deletes as block changes', async () => {
     const session = await createSession('rewind');
     await writeFile(
@@ -514,5 +550,31 @@ describe('Grok session tail', () => {
 
     controller.abort();
     await iterator.return?.();
+  });
+
+  it('surfaces scanStatus limited when a capped source stops at the line budget', async () => {
+    const session = await createSession('scan-status-limited');
+    await writeFile(
+      join(session, 'updates.jsonl'),
+      updateLine(1_000, 'first', 'first') +
+        updateLine(2_000, 'second', 'second') +
+        updateLine(3_000, 'third', 'third')
+    );
+    await writeFile(join(session, 'events.jsonl'), '');
+
+    const result = await tailGrokSession(session, {
+      fromStart: true,
+      checkpointMode: 'manual',
+      maxScanLines: 1,
+    });
+
+    expect(result.scanStatus).toEqual({ status: 'limited', reason: 'lines' });
+    expect(result.records).toHaveLength(1);
+    expect(
+      result.sources.find(source => source.sourceKind === 'updates')
+    ).toMatchObject({ recordCount: 1 });
+    expect(
+      result.sources.find(source => source.sourceKind === 'events')
+    ).toMatchObject({ status: 'read', recordCount: 0 });
   });
 });

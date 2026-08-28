@@ -4,8 +4,59 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 
 import { blake3 } from '@noble/hashes/blake3.js';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports -- importOriginal must use the actual module type
+type FsPromisesModule = typeof import('node:fs/promises');
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ZodError } from 'zod';
+
+interface FsReadRecord {
+  readonly requested: number[];
+  actual: number;
+}
+
+const fsReadTracker = vi.hoisted(() => ({
+  recordsByPath: new Map<string, FsReadRecord>(),
+}));
+
+vi.mock('node:fs/promises', async importOriginal => {
+  const actual = await importOriginal<FsPromisesModule>();
+  return {
+    ...actual,
+    open: async (path: string, flags: string) => {
+      const handle = await actual.open(path, flags);
+      const targetPath = path;
+      const originalRead = handle.read.bind(handle);
+      return new Proxy(handle, {
+        get(target, property, receiver) {
+          if (property !== 'read') {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- preserve unrelated FileHandle members
+            return Reflect.get(target, property, receiver);
+          }
+          return (
+            buffer: Buffer,
+            offset: number,
+            length: number,
+            position: number
+          ) => {
+            const record = fsReadTracker.recordsByPath.get(targetPath) ?? {
+              requested: [],
+              actual: 0,
+            };
+            record.requested.push(length);
+            fsReadTracker.recordsByPath.set(targetPath, record);
+            // The proxy delegates the real FileHandle result unchanged.
+            return originalRead(buffer, offset, length, position).then(
+              result => {
+                record.actual += result.bytesRead;
+                return result;
+              }
+            );
+          };
+        },
+      });
+    },
+  };
+});
 
 import {
   encodeGrokCwdDirname,
@@ -112,6 +163,54 @@ describe('Grok session discovery', () => {
 
     await expect(findGrokSessionDirs(REPO_CWD, env)).resolves.toEqual([]);
     await expect(listGrokSessions(REPO_CWD, env)).resolves.toEqual([]);
+  });
+
+  it('reads oversized summary and cwd files only through their byte bounds', async () => {
+    const cwd = '/fixtures/bounded-discovery';
+    const cwdDir = join(grokHome, 'sessions', 'hashed-cwd-deadbeefdeadbeef');
+    const sessionDir = join(cwdDir, 'bounded-session');
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(cwdDir, '.cwd'), cwd);
+    await writeFile(join(sessionDir, 'summary.json'), 'x'.repeat(128 * 1024));
+    fsReadTracker.recordsByPath.clear();
+    const cwdPath = join(cwdDir, '.cwd');
+    const summaryPath = join(sessionDir, 'summary.json');
+    const sessions = await listGrokSessions(cwd, { GROK_HOME: grokHome });
+
+    expect(sessions[0]?.kind).toBe('invalid');
+    const cwdRecord = fsReadTracker.recordsByPath.get(cwdPath);
+    const summaryRecord = fsReadTracker.recordsByPath.get(summaryPath);
+    expect(cwdRecord?.requested.length).toBeGreaterThan(0);
+    expect(summaryRecord?.requested.length).toBeGreaterThan(0);
+    expect(cwdRecord?.requested.every(length => length <= 4 * 1024)).toBe(true);
+    expect(summaryRecord?.requested.every(length => length <= 64 * 1024)).toBe(
+      true
+    );
+    expect(cwdRecord?.requested).toContain(4 * 1024);
+    expect(summaryRecord?.requested).toContain(64 * 1024);
+    expect(cwdRecord?.actual).toBeLessThanOrEqual(4 * 1024);
+    expect(summaryRecord?.actual).toBeLessThanOrEqual(64 * 1024);
+  });
+
+  it('surfaces an oversized summary as an invalid session', async () => {
+    const cwd = '/fixtures/oversized-summary';
+    const sessionDir = join(
+      grokHome,
+      'sessions',
+      encodeGrokCwdDirname(cwd),
+      'oversized-session'
+    );
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, 'summary.json'), 'x'.repeat(65 * 1024));
+
+    const sessions = await listGrokSessions(cwd, { GROK_HOME: grokHome });
+
+    expect(sessions).toEqual([
+      expect.objectContaining({
+        kind: 'invalid',
+        sessionId: 'oversized-session',
+      }),
+    ]);
   });
 
   it('surfaces one malformed summary without hiding a valid sibling', async () => {
