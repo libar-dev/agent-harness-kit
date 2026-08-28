@@ -171,6 +171,11 @@ describe('internal marker-lock identity reclamation', () => {
       notifyEntered = resolve;
     });
     let entered = 0;
+    let reclaimersReady = 0;
+    let releaseReclaimers!: () => void;
+    const bothReclaimersReady = new Promise<void>(resolve => {
+      releaseReclaimers = resolve;
+    });
 
     const run = (): Promise<string> =>
       withMarkerLock(
@@ -178,10 +183,20 @@ describe('internal marker-lock identity reclamation', () => {
         async () => {
           entered += 1;
           notifyEntered();
+          if (entered === 2) releaseHold();
           await hold;
           return 'held';
         },
-        { lockedLabel: 'Senpi session marker' }
+        {
+          lockedLabel: 'Senpi session marker',
+          onBeforeStaleClaim: async () => {
+            reclaimersReady += 1;
+            const reclaimerNumber = reclaimersReady;
+            if (reclaimerNumber === 2) releaseReclaimers();
+            await bothReclaimersReady;
+            if (reclaimerNumber === 2) await sawEnter;
+          },
+        }
       );
 
     const first = run();
@@ -229,6 +244,27 @@ describe('internal marker-lock identity reclamation', () => {
     expect(rejected).toHaveLength(1);
     expect(errorMessage(rejected[0]?.error)).toBe(lockedMessage);
     expect(entered).toBe(1);
+    await expect(stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('reclaims a stale lock whose malformed owner is treated as legacy', async () => {
+    const root = await makeTempRoot('marker-lock-malformed-owner-');
+    const markerPath = join(root, 'session.marker.json');
+    const lockPath = `${markerPath}.lock`;
+    await plantLockDir(lockPath, { nonce: null, stale: false });
+    await writeFile(join(lockPath, 'owner.json'), '{not-json\n', {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+    const staleSeconds = DEFAULT_STALE_MARKER_LOCK_MS / 1000 + 5;
+    const past = new Date(Date.now() - staleSeconds * 1000);
+    await utimes(lockPath, past, past);
+
+    const value = await withMarkerLock(markerPath, async () => 'held', {
+      lockedLabel: 'Senpi session marker',
+    });
+
+    expect(value).toBe('held');
     await expect(stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { hasErrorCode } from './marker-store.js';
@@ -38,6 +38,15 @@ export type WithMarkerLockOptions = {
   readonly onBeforeStaleUnlink?: (
     captured: MarkerLockIdentity
   ) => void | Promise<void>;
+  /**
+   * Test-only hook fired after identity and stale-age re-verification,
+   * immediately before attempting to claim the stale lock.
+   *
+   * @internal
+   */
+  readonly onBeforeStaleClaim?: (
+    captured: MarkerLockIdentity
+  ) => void | Promise<void>;
 };
 
 /**
@@ -46,10 +55,11 @@ export type WithMarkerLockOptions = {
  * Creates `<markerPath>.lock` with `mkdir`/`O_EXCL` semantics (`mode 0o700`)
  * and writes `owner.json` `{ nonce }` into the new lock dir. A lock whose
  * mtime is older than `staleLockMs` (default
- * {@link DEFAULT_STALE_MARKER_LOCK_MS}) is removed once and retried, but only
- * when the re-stat immediately before unlink still matches the captured
- * `{dev, ino}` and nonce (legacy locks with no `owner.json` compare nonce as
- * null). Fresh contention or an identity mismatch throws using `lockedLabel`.
+ * {@link DEFAULT_STALE_MARKER_LOCK_MS}) is atomically replaced, but only when
+ * an atomic rename claim and post-rename re-verification still match the
+ * captured `{dev, ino}` and nonce (legacy locks with no `owner.json` compare
+ * nonce as null). Fresh contention or an identity mismatch throws using
+ * `lockedLabel`.
  *
  * @param markerPath - Marker file path whose sibling `.lock` directory is held.
  * @param action - Critical section run while the lock is held.
@@ -72,21 +82,14 @@ export async function withMarkerLock<T>(
   } catch (error: unknown) {
     if (!hasErrorCode(error, 'EEXIST')) throw error;
     if (
-      !(await removeStaleMarkerLock(
+      !(await replaceStaleMarkerLock(
         lockPath,
         staleLockMs,
-        options.onBeforeStaleUnlink
+        options.onBeforeStaleUnlink,
+        options.onBeforeStaleClaim
       ))
     ) {
       throw new Error(lockedMessage);
-    }
-    try {
-      await createExclusiveLockDir(lockPath);
-    } catch (retryError: unknown) {
-      if (hasErrorCode(retryError, 'EEXIST')) {
-        throw new Error(lockedMessage);
-      }
-      throw retryError;
     }
   }
   try {
@@ -98,6 +101,10 @@ export async function withMarkerLock<T>(
 
 async function createExclusiveLockDir(lockPath: string): Promise<void> {
   await mkdir(lockPath, { mode: 0o700 });
+  await initializeOwnedLockDir(lockPath);
+}
+
+async function initializeOwnedLockDir(lockPath: string): Promise<void> {
   try {
     await writeFile(
       join(lockPath, MARKER_LOCK_OWNER_FILENAME),
@@ -149,10 +156,11 @@ function identitiesMatch(
   );
 }
 
-async function removeStaleMarkerLock(
+async function replaceStaleMarkerLock(
   lockPath: string,
   staleLockMs: number,
-  onBeforeStaleUnlink?: (captured: MarkerLockIdentity) => void | Promise<void>
+  onBeforeStaleUnlink?: (captured: MarkerLockIdentity) => void | Promise<void>,
+  onBeforeStaleClaim?: (captured: MarkerLockIdentity) => void | Promise<void>
 ): Promise<boolean> {
   let first: MarkerLockIdentity;
   try {
@@ -180,11 +188,45 @@ async function removeStaleMarkerLock(
   if (Date.now() - second.mtimeMs <= staleLockMs) {
     return false;
   }
+  if (onBeforeStaleClaim) {
+    await onBeforeStaleClaim(second);
+  }
+  const claimedPath = `${lockPath}.reclaim.${randomUUID()}`;
   try {
-    await rm(lockPath, { recursive: true, force: true });
-    return true;
+    await rename(lockPath, claimedPath);
   } catch {
-    // no-excuse-ok: catch — unlink lost a race; caller treats this as locked
+    // no-excuse-ok: catch — another reclaimer won the atomic rename
     return false;
   }
+
+  try {
+    await mkdir(lockPath, { mode: 0o700 });
+  } catch {
+    // no-excuse-ok: catch — fail closed if a creator occupied the rename gap
+    return false;
+  }
+
+  let claimed: MarkerLockIdentity;
+  try {
+    claimed = await captureLockIdentity(claimedPath);
+  } catch {
+    // no-excuse-ok: catch — preserve the guard when the claim is unverifiable
+    return false;
+  }
+  if (
+    !identitiesMatch(first, claimed) ||
+    Date.now() - claimed.mtimeMs <= staleLockMs
+  ) {
+    try {
+      // Replacing our empty guard restores a recreated live lock atomically.
+      await rename(claimedPath, lockPath);
+    } catch {
+      // no-excuse-ok: catch — preserve both paths rather than delete unknown state
+    }
+    return false;
+  }
+
+  await rm(claimedPath, { recursive: true, force: true });
+  await initializeOwnedLockDir(lockPath);
+  return true;
 }

@@ -69,8 +69,9 @@ Categories per release: **Added**, **Changed**, **Deprecated**, **Removed**, **F
   Write-path re-verification (`assertMarkerDirStillAllowed`) rejects a
   directory swapped for an outward symlink after resolve.
 - Marker-lock stale reclamation writes `owner.json` `{ nonce }` after
-  `mkdir` and re-checks `{dev, ino}` plus nonce immediately before
-  unlink. A lock recreated between stat and rm is left intact.
+  `mkdir`, atomically rename-claims a stale lock, and re-checks `{dev, ino}`
+  plus nonce after the claim. Exactly one concurrent reclaimer can remove a
+  captured stale lock, and a recreated lock is restored rather than deleted.
 
 ## [0.3.0] - 2026-08-23
 
