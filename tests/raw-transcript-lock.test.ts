@@ -202,6 +202,32 @@ describe('raw transcript session lock adapter', () => {
     await expectMissing(lockPath);
   });
 
+  it('does not reclaim a stale-mtime token whose createdAt is still fresh', async () => {
+    const { markerPath, lockPath } = await fixture(
+      'stale-mtime-fresh-created-at'
+    );
+    const planted = await plantToken(lockPath, {
+      stale: true,
+      pid: DEAD_PID,
+      createdAt: Date.now(),
+    });
+    const before = await readFile(planted, 'utf8');
+    let actionRan = false;
+
+    await expect(
+      withRawTranscriptSessionMarkerLock(
+        markerPath,
+        async () => {
+          actionRan = true;
+        },
+        FAST_ACQUIRE
+      )
+    ).rejects.toThrow(`Timed out acquiring session marker lock '${lockPath}'`);
+
+    expect(actionRan).toBe(false);
+    expect(await readFile(planted, 'utf8')).toBe(before);
+  });
+
   it('does not reclaim a stale lock whose pid is still alive', async () => {
     const { markerPath, lockPath } = await fixture('stale-alive');
     const planted = await plantToken(lockPath, {

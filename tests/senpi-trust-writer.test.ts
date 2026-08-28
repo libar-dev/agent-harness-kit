@@ -26,6 +26,7 @@ import {
   SenpiTrustConsentError,
   SenpiTrustLockError,
   SenpiTrustStateMalformedError,
+  removeSenpiHookTrustEntry,
   removeStaleStateLock,
   writeSenpiHookTrustEntry,
   withStateLock,
@@ -155,7 +156,6 @@ function plantTokenDir(
   );
   if (stale) {
     utimesSync(tokenPath, new Date(0), new Date(0));
-    utimesSync(lockPath, new Date(0), new Date(0));
   }
   return { ownerId, leaseId, tokenName, tokenPath };
 }
@@ -252,6 +252,53 @@ describe('senpi trust writer - preservation', () => {
     expect(reread.hooks[second.id]?.grantReason).toBe(
       'explicit user approval via desktop observer setup'
     );
+  });
+});
+
+describe('senpi trust writer - removal locking', () => {
+  it('does not delete replacement state after its lease expires during removal', async () => {
+    const home = tempDir();
+    mkdirSync(home, { recursive: true });
+    const handler = makeHandler();
+    const granted = await writeSenpiHookTrustEntry(baseOpts(home, handler));
+    const statePath = globalStatePath(home);
+    const replacementText = `${JSON.stringify(
+      {
+        version: 1,
+        hooks: {
+          hk_interloper_0_0: {
+            ...granted.entry,
+            grantReason: 'concurrent owner replacement',
+          },
+        },
+      },
+      null,
+      2
+    )}\n`;
+    let nowCalls = 0;
+    const clock = instantClock(() => {
+      nowCalls += 1;
+      if (nowCalls === 4) {
+        writeFileSync(statePath, replacementText, 'utf-8');
+        return Date.now() + 20_000;
+      }
+      return Date.now();
+    });
+
+    await expect(
+      removeSenpiHookTrustEntry({
+        consent: true,
+        reason: 'explicit user revoke',
+        handler,
+        scope: 'global',
+        agentHome: home,
+        cwd: join(home, 'unused-project'),
+        clock,
+      })
+    ).rejects.toMatchObject({ name: 'LeaseLockLostError' });
+
+    expect(nowCalls).toBe(4);
+    expect(readFileSync(statePath, 'utf-8')).toBe(replacementText);
   });
 });
 
@@ -641,9 +688,11 @@ describe('senpi trust writer - locking', () => {
     expect(interloperError).toBeInstanceOf(SenpiTrustLockError);
   });
 
-  // RED (three-party schedule): fails until the token-lease protocol lands
-  // (todos 4-6); flipped GREEN in todo 7.
-  it('T3 rejects interloper C while stale owner A reclamation is in flight', async () => {
+  // Mechanism-specific old-protocol assertion reformed to the protocol-level
+  // single-ownership invariant under the token-lease protocol: after the
+  // expired legacy object is unlinked, a new acquirer is the legitimate sole
+  // owner, and the resumed reclaimer must contend without disturbing it.
+  it('T3 preserves interloper C ownership across stale owner A reclamation', async () => {
     const home = tempDir();
     mkdirSync(home, { recursive: true });
     const statePath = globalStatePath(home);
@@ -659,39 +708,67 @@ describe('senpi trust writer - locking', () => {
     const reclaimerPaused = new Promise<void>(resolve => {
       sawReclaimGap = resolve;
     });
+    let reclaimerEntered = false;
     const reclaimer = withStateLock(
       statePath,
-      () => 'reclaimed',
-      instantClock(() => 10_001),
+      () => {
+        reclaimerEntered = true;
+      },
+      instantClock(() => Date.now()),
       {
-        onAfterExpiredTokensClassified: async () => {
+        onAfterExpiredTokensUnlinkedBeforeRmdir: async () => {
           sawReclaimGap();
           await reclaimBarrier;
         },
       }
     );
     await reclaimerPaused;
+    expect(
+      existsSync(lockPath),
+      'legacy canonical path must be absent at the post-unlink barrier'
+    ).toBe(false);
 
-    let interloperEntered = false;
-    const interloperError = await withStateLock(
+    let finishInterloper!: () => void;
+    const holdInterloper = new Promise<void>(resolve => {
+      finishInterloper = resolve;
+    });
+    let sawInterloper!: () => void;
+    const interloperEntered = new Promise<void>(resolve => {
+      sawInterloper = resolve;
+    });
+    const interloper = withStateLock(
       statePath,
-      () => {
-        interloperEntered = true;
+      async () => {
+        sawInterloper();
+        await holdInterloper;
       },
-      instantClock()
-    ).then(
+      instantClock(() => Date.now())
+    );
+    await interloperEntered;
+    const interloperOwnership = tokenDirectorySnapshot(lockPath);
+
+    resumeReclaimer();
+    const reclaimerError = await reclaimer.then(
       () => null,
       (error: unknown) => error
     );
+    const ownershipAfterReclaimer = tokenDirectorySnapshot(lockPath);
 
-    resumeReclaimer();
-    await reclaimer;
+    finishInterloper();
+    await interloper;
 
+    expect(reclaimerEntered, 'reclaimer entered alongside interloper C').toBe(
+      false
+    );
+    expect(reclaimerError).toBeInstanceOf(SenpiTrustLockError);
     expect(
-      interloperEntered,
-      'interloper C entered through the canonical reclamation vacancy'
-    ).toBe(false);
-    expect(interloperError).toBeInstanceOf(SenpiTrustLockError);
+      ownershipAfterReclaimer,
+      'resumed reclaimer disturbed interloper C ownership data'
+    ).toEqual(interloperOwnership);
+    expect(Object.keys(ownershipAfterReclaimer)).toHaveLength(1);
+    expect(existsSync(lockPath), 'interloper release left lock residue').toBe(
+      false
+    );
   });
 });
 

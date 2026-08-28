@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   mkdir,
   mkdtemp,
@@ -9,14 +9,17 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
-  withRawTranscriptSessionMarkerLock,
+  commitRawTranscriptSessionCheckpoint,
+  getRawTranscriptSessionMarkerPath,
+  type RawTranscriptSessionCommitOptions,
   type RawTranscriptSessionLockOptions,
 } from '../src/processing/tail.js';
+import type { RawTranscriptSessionCheckpoint } from '../src/processing/types.js';
 
 const tempRoots: string[] = [];
 const STALE_MS = 30_000;
@@ -42,13 +45,72 @@ afterEach(async () => {
 
 async function fixture(label: string): Promise<{
   root: string;
+  mainPath: string;
   markerPath: string;
   lockPath: string;
 }> {
   const root = await mkdtemp(join(tmpdir(), `raw-transcript-lock-${label}-`));
   tempRoots.push(root);
-  const markerPath = join(root, 'session.marker.json');
-  return { root, markerPath, lockPath: `${markerPath}.lock` };
+  const mainPath = join(root, 'session.jsonl');
+  const markerDir = join(root, 'markers');
+  await mkdir(markerDir, { recursive: true, mode: 0o700 });
+  await writeFile(mainPath, '');
+  const markerPath = getRawTranscriptSessionMarkerPath(mainPath, markerDir, [
+    root,
+  ]);
+  return { root, mainPath, markerPath, lockPath: `${markerPath}.lock` };
+}
+
+function commitOptions(
+  root: string,
+  extras: Omit<
+    RawTranscriptSessionCommitOptions,
+    'markerDir' | 'allowedMarkerRoots'
+  > = {}
+): RawTranscriptSessionCommitOptions {
+  return {
+    markerDir: join(root, 'markers'),
+    allowedMarkerRoots: [root],
+    ...extras,
+  };
+}
+
+function checkpoint(
+  mainPath: string,
+  baseRevision: number
+): RawTranscriptSessionCheckpoint {
+  return {
+    sessionId: 'session',
+    mainPathDigest: createHash('sha256')
+      .update(resolve(mainPath))
+      .digest('hex'),
+    baseRevision,
+    sources: [
+      {
+        sourceKind: 'main',
+        sourceId: 'main',
+        generation: 0,
+        byteOffset: 0,
+        fileSize: 0,
+      },
+    ],
+  };
+}
+
+function commitCheckpoint(
+  mainPath: string,
+  root: string,
+  baseRevision: number,
+  extras: Omit<
+    RawTranscriptSessionCommitOptions,
+    'markerDir' | 'allowedMarkerRoots'
+  > = {}
+): Promise<void> {
+  return commitRawTranscriptSessionCheckpoint(
+    mainPath,
+    checkpoint(mainPath, baseRevision),
+    commitOptions(root, extras)
+  );
 }
 
 async function tokenSnapshot(
@@ -91,7 +153,7 @@ function errorMessage(error: unknown): string {
 
 describe('raw transcript session lock three-party schedules', () => {
   it('T1 keeps fresh owner B canonical while displaced owner A releases', async () => {
-    const { markerPath, lockPath } = await fixture('t1-displaced-owner');
+    const { root, mainPath, lockPath } = await fixture('t1-displaced-owner');
     const holdA = deferred();
     const aEntered = deferred();
     const releaseBarrier = deferred();
@@ -99,32 +161,30 @@ describe('raw transcript session lock three-party schedules', () => {
     const holdB = deferred();
     const bEntered = deferred();
 
-    const ownerA = withRawTranscriptSessionMarkerLock(
-      markerPath,
-      async () => {
-        aEntered.resolve();
-        await holdA.promise;
-      },
-      {
+    const ownerA = commitCheckpoint(mainPath, root, 0, {
+      lock: {
         onAfterReleaseTokensUnlinkedBeforeRmdir: async () => {
           aReleasePaused.resolve();
           await releaseBarrier.promise;
         },
-      }
-    );
+      },
+      onLocked: async () => {
+        aEntered.resolve();
+        await holdA.promise;
+      },
+    });
     await aEntered.promise;
 
-    const ownerB = withRawTranscriptSessionMarkerLock(
-      markerPath,
-      async () => {
+    const ownerB = commitCheckpoint(mainPath, root, 1, {
+      lock: {
+        now: () => Date.now() + STALE_MS + 5_000,
+        isProcessAlive: () => false,
+      },
+      onLocked: async () => {
         bEntered.resolve();
         await holdB.promise;
       },
-      {
-        now: () => Date.now() + STALE_MS + 5_000,
-        isProcessAlive: () => false,
-      }
-    );
+    });
     await bEntered.promise;
     const ownerBBeforeRelease = await tokenSnapshot(lockPath);
 
@@ -149,7 +209,7 @@ describe('raw transcript session lock three-party schedules', () => {
   });
 
   it('T2 rejects interloper C while displaced owner A release is in flight', async () => {
-    const { markerPath } = await fixture('t2-release-interloper');
+    const { root, mainPath } = await fixture('t2-release-interloper');
     const holdA = deferred();
     const aEntered = deferred();
     const releaseBarrier = deferred();
@@ -157,43 +217,40 @@ describe('raw transcript session lock three-party schedules', () => {
     const holdB = deferred();
     const bEntered = deferred();
 
-    const ownerA = withRawTranscriptSessionMarkerLock(
-      markerPath,
-      async () => {
-        aEntered.resolve();
-        await holdA.promise;
-      },
-      {
+    const ownerA = commitCheckpoint(mainPath, root, 0, {
+      lock: {
         onAfterReleaseTokensUnlinkedBeforeRmdir: async () => {
           aReleasePaused.resolve();
           await releaseBarrier.promise;
         },
-      }
-    );
+      },
+      onLocked: async () => {
+        aEntered.resolve();
+        await holdA.promise;
+      },
+    });
     await aEntered.promise;
-    const ownerB = withRawTranscriptSessionMarkerLock(
-      markerPath,
-      async () => {
+    const ownerB = commitCheckpoint(mainPath, root, 1, {
+      lock: {
+        now: () => Date.now() + STALE_MS + 5_000,
+        isProcessAlive: () => false,
+      },
+      onLocked: async () => {
         bEntered.resolve();
         await holdB.promise;
       },
-      {
-        now: () => Date.now() + STALE_MS + 5_000,
-        isProcessAlive: () => false,
-      }
-    );
+    });
     await bEntered.promise;
 
     holdA.resolve();
     await aReleasePaused.promise;
     let interloperEntered = false;
-    const interloperError = await withRawTranscriptSessionMarkerLock(
-      markerPath,
-      async () => {
+    const interloperError = await commitCheckpoint(mainPath, root, 2, {
+      lock: FAST_ACQUIRE,
+      onLocked: () => {
         interloperEntered = true;
       },
-      FAST_ACQUIRE
-    ).then(
+    }).then(
       () => null,
       (error: unknown) => error
     );
@@ -213,32 +270,29 @@ describe('raw transcript session lock three-party schedules', () => {
   });
 
   it('T3 rejects interloper C while stale owner A reclamation is in flight', async () => {
-    const { markerPath, lockPath } = await fixture('t3-reclaim-interloper');
+    const { root, mainPath, lockPath } = await fixture('t3-reclaim-interloper');
     await plantStaleToken(lockPath);
     const reclaimBarrier = deferred();
     const reclaimerPaused = deferred();
 
-    const reclaimer = withRawTranscriptSessionMarkerLock(
-      markerPath,
-      async () => undefined,
-      {
+    const reclaimer = commitCheckpoint(mainPath, root, 0, {
+      lock: {
         isProcessAlive: () => false,
         onAfterExpiredTokensUnlinkedBeforeRmdir: async () => {
           reclaimerPaused.resolve();
           await reclaimBarrier.promise;
         },
-      }
-    );
+      },
+    });
     await reclaimerPaused.promise;
 
     let interloperEntered = false;
-    const interloperError = await withRawTranscriptSessionMarkerLock(
-      markerPath,
-      async () => {
+    const interloperError = await commitCheckpoint(mainPath, root, 0, {
+      lock: FAST_ACQUIRE,
+      onLocked: () => {
         interloperEntered = true;
       },
-      FAST_ACQUIRE
-    ).then(
+    }).then(
       () => null,
       (error: unknown) => error
     );

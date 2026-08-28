@@ -346,6 +346,7 @@ export async function removeSenpiHookTrustEntry(
         key => key !== 'version' && key !== 'hooks'
       );
       if (leftoverIds.length === 0 && leftoverRootKeys.length === 0) {
+        await lease.assertHeld();
         rmSync(statePath, { force: true });
         return { path: statePath, id, removed: existed };
       }

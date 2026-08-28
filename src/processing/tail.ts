@@ -265,6 +265,8 @@ export interface RawTranscriptSessionWatchOptions extends RawTranscriptSessionTa
 export interface RawTranscriptSessionCommitOptions {
   readonly markerDir?: string;
   readonly allowedMarkerRoots?: readonly string[];
+  readonly lock?: RawTranscriptSessionLockOptions;
+  readonly onLocked?: () => void | Promise<void>;
 }
 
 export interface RawTranscriptReadOptions {
@@ -612,7 +614,11 @@ export async function commitRawTranscriptSessionCheckpoint(
     markerPath,
     sessionId,
     mainPathDigest,
-    checkpoint
+    checkpoint,
+    {
+      ...(options.lock === undefined ? {} : { lock: options.lock }),
+      ...(options.onLocked === undefined ? {} : { onLocked: options.onLocked }),
+    }
   );
 }
 
@@ -887,7 +893,10 @@ async function mutateRawTranscriptSessionMarker(
   sessionId: string,
   mainPathDigest: string,
   checkpoint: RawTranscriptSessionCheckpoint,
-  hooks?: RawTranscriptSessionLockHooks
+  options: {
+    readonly lock?: RawTranscriptSessionLockOptions;
+    readonly onLocked?: () => void | Promise<void>;
+  } = {}
 ): Promise<void> {
   await withRawTranscriptSessionMarkerLock(
     markerPath,
@@ -914,8 +923,9 @@ async function mutateRawTranscriptSessionMarker(
         currentRevision + 1,
         nextMarkers
       );
+      await options.onLocked?.();
     },
-    hooks
+    options.lock
   );
 }
 
@@ -923,8 +933,9 @@ async function mutateRawTranscriptSessionMarker(
  * Hold the raw-transcript session marker lock around `action`.
  *
  * Uses the shared token-lease core on `<markerPath>.lock`. Age-expired
- * tokens are reclaimable only when the recorded pid is dead and
- * `createdAt` is within clock-skew. `LeaseLockBusyError` is retried
+ * tokens are reclaimable only when the recorded pid is dead,
+ * `createdAt` is within clock-skew, and
+ * `now - createdAt >= SESSION_MARKER_LOCK_STALE_MS`. `LeaseLockBusyError` is retried
  * until `acquireTimeoutMs`. The canonical lock directory is never renamed or recursively removed; live tokens are never unlinked by another owner.
  *
  * @param markerPath - Session marker file whose sibling `.lock` is held.
@@ -1017,11 +1028,14 @@ function canReclaimRawTranscriptExpiredToken(
 ): boolean {
   const { token } = captured;
   if (!('pid' in token)) return false;
-  if (
-    'createdAt' in token &&
-    !isValidRawTranscriptLockCreatedAt(token.createdAt, now())
-  ) {
-    return false;
+  if ('createdAt' in token) {
+    const createdAt = token.createdAt;
+    if (!isValidRawTranscriptLockCreatedAt(createdAt, now())) {
+      return false;
+    }
+    if (now() - createdAt < SESSION_MARKER_LOCK_STALE_MS) {
+      return false;
+    }
   }
   return !probeAlive(token.pid);
 }
